@@ -1,0 +1,48 @@
+# Local agent/editor state
+.agents/
+.claude/
+.mcp.json
+.vscode/
+.idea/
+
+# OS/editor temporary files
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# MATLAB/Simulink generated files
+*.asv
+*.m~
+*.slxc
+slprj/
+codegen/
+*_ert_rtw/
+*_grt_rtw/
+*_slprj/
+
+# CCS/C2000 build products
+CPU1_RAM/
+CPU2_RAM/
+Debug/
+Release/
+*.obj
+*.out
+*.map
+*.d
+*.d_raw
+*.pp
+*.opt
+*.cmd.genlibs
+*.linkinfo.xml
+*_linkInfo.xml
+
+# Generic binary/debug artifacts
+*.elf
+*.hex
+*.bin
+*.log
