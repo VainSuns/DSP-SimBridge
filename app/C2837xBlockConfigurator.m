@@ -76,6 +76,11 @@ classdef C2837xBlockConfigurator < handle
 
     methods (Access = private)
 
+        %% ---- Close callback ----
+        function closeApp(~, src)
+            delete(src);
+        end
+
         %% ---- Collect config from UI ----
         function config = collectConfig(app)
             config.protocol_version = uint16(1);
@@ -436,15 +441,14 @@ classdef C2837xBlockConfigurator < handle
                 existing = {};
                 dsp_files = {'c2837x_block_algorithm.h', 'c2837x_block_config.h', ...
                              'c2837x_block_config.c', 'c2837x_block_global_variable.c'};
-                pc_files = {'c2837x_block_pc_config.h', 'c2837x_block_pc_config.c'};
+                pc_files = {'c2837x_block_pc_config.h', 'c2837x_block_sfun_io.c'};
                 for i = 1:numel(dsp_files)
                     p = fullfile(dsp_path, 'inc', dsp_files{i});
                     if ~isfile(p), p = fullfile(dsp_path, 'src', dsp_files{i}); end
                     if isfile(p), existing{end+1} = p; end %#ok<AGROW>
                 end
                 for i = 1:numel(pc_files)
-                    p = fullfile(pc_path, 'inc', pc_files{i});
-                    if ~isfile(p), p = fullfile(pc_path, 'src', pc_files{i}); end
+                    p = fullfile(pc_path, pc_files{i});
                     if isfile(p), existing{end+1} = p; end %#ok<AGROW>
                 end
 
@@ -467,7 +471,7 @@ classdef C2837xBlockConfigurator < handle
 
                 app.StatusLabel.Text = 'Status: Generating...';
                 app.StatusLabel.FontColor = [0 0 0];
-                drawnow;
+                pause(0.01);  % Allow UI to update (avoid drawnow deadlock in App Designer)
 
                 c2837x_block_generate_dsp_files(config, dsp_path);
                 c2837x_block_generate_pc_files(config, pc_path);
@@ -652,7 +656,8 @@ classdef C2837xBlockConfigurator < handle
         %% ---- Build UI ----
         function createComponents(app)
             app.UIFigure = uifigure('Name', 'C2837xBlock Configurator', ...
-                'Position', [100 100 980 720]);
+                'Position', [100 100 980 720], ...
+                'CloseRequestFcn', @(src,~) closeApp(app, src));
 
             main = uigridlayout(app.UIFigure, [2 2]);
             main.ColumnWidth = {'2x', '3x'};

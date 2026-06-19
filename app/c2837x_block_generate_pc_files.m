@@ -3,21 +3,21 @@ function c2837x_block_generate_pc_files(config, output_path)
 %
 %   c2837x_block_generate_pc_files(config, output_path)
 %
-%   Generates 2 files under output_path/inc/ and output_path/src/:
-%     c2837x_block_pc_config.h
-%     c2837x_block_pc_config.c
+%   Generates 2 files directly under output_path:
+%     c2837x_block_pc_config.h  - Configuration macros and function declarations
+%     c2837x_block_sfun_io.c    - Direct port-to-payload conversion functions
+%
+%   NOTE: c2837x_block_pc_config.c is no longer needed because
+%         c2837x_block_sfun_io.c handles direct port-to-payload conversion.
 
-    inc_dir = fullfile(output_path, 'inc');
-    src_dir = fullfile(output_path, 'src');
-    if ~isfolder(inc_dir), mkdir(inc_dir); end
-    if ~isfolder(src_dir), mkdir(src_dir); end
+    if ~isfolder(output_path), mkdir(output_path); end
 
     [~, config_hash] = c2837x_block_build_hash_string(config);
 
-    write_file(fullfile(inc_dir, 'c2837x_block_pc_config.h'), ...
+    write_file(fullfile(output_path, 'c2837x_block_pc_config.h'), ...
                gen_pc_config_h(config, config_hash));
-    write_file(fullfile(src_dir, 'c2837x_block_pc_config.c'), ...
-               gen_pc_config_c(config));
+    write_file(fullfile(output_path, 'c2837x_block_sfun_io.c'), ...
+               gen_sfun_io_c(config));
 end
 
 %% ---- File writer ----
@@ -41,6 +41,9 @@ function s = gen_pc_config_h(config, config_hash)
     L{end+1} = ' * DO NOT EDIT MANUALLY.';
     L{end+1} = ' *';
     L{end+1} = ' * PC/Simulink C S-Function side configuration.';
+    L{end+1} = ' *';
+    L{end+1} = ' * This file defines compile-time constants for the S-Function.';
+    L{end+1} = ' * Port I/O is handled by c2837x_block_sfun_io.c (also auto-generated).';
     L{end+1} = ' */';
     L{end+1} = '';
     L{end+1} = '#include <stdint.h>';
@@ -87,272 +90,255 @@ function s = gen_pc_config_h(config, config_hash)
     L{end+1} = '#define C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES  (4u + C2837X_BLOCK_OUTPUT_DATA_SIZE_BYTES)';
     L{end+1} = '';
 
-    % Input struct
-    L{end+1} = '/* ---- Data structures ---- */';
-    L{end+1} = 'typedef struct {';
+    % Port configuration macros
+    L{end+1} = '/* ---- Port configuration ----';
+    L{end+1} = ' * Each port has: WIDTH (elements), SIMTYPE (Simulink type ID), BYTES_PER_ELEM';
+    L{end+1} = ' * Simulink type IDs: SS_DOUBLE=0, SS_SINGLE=1, SS_INT8=2, SS_UINT8=3,';
+    L{end+1} = ' *                    SS_INT16=4, SS_UINT16=5, SS_INT32=6, SS_UINT32=7';
+    L{end+1} = ' */';
+    L{end+1} = '';
+
+    % Input port configs
     for i = 1:numel(config.inputs)
         v = config.inputs(i);
-        ctype = type_to_c_type(v.type);
-        if v.dim == 1
-            L{end+1} = sprintf('    %s %s;', ctype, v.name);
-        else
-            L{end+1} = sprintf('    %s %s[%d];', ctype, v.name, v.dim);
-        end
+        idx = i - 1;  % 0-based index
+        L{end+1} = sprintf('#define C2837X_BLOCK_INPUT%d_WIDTH           %d', idx, v.dim);
+        L{end+1} = sprintf('#define C2837X_BLOCK_INPUT%d_SIMTYPE         %s', idx, type_to_simtype(v.type));
+        L{end+1} = sprintf('#define C2837X_BLOCK_INPUT%d_BYTES_PER_ELEM  %d', idx, type_wire_bytes(v.type));
     end
-    L{end+1} = '} C2837xBlock_InputData;';
     L{end+1} = '';
 
-    % Output struct
-    L{end+1} = 'typedef struct {';
+    % Output port configs
     for i = 1:numel(config.outputs)
         v = config.outputs(i);
-        ctype = type_to_c_type(v.type);
-        if v.dim == 1
-            L{end+1} = sprintf('    %s %s;', ctype, v.name);
-        else
-            L{end+1} = sprintf('    %s %s[%d];', ctype, v.name, v.dim);
-        end
+        idx = i - 1;  % 0-based index
+        L{end+1} = sprintf('#define C2837X_BLOCK_OUTPUT%d_WIDTH          %d', idx, v.dim);
+        L{end+1} = sprintf('#define C2837X_BLOCK_OUTPUT%d_SIMTYPE        %s', idx, type_to_simtype(v.type));
+        L{end+1} = sprintf('#define C2837X_BLOCK_OUTPUT%d_BYTES_PER_ELEM %d', idx, type_wire_bytes(v.type));
     end
-    L{end+1} = '} C2837xBlock_OutputData;';
     L{end+1} = '';
 
-    % Serialization declarations
-    L{end+1} = '/* ---- Payload pack/unpack functions (uint8_t* buffer) ---- */';
-    L{end+1} = 'void c2837x_block_pack_input_payload(uint8_t* payload,';
-    L{end+1} = '                                      uint32_t step_index,';
-    L{end+1} = '                                      const C2837xBlock_InputData* src);';
-    L{end+1} = 'void c2837x_block_unpack_output_payload(const uint8_t* payload,';
-    L{end+1} = '                                        uint32_t* step_index,';
-    L{end+1} = '                                        C2837xBlock_OutputData* dst);';
+    % Port I/O function declarations (new direct conversion)
+    L{end+1} = '/* ---- Port I/O functions (implemented in c2837x_block_sfun_io.c) ---- */';
+    L{end+1} = '/* Note: SimStruct is defined in simstruc.h, included by c2837x_block_sfun.c */';
+    L{end+1} = 'struct SimStruct_tag;';
+    L{end+1} = 'typedef struct SimStruct_tag SimStruct;';
+    L{end+1} = '';
+    L{end+1} = '/*';
+    L{end+1} = ' * Pack input ports directly to payload buffer.';
+    L{end+1} = ' * Payload format: [step_index: 4 bytes] [input data...]';
+    L{end+1} = ' * Total size: C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES';
+    L{end+1} = ' */';
+    L{end+1} = 'void c2837x_block_pack_input_from_ports(SimStruct *S,';
+    L{end+1} = '                                        uint8_t* payload,';
+    L{end+1} = '                                        uint32_t step_index);';
+    L{end+1} = '';
+    L{end+1} = '/*';
+    L{end+1} = ' * Unpack output payload buffer directly to output ports.';
+    L{end+1} = ' * Payload format: [step_index: 4 bytes] [output data...]';
+    L{end+1} = ' * Total size: C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES';
+    L{end+1} = ' */';
+    L{end+1} = 'void c2837x_block_unpack_output_to_ports(SimStruct *S,';
+    L{end+1} = '                                         const uint8_t* payload,';
+    L{end+1} = '                                         uint32_t* step_index);';
     L{end+1} = '';
 
     L{end+1} = '#endif /* C2837X_BLOCK_PC_CONFIG_H */';
     s = strjoin(L, '\n');
 end
 
-%% ---- c2837x_block_pc_config.c ----
-function s = gen_pc_config_c(config)
-    need_double = any(strcmp({config.inputs.type}, 'double')) || ...
-                  any(strcmp({config.outputs.type}, 'double'));
+%% ---- c2837x_block_sfun_io.c (direct port-to-payload conversion) ----
+function s = gen_sfun_io_c(config)
     L = {};
     L{end+1} = '/*';
     L{end+1} = ' * Auto-generated by C2837xBlock Configurator.';
     L{end+1} = ' * DO NOT EDIT MANUALLY.';
     L{end+1} = ' *';
-    L{end+1} = ' * PC-side payload serialization (uint8_t* buffer).';
-    L{end+1} = ' * Wire format: little-endian.';
+    L{end+1} = ' * Port I/O helpers for C S-Function.';
+    L{end+1} = ' *';
+    L{end+1} = ' * These functions directly pack/unpack between Simulink ports and';
+    L{end+1} = ' * wire-format payload buffers, eliminating intermediate data structures.';
+    L{end+1} = ' *';
+    L{end+1} = ' * Payload format (little-endian):';
+    L{end+1} = ' *   [step_index: 4 bytes] [input0 data] [input1 data] ...';
     L{end+1} = ' */';
     L{end+1} = '';
     L{end+1} = '#include "c2837x_block_pc_config.h"';
     L{end+1} = '#include <string.h>';
     L{end+1} = '';
+    L{end+1} = '/* SimStruct and port access macros are defined in simstruc.h */';
+    L{end+1} = '#include "simstruc.h"';
+    L{end+1} = '';
 
-    % Serialization helpers - only generate needed functions
+    % Generate write helpers
     all_types = unique([{config.inputs.type}, {config.outputs.type}]);
-    L{end+1} = '/* ---- Serialization helpers ---- */';
-    L{end+1} = '';
-    L = [L, gen_pc_helpers(all_types)];
+    need_int16 = any(strcmp(all_types, 'int16'));
+    need_uint16 = any(strcmp(all_types, 'uint16'));
+    need_int32 = any(strcmp(all_types, 'int32'));
+    need_uint32 = any(strcmp(all_types, 'uint32'));
+    need_single = any(strcmp(all_types, 'single'));
+
+    L{end+1} = '/* ---- Little-endian serialization helpers ---- */';
     L{end+1} = '';
 
-    if need_double
-        L{end+1} = '/* double support */';
-        L = [L, gen_pc_double_helper()];
+    % Always needed: write_le16, write_le32, read_le16, read_le32
+    L = [L, gen_le_helper('write_le16', 'uint16_t', true, true)];
+    L = [L, gen_le_helper('write_le32', 'uint32_t', true, true)];
+    L = [L, gen_le_helper('read_le16', 'uint16_t', false, true)];
+    L = [L, gen_le_helper('read_le32', 'uint32_t', false, true)];
+    L{end+1} = '';
+
+    % Additional helpers for other types
+    if need_int16
+        L{end+1} = 'static inline void write_int16_le(uint8_t* buf, int16_t val) { write_le16(buf, (uint16_t)val); }';
+        L{end+1} = 'static inline int16_t read_int16_le(const uint8_t* buf) { return (int16_t)read_le16(buf); }';
+    end
+    if need_int32
+        L{end+1} = 'static inline void write_int32_le(uint8_t* buf, int32_t val) { write_le32(buf, (uint32_t)val); }';
+        L{end+1} = 'static inline int32_t read_int32_le(const uint8_t* buf) { return (int32_t)read_le32(buf); }';
+    end
+    if need_single
+        L{end+1} = 'static inline void write_single_le(uint8_t* buf, float val) { uint32_t raw; memcpy(&raw, &val, sizeof(raw)); write_le32(buf, raw); }';
+        L{end+1} = 'static inline float read_single_le(const uint8_t* buf) { uint32_t raw = read_le32(buf); float val; memcpy(&val, &raw, sizeof(val)); return val; }';
+    end
+    L{end+1} = '';
+
+    % Generate pack_input_from_ports
+    L{end+1} = '/* ---- Pack input ports directly to payload ---- */';
+    L{end+1} = 'void c2837x_block_pack_input_from_ports(SimStruct *S,';
+    L{end+1} = '                                        uint8_t* payload,';
+    L{end+1} = '                                        uint32_t step_index)';
+    L{end+1} = '{';
+    L{end+1} = '    uint32_t offset = 0;';
+    L{end+1} = '';
+    L{end+1} = '    /* Write step_index (4 bytes, little-endian) */';
+    L{end+1} = '    write_le32(&payload[offset], step_index);';
+    L{end+1} = '    offset += 4;';
+    L{end+1} = '';
+
+    % For each input variable, generate code to read from port and write to payload
+    port_idx = 0;
+    for i = 1:numel(config.inputs)
+        v = config.inputs(i);
+        c_type = type_to_c_type(v.type);
+        write_fn = get_write_le_fn(v.type);
+
+        if v.dim == 1
+            % Scalar
+            L{end+1} = sprintf('    /* %s: %s, port %d */', v.name, v.type, port_idx);
+            L{end+1} = sprintf('    {');
+            L{end+1} = sprintf('        const %s *u = (const %s *)ssGetInputPortSignal(S, %d);', ...
+                               c_type, c_type, port_idx);
+            L{end+1} = sprintf('        %s(&payload[offset], u[0]);', write_fn);
+            L{end+1} = sprintf('        offset += %d;', type_wire_bytes(v.type));
+            L{end+1} = sprintf('    }');
+            port_idx = port_idx + 1;
+        else
+            % Array
+            L{end+1} = sprintf('    /* %s: %s[%d], port %d */', v.name, v.type, v.dim, port_idx);
+            L{end+1} = sprintf('    {');
+            L{end+1} = sprintf('        const %s *u = (const %s *)ssGetInputPortSignal(S, %d);', ...
+                               c_type, c_type, port_idx);
+            L{end+1} = sprintf('        int i;');
+            L{end+1} = sprintf('        for (i = 0; i < %d; i++) {', v.dim);
+            L{end+1} = sprintf('            %s(&payload[offset], u[i]);', write_fn);
+            L{end+1} = sprintf('            offset += %d;', type_wire_bytes(v.type));
+            L{end+1} = sprintf('        }');
+            L{end+1} = sprintf('    }');
+            port_idx = port_idx + 1;
+        end
         L{end+1} = '';
     end
 
-    % Pack input
-    L{end+1} = '/* ---- Pack INPUT_DATA payload ---- */';
-    L{end+1} = 'void c2837x_block_pack_input_payload(uint8_t* payload,';
-    L{end+1} = '                                      uint32_t step_index,';
-    L{end+1} = '                                      const C2837xBlock_InputData* src)';
-    L{end+1} = '{';
-    L{end+1} = '    uint32_t offset = 0;';
-    L{end+1} = '';
-    L{end+1} = '    write_uint32(payload, &offset, step_index);';
-    for i = 1:numel(config.inputs)
-        v = config.inputs(i);
-        wfn = write_fn_name(v.type);
-        if v.dim == 1
-            L{end+1} = sprintf('    %s(payload, &offset, src->%s);', wfn, v.name);
-        else
-            L{end+1} = sprintf('    {');
-            L{end+1} = sprintf('        int i;');
-            L{end+1} = sprintf('        for (i = 0; i < %d; ++i)', v.dim);
-            L{end+1} = sprintf('            %s(payload, &offset, src->%s[i]);', wfn, v.name);
-            L{end+1} = sprintf('    }');
-        end
-    end
     L{end+1} = '}';
     L{end+1} = '';
 
-    % Unpack output
-    L{end+1} = '/* ---- Unpack OUTPUT_DATA payload ---- */';
-    L{end+1} = 'void c2837x_block_unpack_output_payload(const uint8_t* payload,';
-    L{end+1} = '                                        uint32_t* step_index,';
-    L{end+1} = '                                        C2837xBlock_OutputData* dst)';
+    % Generate unpack_output_to_ports
+    L{end+1} = '/* ---- Unpack output payload directly to ports ---- */';
+    L{end+1} = 'void c2837x_block_unpack_output_to_ports(SimStruct *S,';
+    L{end+1} = '                                         const uint8_t* payload,';
+    L{end+1} = '                                         uint32_t* step_index)';
     L{end+1} = '{';
     L{end+1} = '    uint32_t offset = 0;';
     L{end+1} = '';
-    L{end+1} = '    *step_index = read_uint32(payload, &offset);';
+    L{end+1} = '    /* Read step_index (4 bytes, little-endian) */';
+    L{end+1} = '    *step_index = read_le32(&payload[offset]);';
+    L{end+1} = '    offset += 4;';
+    L{end+1} = '';
+
+    port_idx = 0;
     for i = 1:numel(config.outputs)
         v = config.outputs(i);
-        rfn = read_fn_name(v.type);
+        c_type = type_to_c_type(v.type);
+        read_fn = get_read_le_fn(v.type);
+
         if v.dim == 1
-            L{end+1} = sprintf('    dst->%s = %s(payload, &offset);', v.name, rfn);
-        else
+            % Scalar
+            L{end+1} = sprintf('    /* %s: %s, port %d */', v.name, v.type, port_idx);
             L{end+1} = sprintf('    {');
-            L{end+1} = sprintf('        int i;');
-            L{end+1} = sprintf('        for (i = 0; i < %d; ++i)', v.dim);
-            L{end+1} = sprintf('            dst->%s[i] = %s(payload, &offset);', v.name, rfn);
+            L{end+1} = sprintf('        %s *y = (%s *)ssGetOutputPortSignal(S, %d);', ...
+                               c_type, c_type, port_idx);
+            L{end+1} = sprintf('        y[0] = (%s)%s(&payload[offset]);', c_type, read_fn);
+            L{end+1} = sprintf('        offset += %d;', type_wire_bytes(v.type));
             L{end+1} = sprintf('    }');
+            port_idx = port_idx + 1;
+        else
+            % Array
+            L{end+1} = sprintf('    /* %s: %s[%d], port %d */', v.name, v.type, v.dim, port_idx);
+            L{end+1} = sprintf('    {');
+            L{end+1} = sprintf('        %s *y = (%s *)ssGetOutputPortSignal(S, %d);', ...
+                               c_type, c_type, port_idx);
+            L{end+1} = sprintf('        int i;');
+            L{end+1} = sprintf('        for (i = 0; i < %d; i++) {', v.dim);
+            L{end+1} = sprintf('            y[i] = (%s)%s(&payload[offset]);', c_type, read_fn);
+            L{end+1} = sprintf('            offset += %d;', type_wire_bytes(v.type));
+            L{end+1} = sprintf('        }');
+            L{end+1} = sprintf('    }');
+            port_idx = port_idx + 1;
         end
+        L{end+1} = '';
     end
+
     L{end+1} = '}';
     L{end+1} = '';
 
     s = strjoin(L, '\n');
 end
 
-%% ---- PC serialization helpers ----
-function L = gen_pc_helpers(used_types)
-    L = {};
-    need_int16  = any(strcmp(used_types, 'int16'));
-    need_uint16 = any(strcmp(used_types, 'uint16'));
-    need_int32  = any(strcmp(used_types, 'int32'));
-    need_uint32 = any(strcmp(used_types, 'uint32'));
-    need_single = any(strcmp(used_types, 'single'));
-    need_uint16_base = need_int16 || need_uint16;  % PC: read_int16 calls read_uint16
-
-    % uint16 (PC: read_int16 calls read_uint16, so needed for int16 or uint16)
-    L = [L, gen_block('write_uint16', need_uint16_base, { ...
-        'static inline void write_uint16(uint8_t* buf, uint32_t* offset, uint16_t val)', ...
-        '{', ...
-        '    buf[*offset]     = (uint8_t)(val & 0xFFu);', ...
-        '    buf[*offset + 1] = (uint8_t)((val >> 8) & 0xFFu);', ...
-        '    *offset += 2u;', ...
-        '}'; ...
-    })];
-    L = [L, gen_block('read_uint16', need_uint16_base, { ...
-        'static inline uint16_t read_uint16(const uint8_t* buf, uint32_t* offset)', ...
-        '{', ...
-        '    uint16_t val = (uint16_t)((uint16_t)buf[*offset] |', ...
-        '                              ((uint16_t)buf[*offset + 1] << 8));', ...
-        '    *offset += 2u;', ...
-        '    return val;', ...
-        '}'; ...
-    })];
-    if need_uint16_base, L{end+1} = ''; end
-
-    % int16
-    L = [L, gen_block('write_int16', need_int16, { ...
-        'static inline void write_int16(uint8_t* buf, uint32_t* offset, int16_t val)', ...
-        '{', ...
-        '    write_uint16(buf, offset, (uint16_t)val);', ...
-        '}'; ...
-    })];
-    L = [L, gen_block('read_int16', need_int16, { ...
-        'static inline int16_t read_int16(const uint8_t* buf, uint32_t* offset)', ...
-        '{', ...
-        '    return (int16_t)read_uint16(buf, offset);', ...
-        '}'; ...
-    })];
-    if need_int16, L{end+1} = ''; end
-
-    % uint32 is base for int32/uint32/single (always needed for step_index)
-    L = [L, gen_block('write_uint32', true, { ...
-        'static inline void write_uint32(uint8_t* buf, uint32_t* offset, uint32_t val)', ...
-        '{', ...
-        '    buf[*offset]     = (uint8_t)(val & 0xFFu);', ...
-        '    buf[*offset + 1] = (uint8_t)((val >> 8) & 0xFFu);', ...
-        '    buf[*offset + 2] = (uint8_t)((val >> 16) & 0xFFu);', ...
-        '    buf[*offset + 3] = (uint8_t)((val >> 24) & 0xFFu);', ...
-        '    *offset += 4u;', ...
-        '}'; ...
-    })];
-    L = [L, gen_block('read_uint32', true, { ...
-        'static inline uint32_t read_uint32(const uint8_t* buf, uint32_t* offset)', ...
-        '{', ...
-        '    uint32_t val = ((uint32_t)buf[*offset]) |', ...
-        '                   ((uint32_t)buf[*offset + 1] << 8) |', ...
-        '                   ((uint32_t)buf[*offset + 2] << 16) |', ...
-        '                   ((uint32_t)buf[*offset + 3] << 24);', ...
-        '    *offset += 4u;', ...
-        '    return val;', ...
-        '}'; ...
-    })];
-    L{end+1} = '';
-
-    % int32
-    L = [L, gen_block('write_int32', need_int32, { ...
-        'static inline void write_int32(uint8_t* buf, uint32_t* offset, int32_t val)', ...
-        '{', ...
-        '    write_uint32(buf, offset, (uint32_t)val);', ...
-        '}'; ...
-    })];
-    L = [L, gen_block('read_int32', need_int32, { ...
-        'static inline int32_t read_int32(const uint8_t* buf, uint32_t* offset)', ...
-        '{', ...
-        '    return (int32_t)read_uint32(buf, offset);', ...
-        '}'; ...
-    })];
-    if need_int32, L{end+1} = ''; end
-
-    % single
-    L = [L, gen_block('write_single', need_single, { ...
-        'static inline void write_single(uint8_t* buf, uint32_t* offset, float val)', ...
-        '{', ...
-        '    uint32_t raw;', ...
-        '    memcpy(&raw, &val, sizeof(raw));', ...
-        '    write_uint32(buf, offset, raw);', ...
-        '}'; ...
-    })];
-    L = [L, gen_block('read_single', need_single, { ...
-        'static inline float read_single(const uint8_t* buf, uint32_t* offset)', ...
-        '{', ...
-        '    uint32_t raw = read_uint32(buf, offset);', ...
-        '    float val;', ...
-        '    memcpy(&val, &raw, sizeof(val));', ...
-        '    return val;', ...
-        '}'; ...
-    })];
-end
-
-function L = gen_block(~, active, lines)
+%% ---- Little-endian helper generators ----
+function L = gen_le_helper(fn_name, type, is_write, active)
     L = {};
     if ~active
-        for i = 1:numel(lines)
-            L{end+1} = ['// ' lines{i}];
-        end
-    else
-        for i = 1:numel(lines)
-            L{end+1} = lines{i};
-        end
+        return;
     end
-end
 
-function L = gen_pc_double_helper()
-    L = {};
-    L{end+1} = 'static inline void write_double64(uint8_t* buf, uint32_t* offset, double val)';
-    L{end+1} = '{';
-    L{end+1} = '    uint8_t raw[8];';
-    L{end+1} = '    memcpy(raw, &val, sizeof(raw));';
-    L{end+1} = '    buf[(*offset)++] = raw[0];';
-    L{end+1} = '    buf[(*offset)++] = raw[1];';
-    L{end+1} = '    buf[(*offset)++] = raw[2];';
-    L{end+1} = '    buf[(*offset)++] = raw[3];';
-    L{end+1} = '    buf[(*offset)++] = raw[4];';
-    L{end+1} = '    buf[(*offset)++] = raw[5];';
-    L{end+1} = '    buf[(*offset)++] = raw[6];';
-    L{end+1} = '    buf[(*offset)++] = raw[7];';
-    L{end+1} = '}';
+    if is_write
+        L{end+1} = sprintf('static inline void %s(uint8_t* buf, %s val)', fn_name, type);
+        L{end+1} = '{';
+        if strcmp(type, 'uint16_t')
+            L{end+1} = '    buf[0] = (uint8_t)(val & 0xFFu);';
+            L{end+1} = '    buf[1] = (uint8_t)((val >> 8) & 0xFFu);';
+        else % uint32_t
+            L{end+1} = '    buf[0] = (uint8_t)(val & 0xFFu);';
+            L{end+1} = '    buf[1] = (uint8_t)((val >> 8) & 0xFFu);';
+            L{end+1} = '    buf[2] = (uint8_t)((val >> 16) & 0xFFu);';
+            L{end+1} = '    buf[3] = (uint8_t)((val >> 24) & 0xFFu);';
+        end
+        L{end+1} = '}';
+    else
+        L{end+1} = sprintf('static inline %s %s(const uint8_t* buf)', type, fn_name);
+        L{end+1} = '{';
+        if strcmp(type, 'uint16_t')
+            L{end+1} = '    return (uint16_t)((uint16_t)buf[0] | ((uint16_t)buf[1] << 8));';
+        else % uint32_t
+            L{end+1} = '    return ((uint32_t)buf[0]) |';
+            L{end+1} = '           ((uint32_t)buf[1] << 8) |';
+            L{end+1} = '           ((uint32_t)buf[2] << 16) |';
+            L{end+1} = '           ((uint32_t)buf[3] << 24);';
+        end
+        L{end+1} = '}';
+    end
     L{end+1} = '';
-    L{end+1} = 'static inline double read_double64(const uint8_t* buf, uint32_t* offset)';
-    L{end+1} = '{';
-    L{end+1} = '    double val;';
-    L{end+1} = '    memcpy(&val, buf + *offset, sizeof(val));';
-    L{end+1} = '    *offset += 8u;';
-    L{end+1} = '    return val;';
-    L{end+1} = '}';
 end
 
 %% ---- Helper functions ----
@@ -382,24 +368,39 @@ function c = type_to_c_type(t)
     end
 end
 
-function fn = read_fn_name(t)
+function s = type_to_simtype(t)
+% Convert type string to Simulink type ID macro
     switch t
-        case 'int16',  fn = 'read_int16';
-        case 'uint16', fn = 'read_uint16';
-        case 'int32',  fn = 'read_int32';
-        case 'uint32', fn = 'read_uint32';
-        case 'single', fn = 'read_single';
-        case 'double', fn = 'read_double64';
+        case 'double', s = 'SS_DOUBLE';   % 0
+        case 'single', s = 'SS_SINGLE';   % 1
+        case 'int8',   s = 'SS_INT8';     % 2
+        case 'uint8',  s = 'SS_UINT8';    % 3
+        case 'int16',  s = 'SS_INT16';    % 4
+        case 'uint16', s = 'SS_UINT16';   % 5
+        case 'int32',  s = 'SS_INT32';    % 6
+        case 'uint32', s = 'SS_UINT32';   % 7
+        otherwise,     error('Unknown type: %s', t);
     end
 end
 
-function fn = write_fn_name(t)
+function fn = get_write_le_fn(t)
+% Get write function name for little-endian serialization
     switch t
-        case 'int16',  fn = 'write_int16';
-        case 'uint16', fn = 'write_uint16';
-        case 'int32',  fn = 'write_int32';
-        case 'uint32', fn = 'write_uint32';
-        case 'single', fn = 'write_single';
-        case 'double', fn = 'write_double64';
+        case {'int16', 'uint16'},  fn = 'write_le16';
+        case {'int32', 'uint32'},  fn = 'write_le32';
+        case 'single',             fn = 'write_single_le';
+        case 'double',             fn = 'write_double64_le';
+        otherwise,                 error('Unknown type: %s', t);
+    end
+end
+
+function fn = get_read_le_fn(t)
+% Get read function name for little-endian deserialization
+    switch t
+        case {'int16', 'uint16'},  fn = 'read_le16';
+        case {'int32', 'uint32'},  fn = 'read_le32';
+        case 'single',             fn = 'read_single_le';
+        case 'double',             fn = 'read_double64_le';
+        otherwise,                 error('Unknown type: %s', t);
     end
 end

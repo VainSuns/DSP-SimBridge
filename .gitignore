@@ -19,6 +19,8 @@ Desktop.ini
 *.asv
 *.m~
 *.slxc
+*.mexw64
+*.mexa64
 slprj/
 codegen/
 *_ert_rtw/
