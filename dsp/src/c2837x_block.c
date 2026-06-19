@@ -29,6 +29,36 @@ typedef enum {
     C2837X_RX_PROCESSING
 } C2837xBlock_RxState;
 
+typedef enum {
+    C2837X_TX_DONE_DISCONNECT = 0,
+    C2837X_TX_DONE_START_RX,
+    C2837X_TX_DONE_ADVANCE_STEP
+} C2837xBlock_TxDoneAction;
+
+#define C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES  6u
+#define C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES   2u
+#define C2837X_BLOCK_RX_PAYLOAD_SIZE_BYTES         \
+    ((C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES >      \
+      C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES) ? \
+      C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES :      \
+      C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES)
+#define C2837X_BLOCK_TX_PAYLOAD_SIZE_BYTES         \
+    ((C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES >     \
+      C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES) ?  \
+      C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES :     \
+      C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES)
+#define C2837X_BLOCK_PAYLOAD_WORK_SIZE_BYTES       \
+    ((C2837X_BLOCK_RX_PAYLOAD_SIZE_BYTES >         \
+      C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES) ?    \
+      C2837X_BLOCK_RX_PAYLOAD_SIZE_BYTES :         \
+      C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES)
+#define C2837X_BLOCK_PAYLOAD_WORK_SIZE_WORDS       \
+    ((C2837X_BLOCK_PAYLOAD_WORK_SIZE_BYTES + 1u) / 2u)
+#define C2837X_BLOCK_TX_FRAME_SIZE_BYTES           \
+    (C2837X_BLOCK_HEADER_SIZE_BYTES + C2837X_BLOCK_TX_PAYLOAD_SIZE_BYTES)
+#define C2837X_BLOCK_TX_FRAME_SIZE_WORDS           \
+    ((C2837X_BLOCK_TX_FRAME_SIZE_BYTES + 1u) / 2u)
+
 typedef struct {
     C2837xBlock_State state;
     C2837xBlock_RxState rx_state;
@@ -36,18 +66,18 @@ typedef struct {
 
     Uint16 rx_header_words[2];
     Uint32 rx_header_received_bytes;
-    Uint16 rx_payload_words[C2837X_BLOCK_MAX_PAYLOAD_SIZE_WORDS];
+    Uint16 rx_payload_words[C2837X_BLOCK_PAYLOAD_WORK_SIZE_WORDS];
     Uint16 rx_msg_type;
     Uint16 rx_payload_length_bytes;
     Uint32 rx_payload_received_bytes;
 
-    Uint16 tx_frame_words[(C2837X_BLOCK_MAX_FRAME_SIZE_BYTES + 1u) / 2u];
+    Uint16 tx_frame_words[C2837X_BLOCK_TX_FRAME_SIZE_WORDS];
     Uint32 tx_total_bytes;
     Uint32 tx_sent_bytes;
 
     Uint32 expected_step_index;
     Uint16 sim_started;
-    Uint16 advance_step_after_tx;
+    C2837xBlock_TxDoneAction tx_done_action;
 
     Uint32 frame_start_tick;
     Uint16 last_error;
@@ -63,7 +93,6 @@ static Uint32 g_tick_counter;
  */
 #define C2837X_BLOCK_STATE_TIMEOUT_TICKS  1000000000u
 #define C2837X_BLOCK_FRAME_TIMEOUT_TICKS  1000000000u
-#define C2837X_BLOCK_UINT32_MAX           (~((Uint32)0))
 
 static void c2837x_block_disconnect(C2837xBlock_Context* ctx);
 
@@ -79,7 +108,14 @@ static inline void c2837x_block_tick(void)
 
 static inline int16 c2837x_block_timed_out(Uint32 start_tick, Uint32 timeout_ticks)
 {
-    return ((Uint32)(c2837x_block_now() - start_tick) >= timeout_ticks) ? 1 : 0;
+    if (start_tick < timeout_ticks)
+    {
+        return (c2837x_block_now() >= (start_tick + timeout_ticks)) ? 1 : 0;
+    }
+    else
+    {
+        return (c2837x_block_now() < (start_tick - timeout_ticks)) ? 1 : 0;
+    }
 }
 
 static inline  void c2837x_block_set_state(C2837xBlock_Context* ctx,
@@ -108,7 +144,7 @@ static inline void c2837x_block_reset_session(C2837xBlock_Context* ctx)
     c2837x_block_reset_rx(ctx);
     c2837x_block_reset_tx(ctx);
     ctx->expected_step_index = 0;
-    ctx->advance_step_after_tx = 0;
+    ctx->tx_done_action = C2837X_TX_DONE_DISCONNECT;
     ctx->sim_started = 0;
     ctx->last_error = C2837X_ERR_OK;
 }
@@ -143,7 +179,7 @@ static inline void c2837x_block_start_error_response(C2837xBlock_Context* ctx,
     Uint32 frame_bytes;
 
     ctx->last_error = error_code;
-    ctx->advance_step_after_tx = 0;
+    ctx->tx_done_action = C2837X_TX_DONE_DISCONNECT;
     frame_bytes = c2837x_block_build_response(ctx->tx_frame_words,
                                                error_code);
     c2837x_block_start_tx(ctx, frame_bytes);
@@ -245,7 +281,7 @@ static int16 c2837x_block_continue_rx(C2837xBlock_Context* ctx)
             return -1;
         }
 
-        if (ctx->rx_payload_length_bytes > C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES)
+        if (ctx->rx_payload_length_bytes > C2837X_BLOCK_RX_PAYLOAD_SIZE_BYTES)
         {
             ctx->last_error = C2837X_ERR_PAYLOAD_LENGTH;
             return -1;
@@ -254,6 +290,7 @@ static int16 c2837x_block_continue_rx(C2837xBlock_Context* ctx)
         if (ctx->rx_payload_length_bytes == 0u)
         {
             ctx->rx_state = C2837X_RX_PROCESSING;
+            return 0;
         }
 
         ctx->rx_state = C2837X_RX_WAIT_PAYLOAD;
@@ -277,11 +314,17 @@ static int16 c2837x_block_continue_rx(C2837xBlock_Context* ctx)
 
 static void c2837x_block_after_tx_done(C2837xBlock_Context* ctx)
 {
-    if (ctx->advance_step_after_tx != 0u)
+    C2837xBlock_TxDoneAction action = ctx->tx_done_action;
+
+    ctx->tx_done_action = C2837X_TX_DONE_DISCONNECT;
+
+    if (action == C2837X_TX_DONE_ADVANCE_STEP)
     {
-        ctx->advance_step_after_tx = 0;
         ctx->expected_step_index++;
-        
+        c2837x_block_start_rx(ctx);
+    }
+    else if (action == C2837X_TX_DONE_START_RX)
+    {
         c2837x_block_start_rx(ctx);
     }
     else
@@ -296,7 +339,7 @@ static void c2837x_block_handle_sim_start(C2837xBlock_Context* ctx)
     Uint32 config_hash;
     Uint32 frame_bytes;
 
-    if (ctx->rx_payload_length_bytes != 6u)
+    if (ctx->rx_payload_length_bytes != C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES)
     {
         c2837x_block_start_error_response(ctx, C2837X_ERR_PAYLOAD_LENGTH);
         return;
@@ -329,8 +372,8 @@ static void c2837x_block_handle_sim_start(C2837xBlock_Context* ctx)
     frame_bytes = c2837x_block_build_response(ctx->tx_frame_words,
                                                C2837X_ERR_OK);
     c2837x_block_start_tx(ctx, frame_bytes);
-    ctx->advance_step_after_tx = 1;
-    ctx->expected_step_index = C2837X_BLOCK_UINT32_MAX;
+    ctx->tx_done_action = C2837X_TX_DONE_START_RX;
+    ctx->expected_step_index = 0;
     ctx->sim_started = 1;
     ctx->last_error = C2837X_ERR_OK;
 }
@@ -368,7 +411,7 @@ static void c2837x_block_handle_input_data(C2837xBlock_Context* ctx)
         ctx->rx_payload_words);
 
     c2837x_block_start_tx(ctx, frame_bytes);
-    ctx->advance_step_after_tx = 1;
+    ctx->tx_done_action = C2837X_TX_DONE_ADVANCE_STEP;
     ctx->last_error = C2837X_ERR_OK;
 }
 
@@ -388,6 +431,21 @@ static void c2837x_block_handle_sim_stop(C2837xBlock_Context* ctx)
 
 static void c2837x_block_dispatch_message(C2837xBlock_Context* ctx)
 {
+    if ((ctx->rx_msg_type == C2837X_MSG_SIM_START) &&
+        (ctx->sim_started != 0u))
+    {
+        c2837x_block_start_error_response(ctx, C2837X_ERR_STATE);
+        return;
+    }
+
+    if (((ctx->rx_msg_type == C2837X_MSG_INPUT_DATA) ||
+         (ctx->rx_msg_type == C2837X_MSG_SIM_STOP)) &&
+        (ctx->sim_started == 0u))
+    {
+        c2837x_block_start_error_response(ctx, C2837X_ERR_STATE);
+        return;
+    }
+
     switch (ctx->rx_msg_type)
     {
     case C2837X_MSG_INPUT_DATA:
@@ -477,7 +535,7 @@ int16 C2837xBlock_Init(void)
 
     memset(ctx, 0, sizeof(*ctx));
     g_tick_counter = 0;
-    
+
     c2837x_w5300_init();
 
     c2837x_w5300_write16(MR, 0xB800);
