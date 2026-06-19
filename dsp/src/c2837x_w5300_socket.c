@@ -6,6 +6,10 @@
 #include "c2837x_w5300_socket.h"
 #include "c2837x_w5300_hal.h"
 
+
+int32 c2837x_w5300_socket_send_to(C2837xW5300Socket* sk, const Uint16* buf, Uint32 len, Uint32 addr, Uint16 port, Uint32 subnet_mask);
+
+
 int16 c2837x_w5300_socket_open(C2837xW5300Socket* sk,
                                 Uint16 protocol,
                                 Uint16 port,
@@ -42,6 +46,26 @@ int16 c2837x_w5300_socket_open(C2837xW5300Socket* sk,
 
 int16 c2837x_w5300_socket_close(C2837xW5300Socket* sk)
 {
+    // M_08082008 : It is fixed the problem that Sn_SSR cannot be changed a undefined value to the defined value.
+    //              Refer to Errata of W5300
+    //Check if the transmit data is remained or not.
+    Uint16 loop_cnt = 0;
+    Uint32 destip = 0x00000001; // 0.0.0.1
+    if( (c2837x_w5300_get_sn_mr(sk->sn) == Sn_MR_TCP) && (c2837x_w5300_get_sn_tx_fsr(sk->sn) != sk->tx_mem_size) )
+    {
+        while(c2837x_w5300_get_sn_tx_fsr(sk->sn) != sk->tx_mem_size)
+        {
+            if(loop_cnt++ > 10)
+            {
+                c2837x_w5300_socket_open(sk, Sn_MR_UDP, 0x3000, 0);
+                // send the dummy data to an unknown destination(0.0.0.1).
+                c2837x_w5300_socket_send_to(sk, (Uint16*)"x", 1, destip, 0x3000, 0);
+                break;
+            }
+            DELAY_US(10000);
+        }
+    };
+
     /* Non-blocking close: clear interrupts and issue CLOSE command
      * without waiting for TX buffer to drain. */
     c2837x_w5300_set_sn_ir(sk->sn, 0x00FF);
@@ -153,4 +177,47 @@ Uint32 c2837x_w5300_socket_get_tx_free(const C2837xW5300Socket* sk)
 Uint32 c2837x_w5300_socket_get_rx_size(const C2837xW5300Socket* sk)
 {
     return c2837x_w5300_get_sn_rx_rsr(sk->sn);
+}
+
+int32 c2837x_w5300_socket_send_to(C2837xW5300Socket* sk, const Uint16* buf, Uint32 len, Uint32 addr, Uint16 port, Uint32 subnet_mask)
+{
+    Uint16 status = 0;
+    Uint16 isr = 0;
+    Uint32 ret = 0;
+
+    if (len > sk->tx_mem_size)
+    {
+        ret = sk->tx_mem_size; // check size not to exceed MAX size.
+    }
+    else
+    {
+        ret = len;
+    }
+
+    // set destination IP address
+    c2837x_w5300_set_sipr(addr);
+
+    // set destination port number
+    c2837x_w5300_write16(Sn_DPORTR(sk->sn), port);
+
+    c2837x_w5300_write_stream(sk->sn, buf, ret);
+    // send
+    c2837x_w5300_set_sn_tx_wrsr(sk->sn, ret);
+    c2837x_w5300_set_subr(subnet_mask);
+    c2837x_w5300_set_sn_cr(sk->sn, Sn_CR_SEND);
+
+    while (!((isr = c2837x_w5300_get_sn_ir(sk->sn)) & Sn_IR_SENDOK)) // wait SEND command completion
+    {
+        status = c2837x_w5300_get_sn_ssr(sk->sn);
+        if ((status == SOCK_CLOSED) || (isr & Sn_IR_TIMEOUT)) // Sn_IR_TIMEOUT causes the decrement of Sn_TX_FSR
+        {
+            c2837x_w5300_set_sn_ir(sk->sn, Sn_IR_TIMEOUT);
+            return 0;
+        }
+    }
+
+    c2837x_w5300_set_sn_ir(sk->sn, Sn_IR_SENDOK); // Clear Sn_IR_SENDOK
+    c2837x_w5300_clear_subr();
+
+    return ret;
 }
