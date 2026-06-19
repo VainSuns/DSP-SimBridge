@@ -14,6 +14,8 @@
 #define close closesocket
 #define SOCK_ERR SOCKET_ERROR
 #define RTIOSTREAM_ECONNRESET WSAECONNRESET
+#define GET_SOCK_ERROR() WSAGetLastError()
+#define WOULD_BLOCK(err) ((err) == WSAEWOULDBLOCK)
 #else
 /* POSIX socket */
 #include <sys/types.h>
@@ -30,6 +32,8 @@
 #define SOCK_ERR (-1)
 #define RTIOSTREAM_ECONNRESET ECONNRESET
 typedef int SOCKET;
+#define GET_SOCK_ERROR() errno
+#define WOULD_BLOCK(err) ((err) == EAGAIN || (err) == EWOULDBLOCK)
 #endif
 
 #include <string.h>
@@ -48,6 +52,80 @@ typedef int socklen_t;
 #else
 typedef const void * send_buffer_t;
 #endif
+
+/* ---- Helper functions ---- */
+
+static void set_nonblocking(SOCKET sock, int enable)
+{
+#ifdef _WIN32
+    u_long mode = enable ? 1 : 0;
+    ioctlsocket(sock, FIONBIO, &mode);
+#else
+    int flags = fcntl(sock, F_GETFL, 0);
+    if (flags < 0) return;
+    if (enable) {
+        fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+    } else {
+        fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
+    }
+#endif
+}
+
+static int wait_writable(SOCKET sock, uint32_t timeout_ms)
+{
+#ifdef _WIN32
+    fd_set write_fds;
+    struct timeval tv;
+    int result;
+
+    FD_ZERO(&write_fds);
+    FD_SET(sock, &write_fds);
+
+    tv.tv_sec = timeout_ms / 1000u;
+    tv.tv_usec = (timeout_ms % 1000u) * 1000u;
+
+    result = select(0, NULL, &write_fds, NULL, &tv);
+    return (result > 0) ? 0 : -1;
+#else
+    struct pollfd pfd;
+    int result;
+
+    pfd.fd = sock;
+    pfd.events = POLLOUT;
+    pfd.revents = 0;
+
+    result = poll(&pfd, 1, (int)timeout_ms);
+    return (result > 0 && (pfd.revents & POLLOUT)) ? 0 : -1;
+#endif
+}
+
+static int wait_readable(SOCKET sock, uint32_t timeout_ms)
+{
+#ifdef _WIN32
+    fd_set read_fds;
+    struct timeval tv;
+    int result;
+
+    FD_ZERO(&read_fds);
+    FD_SET(sock, &read_fds);
+
+    tv.tv_sec = timeout_ms / 1000u;
+    tv.tv_usec = (timeout_ms % 1000u) * 1000u;
+
+    result = select(0, &read_fds, NULL, NULL, &tv);
+    return (result > 0) ? 0 : -1;
+#else
+    struct pollfd pfd;
+    int result;
+
+    pfd.fd = sock;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+
+    result = poll(&pfd, 1, (int)timeout_ms);
+    return (result > 0 && (pfd.revents & POLLIN)) ? 0 : -1;
+#endif
+}
 
 /* ---- Socket API implementation ---- */
 
@@ -106,11 +184,37 @@ int c2837x_socket_connect(c2837x_socket_t* s,
         setsockopt(cSock, IPPROTO_TCP, TCP_NODELAY, (char*)&option, sizeof(option));
     }
 
-    /* Connect */
+    /* Set non-blocking for connect with timeout */
+    set_nonblocking(cSock, 1);
+
+    /* Initiate non-blocking connect */
     if (connect(cSock, (struct sockaddr*)&sa, sizeof(sa)) == SOCK_ERR) {
-        close(cSock);
-        return -1;
+        int err = GET_SOCK_ERROR();
+        if (!WOULD_BLOCK(err)) {
+            close(cSock);
+            return -1;
+        }
+
+        /* Wait for connect to complete with timeout */
+        if (wait_writable(cSock, timeout_ms) != 0) {
+            close(cSock);
+            return -1;
+        }
+
+        /* Check if connect succeeded */
+        {
+            int sock_err = 0;
+            socklen_t err_len = sizeof(sock_err);
+            if (getsockopt(cSock, SOL_SOCKET, SO_ERROR, (char*)&sock_err, &err_len) != 0 ||
+                sock_err != 0) {
+                close(cSock);
+                return -1;
+            }
+        }
     }
+
+    /* Set back to blocking mode */
+    set_nonblocking(cSock, 0);
 
     /* Set socket options */
     {
@@ -123,7 +227,6 @@ int c2837x_socket_connect(c2837x_socket_t* s,
     }
 
     s->fd = cSock;
-    (void)timeout_ms; /* timeout not used for blocking connect */
     return 0;
 }
 
@@ -141,6 +244,11 @@ int c2837x_socket_send_all(c2837x_socket_t* s,
     }
 
     while (totalSent < length) {
+        /* Wait for socket to be writable with timeout */
+        if (wait_writable((SOCKET)s->fd, timeout_ms) != 0) {
+            return -1; /* Timeout or error */
+        }
+
         /* Ensure size is not out of range for socket API send function */
         sizeLim = (int)MIN(length - totalSent, INT_MAX);
 
@@ -164,7 +272,6 @@ int c2837x_socket_send_all(c2837x_socket_t* s,
         totalSent += (uint32_t)nSent;
     }
 
-    (void)timeout_ms; /* Blocking send, timeout not implemented */
     return 0;
 }
 
@@ -182,39 +289,10 @@ int c2837x_socket_recv_exact(c2837x_socket_t* s,
     }
 
     while (totalRecvd < length) {
-        /* Check for data pending using select/poll */
-#ifdef _WIN32
-        {
-            fd_set ReadFds;
-            struct timeval tval;
-            int pending;
-
-            FD_ZERO(&ReadFds);
-            FD_SET((SOCKET)s->fd, &ReadFds);
-
-            tval.tv_sec = timeout_ms / 1000;
-            tval.tv_usec = (timeout_ms % 1000) * 1000;
-
-            pending = select((int)((SOCKET)s->fd + 1), &ReadFds, NULL, NULL, &tval);
-            if (pending == SOCKET_ERROR || pending == 0) {
-                return -1; /* Error or timeout */
-            }
+        /* Wait for data to be available with timeout */
+        if (wait_readable((SOCKET)s->fd, timeout_ms) != 0) {
+            return -1; /* Timeout or error */
         }
-#else
-        {
-            struct pollfd pfd;
-            int pending;
-
-            pfd.fd = (int)s->fd;
-            pfd.events = POLLIN;
-            pfd.revents = 0;
-
-            pending = poll(&pfd, 1, (int)timeout_ms);
-            if (pending <= 0 || (pfd.revents & POLLERR)) {
-                return -1; /* Error or timeout */
-            }
-        }
-#endif
 
         /* Ensure size is not out of range for socket API recv function */
         sizeLim = (int)MIN(length - totalRecvd, INT_MAX);

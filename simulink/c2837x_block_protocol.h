@@ -130,14 +130,17 @@ int c2837x_protocol_wait_response(c2837x_socket_t* s,
  * - length: received payload length (output)
  * - payload_capacity: buffer capacity
  * - timeout_ms: receive timeout
+ * - error_code: if not NULL and DSP returns RESPONSE, stores the error code (output)
  *
  * Returns 0 on success, -1 on error.
+ * If DSP returns RESPONSE instead of OUTPUT_DATA, returns -1 and sets error_code.
  */
 int c2837x_protocol_wait_output_data(c2837x_socket_t* s,
                                      uint8_t* payload,
                                      uint16_t* length,
                                      uint32_t payload_capacity,
-                                     uint32_t timeout_ms);
+                                     uint32_t timeout_ms,
+                                     uint16_t* error_code);
 
 #ifdef __cplusplus
 }

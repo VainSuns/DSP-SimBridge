@@ -220,13 +220,19 @@ int c2837x_protocol_wait_output_data(c2837x_socket_t* s,
                                      uint8_t* payload,
                                      uint16_t* length,
                                      uint32_t payload_capacity,
-                                     uint32_t timeout_ms)
+                                     uint32_t timeout_ms,
+                                     uint16_t* error_code)
 {
     uint16_t type;
     uint16_t recv_length;
 
     if (s == NULL || payload == NULL || length == NULL) {
         return -1;
+    }
+
+    /* Initialize error code to none */
+    if (error_code != NULL) {
+        *error_code = C2837X_BLOCK_ERR_NONE;
     }
 
     /* Receive frame */
@@ -239,10 +245,11 @@ int c2837x_protocol_wait_output_data(c2837x_socket_t* s,
     if (type != C2837X_BLOCK_TYPE_OUTPUT_DATA) {
         /* If we got RESPONSE instead, it's an error from DSP */
         if (type == C2837X_BLOCK_TYPE_RESPONSE) {
-            /* Parse error code and return specific error */
+            /* Parse error code and return to caller */
             if (recv_length >= C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE) {
-                uint16_t error_code = read_le16(&payload[0]);
-                (void)error_code; /* Could log or report */
+                if (error_code != NULL) {
+                    *error_code = read_le16(&payload[0]);
+                }
             }
         }
         return -1;

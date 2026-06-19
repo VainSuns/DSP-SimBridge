@@ -171,6 +171,16 @@ classdef C2837xBlockConfigurator < handle
                 end
             end
 
+            % Port count validation
+            if numel(config.inputs) < 1
+                errMsg = 'At least 1 input variable is required.';
+                return;
+            end
+            if numel(config.outputs) < 1
+                errMsg = 'At least 1 output variable is required.';
+                return;
+            end
+
             % IP address validation
             [ok, msg] = validate_ip(config.dsp_ip, 'DSP IP');
             if ~ok, errMsg = msg; return; end

@@ -132,6 +132,7 @@ int c2837x_block_sfun_step(C2837xBlockSfunContext* ctx, void *S)
 {
     uint16_t recv_length;
     uint32_t recv_step_index;
+    uint16_t dsp_error = C2837X_BLOCK_ERR_NONE;
 
     if (ctx == NULL || S == NULL) {
         return -1;
@@ -159,7 +160,10 @@ int c2837x_block_sfun_step(C2837xBlockSfunContext* ctx, void *S)
                                          ctx->rx_buf,
                                          &recv_length,
                                          sizeof(ctx->rx_buf),
-                                         ctx->step_timeout_ms) != 0) {
+                                         ctx->step_timeout_ms,
+                                         &dsp_error) != 0) {
+        /* Store DSP error code for reporting */
+        ctx->last_dsp_error = dsp_error;
         return -1;
     }
 
@@ -214,65 +218,9 @@ static void mdlInitializeSizes(SimStruct *S)
         return; /* Parameter mismatch will be reported by Simulink */
     }
 
-    /* Input ports: configured by c2837x_block_pc_config.h macros */
-    if (!ssSetNumInputPorts(S, C2837X_BLOCK_INPUT_COUNT)) return;
-
-    /* Port 0 */
-    ssSetInputPortWidth(S, 0, C2837X_BLOCK_INPUT0_WIDTH);
-    ssSetInputPortDataType(S, 0, C2837X_BLOCK_INPUT0_SIMTYPE);
-    ssSetInputPortDirectFeedThrough(S, 0, 1);
-    ssSetInputPortRequiredContiguous(S, 0, 1);
-#if C2837X_BLOCK_INPUT_COUNT > 1
-    /* Port 1 */
-    ssSetInputPortWidth(S, 1, C2837X_BLOCK_INPUT1_WIDTH);
-    ssSetInputPortDataType(S, 1, C2837X_BLOCK_INPUT1_SIMTYPE);
-    ssSetInputPortDirectFeedThrough(S, 1, 1);
-    ssSetInputPortRequiredContiguous(S, 1, 1);
-#endif
-#if C2837X_BLOCK_INPUT_COUNT > 2
-    /* Port 2 */
-    ssSetInputPortWidth(S, 2, C2837X_BLOCK_INPUT2_WIDTH);
-    ssSetInputPortDataType(S, 2, C2837X_BLOCK_INPUT2_SIMTYPE);
-    ssSetInputPortDirectFeedThrough(S, 2, 1);
-    ssSetInputPortRequiredContiguous(S, 2, 1);
-#endif
-#if C2837X_BLOCK_INPUT_COUNT > 3
-    /* Port 3 */
-    ssSetInputPortWidth(S, 3, C2837X_BLOCK_INPUT3_WIDTH);
-    ssSetInputPortDataType(S, 3, C2837X_BLOCK_INPUT3_SIMTYPE);
-    ssSetInputPortDirectFeedThrough(S, 3, 1);
-    ssSetInputPortRequiredContiguous(S, 3, 1);
-#endif
-#if C2837X_BLOCK_INPUT_COUNT > 4
-    /* Port 4 */
-    ssSetInputPortWidth(S, 4, C2837X_BLOCK_INPUT4_WIDTH);
-    ssSetInputPortDataType(S, 4, C2837X_BLOCK_INPUT4_SIMTYPE);
-    ssSetInputPortDirectFeedThrough(S, 4, 1);
-    ssSetInputPortRequiredContiguous(S, 4, 1);
-#endif
-#if C2837X_BLOCK_INPUT_COUNT > 5
-#error "More than 5 input ports not supported. Update c2837x_block_sfun.c or use arrays."
-#endif
-
-    /* Output ports: configured by c2837x_block_pc_config.h macros */
-    if (!ssSetNumOutputPorts(S, C2837X_BLOCK_OUTPUT_COUNT)) return;
-
-    /* Port 0 */
-    ssSetOutputPortWidth(S, 0, C2837X_BLOCK_OUTPUT0_WIDTH);
-    ssSetOutputPortDataType(S, 0, C2837X_BLOCK_OUTPUT0_SIMTYPE);
-#if C2837X_BLOCK_OUTPUT_COUNT > 1
-    /* Port 1 */
-    ssSetOutputPortWidth(S, 1, C2837X_BLOCK_OUTPUT1_WIDTH);
-    ssSetOutputPortDataType(S, 1, C2837X_BLOCK_OUTPUT1_SIMTYPE);
-#endif
-#if C2837X_BLOCK_OUTPUT_COUNT > 2
-    /* Port 2 */
-    ssSetOutputPortWidth(S, 2, C2837X_BLOCK_OUTPUT2_WIDTH);
-    ssSetOutputPortDataType(S, 2, C2837X_BLOCK_OUTPUT2_SIMTYPE);
-#endif
-#if C2837X_BLOCK_OUTPUT_COUNT > 3
-#error "More than 3 output ports not supported. Update c2837x_block_sfun.c or use arrays."
-#endif
+    /* Setup ports using generated functions from c2837x_block_sfun_io.c */
+    c2837x_block_setup_input_ports(S);
+    c2837x_block_setup_output_ports(S);
 
     /* Sample time */
     ssSetNumSampleTimes(S, 1);
@@ -359,7 +307,27 @@ static void mdlOutputs(SimStruct *S, int_T tid)
 
     /* Perform communication step with direct port I/O */
     if (c2837x_block_sfun_step(ctx, S) != 0) {
-        ssSetErrorStatus(S, "C2837xBlock: Communication step failed");
+        /* Report DSP error code if available */
+        if (ctx->last_dsp_error != C2837X_BLOCK_ERR_NONE) {
+            char msg[128];
+            const char* err_name;
+            switch (ctx->last_dsp_error) {
+                case C2837X_BLOCK_ERR_INTERNAL:      err_name = "Internal error"; break;
+                case C2837X_BLOCK_ERR_LENGTH:        err_name = "Invalid length"; break;
+                case C2837X_BLOCK_ERR_CONFIG_HASH:   err_name = "Config hash mismatch"; break;
+                case C2837X_BLOCK_ERR_PAYLOAD_SIZE:  err_name = "Payload too large"; break;
+                case C2837X_BLOCK_ERR_ALGORITHM:     err_name = "Algorithm error"; break;
+                case C2837X_BLOCK_ERR_PROTOCOL_VERSION: err_name = "Protocol version mismatch"; break;
+                case C2837X_BLOCK_ERR_STEP_INDEX:    err_name = "Step index mismatch"; break;
+                case C2837X_BLOCK_ERR_STATE:         err_name = "Invalid state"; break;
+                default:                             err_name = "Unknown error"; break;
+            }
+            snprintf(msg, sizeof(msg), "C2837xBlock: DSP error %d (%s) at step %u",
+                     ctx->last_dsp_error, err_name, (unsigned)ctx->step_index);
+            ssSetErrorStatus(S, msg);
+        } else {
+            ssSetErrorStatus(S, "C2837xBlock: Communication step failed");
+        }
         return;
     }
 

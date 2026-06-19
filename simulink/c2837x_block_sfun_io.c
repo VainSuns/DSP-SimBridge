@@ -17,7 +17,7 @@
 /* SimStruct and port access macros are defined in simstruc.h */
 #include "simstruc.h"
 
-/* ---- Little-endian write helpers ---- */
+/* ---- Little-endian serialization helpers ---- */
 
 static inline void write_le16(uint8_t* buf, uint16_t val)
 {
@@ -46,8 +46,11 @@ static inline uint32_t read_le32(const uint8_t* buf)
            ((uint32_t)buf[3] << 24);
 }
 
-/* ---- Pack input ports directly to payload ---- */
 
+static inline void write_int16_le(uint8_t* buf, int16_t val) { write_le16(buf, (uint16_t)val); }
+static inline int16_t read_int16_le(const uint8_t* buf) { return (int16_t)read_le16(buf); }
+
+/* ---- Pack input ports directly to payload ---- */
 void c2837x_block_pack_input_from_ports(SimStruct *S,
                                         uint8_t* payload,
                                         uint32_t step_index)
@@ -58,30 +61,16 @@ void c2837x_block_pack_input_from_ports(SimStruct *S,
     write_le32(&payload[offset], step_index);
     offset += 4;
 
-    /* Port 0: a (int16, 2 bytes) */
+    /* a: int16, port 0 */
     {
         const int16_t *u = (const int16_t *)ssGetInputPortSignal(S, 0);
-        write_le16(&payload[offset], (uint16_t)u[0]);
+        write_le16(&payload[offset], u[0]);
         offset += 2;
     }
 
-    /* Port 1: b (int16, 2 bytes) */
-    {
-        const int16_t *u = (const int16_t *)ssGetInputPortSignal(S, 1);
-        write_le16(&payload[offset], (uint16_t)u[0]);
-        offset += 2;
-    }
-
-    /* Port 2: c (int16, 2 bytes) */
-    {
-        const int16_t *u = (const int16_t *)ssGetInputPortSignal(S, 2);
-        write_le16(&payload[offset], (uint16_t)u[0]);
-        offset += 2;
-    }
 }
 
 /* ---- Unpack output payload directly to ports ---- */
-
 void c2837x_block_unpack_output_to_ports(SimStruct *S,
                                          const uint8_t* payload,
                                          uint32_t* step_index)
@@ -92,10 +81,36 @@ void c2837x_block_unpack_output_to_ports(SimStruct *S,
     *step_index = read_le32(&payload[offset]);
     offset += 4;
 
-    /* Port 0: sum (int16, 2 bytes) */
+    /* sum: int16, port 0 */
     {
         int16_t *y = (int16_t *)ssGetOutputPortSignal(S, 0);
         y[0] = (int16_t)read_le16(&payload[offset]);
         offset += 2;
     }
+
 }
+
+/* ---- Port setup functions ---- */
+
+void c2837x_block_setup_input_ports(SimStruct *S)
+{
+    if (!ssSetNumInputPorts(S, 1)) return;
+
+    /* Port 0: a (int16, dim=1) */
+    ssSetInputPortWidth(S, 0, 1);
+    ssSetInputPortDataType(S, 0, SS_INT16);
+    ssSetInputPortDirectFeedThrough(S, 0, 1);
+    ssSetInputPortRequiredContiguous(S, 0, 1);
+}
+
+void c2837x_block_setup_output_ports(SimStruct *S)
+{
+    if (!ssSetNumOutputPorts(S, 1)) return;
+
+    /* Port 0: sum (int16, dim=1) */
+    ssSetOutputPortWidth(S, 0, 1);
+    ssSetOutputPortDataType(S, 0, SS_INT16);
+}
+
+int c2837x_block_get_input_count(void) { return 1; }
+int c2837x_block_get_output_count(void) { return 1; }

@@ -150,6 +150,17 @@ function s = gen_pc_config_h(config, config_hash)
     L{end+1} = '                                         const uint8_t* payload,';
     L{end+1} = '                                         uint32_t* step_index);';
     L{end+1} = '';
+    L{end+1} = '/*';
+    L{end+1} = ' * Setup input/output ports in mdlInitializeSizes.';
+    L{end+1} = ' * These functions configure port count, width, and data type.';
+    L{end+1} = ' */';
+    L{end+1} = 'void c2837x_block_setup_input_ports(SimStruct *S);';
+    L{end+1} = 'void c2837x_block_setup_output_ports(SimStruct *S);';
+    L{end+1} = '';
+    L{end+1} = '/* Get configured port counts */';
+    L{end+1} = 'int c2837x_block_get_input_count(void);';
+    L{end+1} = 'int c2837x_block_get_output_count(void);';
+    L{end+1} = '';
 
     L{end+1} = '#endif /* C2837X_BLOCK_PC_CONFIG_H */';
     s = strjoin(L, '\n');
@@ -185,6 +196,7 @@ function s = gen_sfun_io_c(config)
     need_int32 = any(strcmp(all_types, 'int32'));
     need_uint32 = any(strcmp(all_types, 'uint32'));
     need_single = any(strcmp(all_types, 'single'));
+    need_double = any(strcmp(all_types, 'double'));
 
     L{end+1} = '/* ---- Little-endian serialization helpers ---- */';
     L{end+1} = '';
@@ -208,6 +220,17 @@ function s = gen_sfun_io_c(config)
     if need_single
         L{end+1} = 'static inline void write_single_le(uint8_t* buf, float val) { uint32_t raw; memcpy(&raw, &val, sizeof(raw)); write_le32(buf, raw); }';
         L{end+1} = 'static inline float read_single_le(const uint8_t* buf) { uint32_t raw = read_le32(buf); float val; memcpy(&val, &raw, sizeof(val)); return val; }';
+    end
+    if need_double
+        L{end+1} = 'static inline void write_double64_le(uint8_t* buf, double val) {';
+        L{end+1} = '    uint64_t raw; memcpy(&raw, &val, sizeof(raw));';
+        L{end+1} = '    write_le32(buf, (uint32_t)(raw & 0xFFFFFFFFu));';
+        L{end+1} = '    write_le32(buf + 4, (uint32_t)(raw >> 32));';
+        L{end+1} = '}';
+        L{end+1} = 'static inline double read_double64_le(const uint8_t* buf) {';
+        L{end+1} = '    uint64_t raw = (uint64_t)read_le32(buf) | ((uint64_t)read_le32(buf + 4) << 32);';
+        L{end+1} = '    double val; memcpy(&val, &raw, sizeof(val)); return val;';
+        L{end+1} = '}';
     end
     L{end+1} = '';
 
@@ -308,6 +331,49 @@ function s = gen_sfun_io_c(config)
     end
 
     L{end+1} = '}';
+    L{end+1} = '';
+
+    % Generate port setup functions
+    L{end+1} = '/* ---- Port setup functions ---- */';
+    L{end+1} = '';
+
+    % Input port setup
+    L{end+1} = 'void c2837x_block_setup_input_ports(SimStruct *S)';
+    L{end+1} = '{';
+    L{end+1} = sprintf('    if (!ssSetNumInputPorts(S, %d)) return;', numel(config.inputs));
+    L{end+1} = '';
+    for i = 1:numel(config.inputs)
+        v = config.inputs(i);
+        idx = i - 1;
+        simtype = type_to_simtype(v.type);
+        L{end+1} = sprintf('    /* Port %d: %s (%s, dim=%d) */', idx, v.name, v.type, v.dim);
+        L{end+1} = sprintf('    ssSetInputPortWidth(S, %d, %d);', idx, v.dim);
+        L{end+1} = sprintf('    ssSetInputPortDataType(S, %d, %s);', idx, simtype);
+        L{end+1} = sprintf('    ssSetInputPortDirectFeedThrough(S, %d, 1);', idx);
+        L{end+1} = sprintf('    ssSetInputPortRequiredContiguous(S, %d, 1);', idx);
+    end
+    L{end+1} = '}';
+    L{end+1} = '';
+
+    % Output port setup
+    L{end+1} = 'void c2837x_block_setup_output_ports(SimStruct *S)';
+    L{end+1} = '{';
+    L{end+1} = sprintf('    if (!ssSetNumOutputPorts(S, %d)) return;', numel(config.outputs));
+    L{end+1} = '';
+    for i = 1:numel(config.outputs)
+        v = config.outputs(i);
+        idx = i - 1;
+        simtype = type_to_simtype(v.type);
+        L{end+1} = sprintf('    /* Port %d: %s (%s, dim=%d) */', idx, v.name, v.type, v.dim);
+        L{end+1} = sprintf('    ssSetOutputPortWidth(S, %d, %d);', idx, v.dim);
+        L{end+1} = sprintf('    ssSetOutputPortDataType(S, %d, %s);', idx, simtype);
+    end
+    L{end+1} = '}';
+    L{end+1} = '';
+
+    % Port count getter functions
+    L{end+1} = sprintf('int c2837x_block_get_input_count(void) { return %d; }', numel(config.inputs));
+    L{end+1} = sprintf('int c2837x_block_get_output_count(void) { return %d; }', numel(config.outputs));
     L{end+1} = '';
 
     s = strjoin(L, '\n');
@@ -436,13 +502,30 @@ function copy_pc_library_files(output_dir)
         'build_c2837x_block_sfun.m'
     };
 
-    % Copy files
+    % Resolve output_dir to absolute path for comparison
+    if ~is_absolute_path(output_dir)
+        abs_output_dir = fullfile(pwd, output_dir);
+    else
+        abs_output_dir = output_dir;
+    end
+
+    % Copy files (skip if source and destination are the same)
     for i = 1:numel(files_to_copy)
         src = fullfile(simulink_dir, files_to_copy{i});
         dst = fullfile(output_dir, files_to_copy{i});
         if ~isfile(src)
             error('PC library file not found: %s', src);
         end
+        % Skip if copying to the same location
+        abs_dst = fullfile(abs_output_dir, files_to_copy{i});
+        if strcmpi(src, abs_dst)
+            continue;
+        end
         copyfile(src, dst);
     end
+end
+
+function tf = is_absolute_path(p)
+    tf = (length(p) >= 2 && p(2) == ':') || ...
+         (length(p) >= 1 && (p(1) == '/' || p(1) == '\'));
 end

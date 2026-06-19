@@ -15,7 +15,7 @@
 
 /* ---- Protocol configuration ---- */
 #define C2837X_BLOCK_PROTOCOL_VERSION  0x0001u
-#define C2837X_BLOCK_CONFIG_HASH       0x12345678u  /* Match DSP config */
+#define C2837X_BLOCK_CONFIG_HASH       0x848BADDBu
 #define C2837X_BLOCK_SAMPLE_TIME_SEC   0.0001
 
 /* ---- Network configuration ---- */
@@ -31,11 +31,11 @@
 #define C2837X_BLOCK_PC_TERMINATE_TIMEOUT_MS      1000u
 
 /* ---- Data counts ---- */
-#define C2837X_BLOCK_INPUT_COUNT       3u
+#define C2837X_BLOCK_INPUT_COUNT       1u
 #define C2837X_BLOCK_OUTPUT_COUNT      1u
 
 /* ---- Wire byte sizes ---- */
-#define C2837X_BLOCK_INPUT_DATA_SIZE_BYTES      6u
+#define C2837X_BLOCK_INPUT_DATA_SIZE_BYTES      2u
 #define C2837X_BLOCK_OUTPUT_DATA_SIZE_BYTES     2u
 #define C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES   (4u + C2837X_BLOCK_INPUT_DATA_SIZE_BYTES)
 #define C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES  (4u + C2837X_BLOCK_OUTPUT_DATA_SIZE_BYTES)
@@ -46,20 +46,10 @@
  *                    SS_INT16=4, SS_UINT16=5, SS_INT32=6, SS_UINT32=7
  */
 
-/* Input port configuration */
 #define C2837X_BLOCK_INPUT0_WIDTH           1
 #define C2837X_BLOCK_INPUT0_SIMTYPE         SS_INT16
 #define C2837X_BLOCK_INPUT0_BYTES_PER_ELEM  2
 
-#define C2837X_BLOCK_INPUT1_WIDTH           1
-#define C2837X_BLOCK_INPUT1_SIMTYPE         SS_INT16
-#define C2837X_BLOCK_INPUT1_BYTES_PER_ELEM  2
-
-#define C2837X_BLOCK_INPUT2_WIDTH           1
-#define C2837X_BLOCK_INPUT2_SIMTYPE         SS_INT16
-#define C2837X_BLOCK_INPUT2_BYTES_PER_ELEM  2
-
-/* Output port configuration */
 #define C2837X_BLOCK_OUTPUT0_WIDTH          1
 #define C2837X_BLOCK_OUTPUT0_SIMTYPE        SS_INT16
 #define C2837X_BLOCK_OUTPUT0_BYTES_PER_ELEM 2
@@ -86,5 +76,16 @@ void c2837x_block_pack_input_from_ports(SimStruct *S,
 void c2837x_block_unpack_output_to_ports(SimStruct *S,
                                          const uint8_t* payload,
                                          uint32_t* step_index);
+
+/*
+ * Setup input/output ports in mdlInitializeSizes.
+ * These functions configure port count, width, and data type.
+ */
+void c2837x_block_setup_input_ports(SimStruct *S);
+void c2837x_block_setup_output_ports(SimStruct *S);
+
+/* Get configured port counts */
+int c2837x_block_get_input_count(void);
+int c2837x_block_get_output_count(void);
 
 #endif /* C2837X_BLOCK_PC_CONFIG_H */

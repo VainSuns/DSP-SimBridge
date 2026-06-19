@@ -41,6 +41,9 @@ typedef struct {
 
     /* Socket library initialization flag */
     int socket_lib_initialized;
+
+    /* Last DSP error code for reporting */
+    uint16_t last_dsp_error;
 } C2837xBlockSfunContext;
 
 /* ---- Helper function declarations ---- */
