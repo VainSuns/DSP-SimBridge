@@ -25,6 +25,10 @@ codegen/
 *_grt_rtw/
 *_slprj/
 
+# C2837xBlock App generated files
+app/dsp/
+app/simulink/
+
 # CCS/C2000 build products
 CPU1_RAM/
 CPU2_RAM/
