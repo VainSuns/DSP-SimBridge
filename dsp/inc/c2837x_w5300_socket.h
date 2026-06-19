@@ -50,6 +50,12 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket* sk,
                                 const Uint16* data_words,
                                 Uint32 wire_byte_count);
 
+/**
+ * Disconnect a socket.
+ * @param sk  Pointer to the socket structure.
+ */
+void c2837x_w5300_socket_disconnect(C2837xW5300Socket* sk);
+
 /*
  * Receive TCP data. Reads whatever is available in the RX FIFO,
  * up to the caller's capacity. This is a raw TCP stream recv —

@@ -18,7 +18,7 @@
 /* ---- Error codes ---- */
 #define C2837X_ERR_OK                    0u
 #define C2837X_ERR_UNKNOWN_TYPE          1u
-#define C2837X_ERR_LENGTH                2u
+#define C2837X_ERR_PAYLOAD_LENGTH        2u
 #define C2837X_ERR_CONFIG_MISMATCH       3u
 #define C2837X_ERR_STATE                 4u
 #define C2837X_ERR_INTERNAL              5u

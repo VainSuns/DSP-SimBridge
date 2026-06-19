@@ -19,8 +19,8 @@ int16 c2837x_w5300_socket_open(C2837xW5300Socket* sk,
 
     c2837x_w5300_set_sn_ir(sk->sn, 0x00FF);
 
-    if (protocol == Sn_MR_TCP)
-        flags = (Uint16)(flags | Sn_MR_ALIGN);
+    // if (protocol == Sn_MR_TCP)
+    //     flags = (Uint16)(flags | Sn_MR_ALIGN);
 
     c2837x_w5300_write16(Sn_MR(sk->sn), (Uint16)(protocol | flags));
 
@@ -70,6 +70,11 @@ int16 c2837x_w5300_socket_close(C2837xW5300Socket* sk)
      * without waiting for TX buffer to drain. */
     c2837x_w5300_set_sn_ir(sk->sn, 0x00FF);
     return c2837x_w5300_set_sn_cr(sk->sn, Sn_CR_CLOSE);
+}
+
+void c2837x_w5300_socket_disconnect(C2837xW5300Socket* sk)
+{
+    c2837x_w5300_set_sn_cr(sk->sn, Sn_CR_DISCON);
 }
 
 int16 c2837x_w5300_socket_listen(C2837xW5300Socket* sk)

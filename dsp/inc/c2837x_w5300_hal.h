@@ -60,24 +60,7 @@ static inline Uint16 c2837x_w5300_is_socket_status(Uint16 status)
 
 static inline Uint16 c2837x_w5300_get_sn_ssr(Uint16 sn)
 {
-    Uint16 raw = c2837x_w5300_read16(Sn_SSR(sn));
-    Uint16 lo = (Uint16)(raw & 0x00FFu);
-    Uint16 hi = (Uint16)((raw >> 8) & 0x00FFu);
-
-    if ((lo == SOCK_CLOSED) &&
-        (hi != SOCK_CLOSED) &&
-        c2837x_w5300_is_socket_status(hi))
-    {
-        return hi;
-    }
-
-    if (!c2837x_w5300_is_socket_status(lo) &&
-        c2837x_w5300_is_socket_status(hi))
-    {
-        return hi;
-    }
-
-    return lo;
+    return c2837x_w5300_read8(Sn_SSR(sn));
 }
 
 static inline Uint16 c2837x_w5300_get_sn_mr(Uint16 sn)
