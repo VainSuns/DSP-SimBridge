@@ -3,21 +3,25 @@ function c2837x_block_generate_pc_files(config, output_path)
 %
 %   c2837x_block_generate_pc_files(config, output_path)
 %
-%   Generates 2 files directly under output_path:
-%     c2837x_block_pc_config.h  - Configuration macros and function declarations
-%     c2837x_block_sfun_io.c    - Direct port-to-payload conversion functions
-%
-%   NOTE: c2837x_block_pc_config.c is no longer needed because
-%         c2837x_block_sfun_io.c handles direct port-to-payload conversion.
+%   Generates 2 files and copies 7 existing files under output_path:
+%     Generated: c2837x_block_pc_config.h, c2837x_block_sfun_io.c
+%     Copied:    c2837x_block_sfun.c, c2837x_block_sfun.h,
+%                c2837x_block_pc_socket.c, c2837x_block_pc_socket.h,
+%                c2837x_block_protocol.c, c2837x_block_protocol.h,
+%                build_c2837x_block_sfun.m
 
     if ~isfolder(output_path), mkdir(output_path); end
 
     [~, config_hash] = c2837x_block_build_hash_string(config);
 
+    % Generate configuration files
     write_file(fullfile(output_path, 'c2837x_block_pc_config.h'), ...
                gen_pc_config_h(config, config_hash));
     write_file(fullfile(output_path, 'c2837x_block_sfun_io.c'), ...
                gen_sfun_io_c(config));
+
+    % Copy existing PC library files
+    copy_pc_library_files(output_path);
 end
 
 %% ---- File writer ----
@@ -25,6 +29,10 @@ function write_file(filepath, content)
     fid = fopen(filepath, 'w');
     if fid < 0
         error('Failed to write %s', filepath);
+    end
+    % Ensure content ends with newline (avoids compiler warnings)
+    if ~isempty(content) && content(end) ~= newline
+        content = [content newline];
     end
     fprintf(fid, '%s', content);
     fclose(fid);
@@ -402,5 +410,39 @@ function fn = get_read_le_fn(t)
         case 'single',             fn = 'read_single_le';
         case 'double',             fn = 'read_double64_le';
         otherwise,                 error('Unknown type: %s', t);
+    end
+end
+
+function copy_pc_library_files(output_dir)
+%COPY_PC_LIBRARY_FILES  Copy existing PC library files to output directory.
+%
+%   copy_pc_library_files(output_dir)
+%
+%   Copies S-Function source files from simulink/.
+
+    % Get project root (parent of app/ folder)
+    app_dir = fileparts(mfilename('fullpath'));
+    project_root = fileparts(app_dir);
+    simulink_dir = fullfile(project_root, 'simulink');
+
+    % Files to copy
+    files_to_copy = {
+        'c2837x_block_sfun.c'
+        'c2837x_block_sfun.h'
+        'c2837x_block_pc_socket.c'
+        'c2837x_block_pc_socket.h'
+        'c2837x_block_protocol.c'
+        'c2837x_block_protocol.h'
+        'build_c2837x_block_sfun.m'
+    };
+
+    % Copy files
+    for i = 1:numel(files_to_copy)
+        src = fullfile(simulink_dir, files_to_copy{i});
+        dst = fullfile(output_dir, files_to_copy{i});
+        if ~isfile(src)
+            error('PC library file not found: %s', src);
+        end
+        copyfile(src, dst);
     end
 end

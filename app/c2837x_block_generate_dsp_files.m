@@ -3,11 +3,13 @@ function c2837x_block_generate_dsp_files(config, output_path)
 %
 %   c2837x_block_generate_dsp_files(config, output_path)
 %
-%   Generates 4 files under output_path/inc/ and output_path/src/:
-%     c2837x_block_algorithm.h
-%     c2837x_block_config.h
-%     c2837x_block_config.c
-%     c2837x_block_global_variable.c
+%   Generates 4 files and copies 10 existing files under output_path:
+%     Generated: c2837x_block_algorithm.h, c2837x_block_config.h,
+%                c2837x_block_config.c, c2837x_block_global_variable.c
+%     Copied:    c2837x_block.h, c2837x_block.c, c2837x_block_protocol.h,
+%                c2837x_block_protocol.c, c2837x_w5300_regs.h,
+%                c2837x_block_w5300_hal.h, c2837x_block_w5300_hal.c,
+%                c2837x_block_w5300_socket.h, c2837x_block_w5300_socket.c
 
     inc_dir = fullfile(output_path, 'inc');
     src_dir = fullfile(output_path, 'src');
@@ -16,6 +18,7 @@ function c2837x_block_generate_dsp_files(config, output_path)
 
     [~, config_hash] = c2837x_block_build_hash_string(config);
 
+    % Generate configuration files
     write_file(fullfile(inc_dir, 'c2837x_block_algorithm.h'), ...
                gen_algorithm_h(config));
     write_file(fullfile(inc_dir, 'c2837x_block_config.h'), ...
@@ -24,6 +27,9 @@ function c2837x_block_generate_dsp_files(config, output_path)
                gen_config_c(config));
     write_file(fullfile(src_dir, 'c2837x_block_global_variable.c'), ...
                gen_global_variable_c(config));
+
+    % Copy existing DSP library files
+    copy_dsp_library_files(inc_dir, src_dir);
 end
 
 %% ---- File writer ----
@@ -31,6 +37,10 @@ function write_file(filepath, content)
     fid = fopen(filepath, 'w');
     if fid < 0
         error('Failed to write %s', filepath);
+    end
+    % Ensure content ends with newline (avoids compiler warnings)
+    if ~isempty(content) && content(end) ~= newline
+        content = [content newline];
     end
     fprintf(fid, '%s', content);
     fclose(fid);
@@ -564,4 +574,55 @@ function val = ip_to_uint32(ip_str)
           uint32(nums(2)) * 65536 + ...
           uint32(nums(3)) * 256 + ...
           uint32(nums(4));
+end
+
+function copy_dsp_library_files(inc_dir, src_dir)
+%COPY_DSP_LIBRARY_FILES  Copy existing DSP library files to output directory.
+%
+%   copy_dsp_library_files(inc_dir, src_dir)
+%
+%   Copies header files from dsp/inc/ and source files from dsp/src/.
+
+    % Get project root (parent of app/ folder)
+    app_dir = fileparts(mfilename('fullpath'));
+    project_root = fileparts(app_dir);
+    dsp_inc = fullfile(project_root, 'dsp', 'inc');
+    dsp_src = fullfile(project_root, 'dsp', 'src');
+
+    % Header files to copy
+    header_files = {
+        'c2837x_block.h'
+        'c2837x_block_protocol.h'
+        'c2837x_w5300_regs.h'
+        'c2837x_w5300_hal.h'
+        'c2837x_w5300_socket.h'
+    };
+
+    % Source files to copy
+    source_files = {
+        'c2837x_block.c'
+        'c2837x_block_protocol.c'
+        'c2837x_w5300_hal.c'
+        'c2837x_w5300_socket.c'
+    };
+
+    % Copy header files
+    for i = 1:numel(header_files)
+        src = fullfile(dsp_inc, header_files{i});
+        dst = fullfile(inc_dir, header_files{i});
+        if ~isfile(src)
+            error('DSP library file not found: %s', src);
+        end
+        copyfile(src, dst);
+    end
+
+    % Copy source files
+    for i = 1:numel(source_files)
+        src = fullfile(dsp_src, source_files{i});
+        dst = fullfile(src_dir, source_files{i});
+        if ~isfile(src)
+            error('DSP library file not found: %s', src);
+        end
+        copyfile(src, dst);
+    end
 end

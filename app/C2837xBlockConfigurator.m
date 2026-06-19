@@ -209,6 +209,12 @@ classdef C2837xBlockConfigurator < handle
                 errMsg = 'Output payload size must be even.';
                 return;
             end
+
+            % Output path validation
+            errMsg = validate_output_path(config.dsp_output_path, 'DSP Output');
+            if ~isempty(errMsg), return; end
+            errMsg = validate_output_path(config.pc_output_path, 'PC Output');
+            if ~isempty(errMsg), return; end
         end
 
         %% ---- Load default Phase 1 config ----
@@ -225,8 +231,8 @@ classdef C2837xBlockConfigurator < handle
             app.MaxPayloadField.Value = 1024;
             app.SocketTxField.Value = 64;
             app.SocketRxField.Value = 64;
-            app.DspPathField.Value  = 'dsp';
-            app.PcPathField.Value   = 'simulink';
+            app.DspPathField.Value  = '';
+            app.PcPathField.Value   = '';
 
             app.InputTable.Data = {
                 'a', 'int16', 1;
@@ -434,33 +440,77 @@ classdef C2837xBlockConfigurator < handle
             end
 
             try
-                dsp_path = resolve_output_path(config.dsp_output_path);
-                pc_path  = resolve_output_path(config.pc_output_path);
+                generate_dsp = ~isempty(strtrim(config.dsp_output_path));
+                generate_pc  = ~isempty(strtrim(config.pc_output_path));
+
+                if generate_dsp
+                    dsp_path = resolve_output_path(config.dsp_output_path);
+                end
+                if generate_pc
+                    pc_path = resolve_output_path(config.pc_output_path);
+                end
 
                 % Check if files already exist
                 existing = {};
-                dsp_files = {'c2837x_block_algorithm.h', 'c2837x_block_config.h', ...
-                             'c2837x_block_config.c', 'c2837x_block_global_variable.c'};
-                pc_files = {'c2837x_block_pc_config.h', 'c2837x_block_sfun_io.c'};
-                for i = 1:numel(dsp_files)
-                    p = fullfile(dsp_path, 'inc', dsp_files{i});
-                    if ~isfile(p), p = fullfile(dsp_path, 'src', dsp_files{i}); end
-                    if isfile(p), existing{end+1} = p; end %#ok<AGROW>
+                if generate_dsp
+                    dsp_inc_files = {'c2837x_block_algorithm.h', 'c2837x_block_config.h', ...
+                                     'c2837x_block.h', 'c2837x_block_protocol.h', ...
+                                     'c2837x_w5300_regs.h', 'c2837x_w5300_hal.h', ...
+                                     'c2837x_w5300_socket.h'};
+                    dsp_src_files = {'c2837x_block_config.c', 'c2837x_block_global_variable.c', ...
+                                     'c2837x_block.c', 'c2837x_block_protocol.c', ...
+                                     'c2837x_w5300_hal.c', 'c2837x_w5300_socket.c'};
+                    for i = 1:numel(dsp_inc_files)
+                        p = fullfile(dsp_path, 'inc', dsp_inc_files{i});
+                        if isfile(p), existing{end+1} = p; end %#ok<AGROW>
+                    end
+                    for i = 1:numel(dsp_src_files)
+                        p = fullfile(dsp_path, 'src', dsp_src_files{i});
+                        if isfile(p), existing{end+1} = p; end %#ok<AGROW>
+                    end
                 end
-                for i = 1:numel(pc_files)
-                    p = fullfile(pc_path, pc_files{i});
-                    if isfile(p), existing{end+1} = p; end %#ok<AGROW>
+                if generate_pc
+                    pc_files = {'c2837x_block_pc_config.h', 'c2837x_block_sfun_io.c', ...
+                                'c2837x_block_sfun.c', 'c2837x_block_sfun.h', ...
+                                'c2837x_block_pc_socket.c', 'c2837x_block_pc_socket.h', ...
+                                'c2837x_block_protocol.c', 'c2837x_block_protocol.h', ...
+                                'build_c2837x_block_sfun.m'};
+                    for i = 1:numel(pc_files)
+                        p = fullfile(pc_path, pc_files{i});
+                        if isfile(p), existing{end+1} = p; end %#ok<AGROW>
+                    end
                 end
 
                 if ~isempty(existing)
-                    msg = sprintf('The following files already exist:\n\n');
-                    for i = 1:min(numel(existing), 8)
-                        msg = sprintf('%s%s\n', msg, existing{i});
+                    % Separate DSP and PC files
+                    dsp_existing = {};
+                    pc_existing = {};
+                    for i = 1:numel(existing)
+                        [~, name, ext] = fileparts(existing{i});
+                        fname = [name ext];
+                        if generate_dsp && contains(existing{i}, dsp_path)
+                            dsp_existing{end+1} = fname; %#ok<AGROW>
+                        else
+                            pc_existing{end+1} = fname; %#ok<AGROW>
+                        end
                     end
-                    if numel(existing) > 8
-                        msg = sprintf('%s... and %d more\n', msg, numel(existing) - 8);
+
+                    % Build message with file names
+                    msg = 'Files already exist:\n';
+                    if ~isempty(dsp_existing)
+                        msg = sprintf('%s\nDSP (%s):', msg, dsp_path);
+                        for i = 1:numel(dsp_existing)
+                            msg = sprintf('%s\n  - %s', msg, dsp_existing{i});
+                        end
                     end
-                    msg = sprintf('%s\nReplace all?', msg);
+                    if ~isempty(pc_existing)
+                        msg = sprintf('%s\n\nPC (%s):', msg, pc_path);
+                        for i = 1:numel(pc_existing)
+                            msg = sprintf('%s\n  - %s', msg, pc_existing{i});
+                        end
+                    end
+                    msg = sprintf('%s\n\nReplace all?', msg);
+
                     choice = uiconfirm(app.UIFigure, msg, 'Confirm Replace', ...
                         'Options', {'Replace', 'Cancel'}, 'DefaultOption', 'Cancel');
                     if strcmp(choice, 'Cancel')
@@ -473,12 +523,25 @@ classdef C2837xBlockConfigurator < handle
                 app.StatusLabel.FontColor = [0 0 0];
                 pause(0.01);  % Allow UI to update (avoid drawnow deadlock in App Designer)
 
-                c2837x_block_generate_dsp_files(config, dsp_path);
-                c2837x_block_generate_pc_files(config, pc_path);
+                % Generate files
+                status_parts = {};
+                if generate_dsp
+                    c2837x_block_generate_dsp_files(config, dsp_path);
+                    status_parts{end+1} = 'DSP OK';
+                else
+                    status_parts{end+1} = 'DSP skipped';
+                end
+                if generate_pc
+                    c2837x_block_generate_pc_files(config, pc_path);
+                    status_parts{end+1} = 'PC OK';
+                else
+                    status_parts{end+1} = 'PC skipped';
+                end
 
                 [hash_str, hash_val] = c2837x_block_build_hash_string(config);
                 app.HashArea.Value = strsplit(hash_str, '\n');
-                app.StatusLabel.Text = sprintf('Status: Done. config_hash = 0x%08X', hash_val);
+                app.StatusLabel.Text = sprintf('Status: %s. config_hash = 0x%08X', ...
+                                               strjoin(status_parts, ', '), hash_val);
                 app.StatusLabel.FontColor = [0 0.5 0];
             catch e
                 uialert(app.UIFigure, e.message, 'Generation Error');
@@ -894,5 +957,58 @@ function b = type_wire_bytes(t)
         case {'int16','uint16'}, b = 2;
         case {'int32','uint32','single'}, b = 4;
         case 'double', b = 8;
+    end
+end
+
+function errMsg = validate_output_path(raw_path, field_name)
+%VALIDATE_OUTPUT_PATH  Validate output path is not inside project folder.
+%   Returns empty string if path is empty (skip) or valid.
+    errMsg = '';
+
+    % Empty path means skip this side
+    if isempty(strtrim(raw_path))
+        return;
+    end
+
+    % Resolve to absolute path
+    if is_absolute_path(raw_path)
+        abs_path = raw_path;
+    else
+        abs_path = fullfile(pwd, raw_path);
+    end
+
+    % Normalize path (remove trailing separators, resolve . and ..)
+    abs_path = GetFullPath(abs_path);
+
+    % Get project root (where this App file is located)
+    app_dir = fileparts(mfilename('fullpath'));
+    project_root = fileparts(app_dir);  % Parent of app/ folder
+    project_root = GetFullPath(project_root);
+
+    % Check if output path is inside project folder
+    % Must check with trailing separator to avoid prefix matching
+    % e.g., C2837xBlock_Test should NOT match C2837xBlock
+    root_with_sep = [project_root filesep];
+    is_inside = strcmpi(abs_path, project_root) || ...
+                startsWith(abs_path, root_with_sep, 'IgnoreCase', ispc);
+    if is_inside
+        errMsg = sprintf('%s path cannot be inside the project folder.\nProject: %s\nOutput:  %s', ...
+                  field_name, project_root, abs_path);
+        return;
+    end
+end
+
+function p = GetFullPath(p)
+%GETFULLPATH  Get absolute path, resolving . and ..
+    try
+        javaFile = java.io.File(p);
+        p = char(javaFile.getCanonicalPath());
+    catch
+        % Fallback if Java not available
+        if is_absolute_path(p)
+            % Simple normalization
+            p = strrep(p, '/', filesep);
+            p = strrep(p, '\', filesep);
+        end
     end
 end
