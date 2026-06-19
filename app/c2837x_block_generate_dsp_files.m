@@ -553,8 +553,15 @@ end
 
 function val = ip_to_uint32(ip_str)
     parts = strsplit(ip_str, '.');
-    val = uint32(str2double(parts{1})) * 16777216 + ...
-          uint32(str2double(parts{2})) * 65536 + ...
-          uint32(str2double(parts{3})) * 256 + ...
-          uint32(str2double(parts{4}));
+    if numel(parts) ~= 4
+        error('Invalid IP address "%s": expected 4 octets.', ip_str);
+    end
+    nums = str2double(parts);
+    if any(isnan(nums)) || any(nums < 0) || any(nums > 255) || any(nums ~= floor(nums))
+        error('Invalid IP address "%s": each octet must be 0..255.', ip_str);
+    end
+    val = uint32(nums(1)) * 16777216 + ...
+          uint32(nums(2)) * 65536 + ...
+          uint32(nums(3)) * 256 + ...
+          uint32(nums(4));
 end

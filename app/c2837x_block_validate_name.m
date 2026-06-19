@@ -76,7 +76,7 @@ function [valid, msg] = c2837x_block_validate_name(name, existing_names)
     end
 
     % --- C2837X_ prefix reserved ---
-    if numel(name) > 9 && strncmpi(name, 'C2837X_', 7)
+    if numel(name) >= 7 && strncmpi(name, 'C2837X_', 7)
         valid = false;
         msg = sprintf('"%s" uses reserved prefix C2837X_.', name);
         return;

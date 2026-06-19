@@ -118,6 +118,94 @@ classdef C2837xBlockConfigurator < handle
             config.pc_output_path  = strtrim(app.PcPathField.Value);
         end
 
+        %% ---- Validate config (shared by generate and preview) ----
+        function errMsg = validateConfig(~, config)
+            errMsg = '';
+
+            % Double type requires double_mode = eabi64
+            if strcmp(config.double_mode, 'disabled')
+                has_double = any(strcmp({config.inputs.type}, 'double')) || ...
+                             any(strcmp({config.outputs.type}, 'double'));
+                if has_double
+                    errMsg = 'Variable type "double" requires Double Mode = eabi64.';
+                    return;
+                end
+            end
+
+            % Numeric range checks
+            if config.tcp_port < 1 || config.tcp_port > 65535 || isnan(config.tcp_port)
+                errMsg = 'TCP Port must be 1..65535.';
+                return;
+            end
+            if config.sample_time_sec <= 0 || isnan(config.sample_time_sec)
+                errMsg = 'Sample Time must be positive.';
+                return;
+            end
+            if config.max_payload_size_bytes < 1 || config.max_payload_size_bytes > 65535 || isnan(config.max_payload_size_bytes)
+                errMsg = 'Max Payload must be 1..65535.';
+                return;
+            end
+            if mod(config.max_payload_size_bytes, 2) ~= 0
+                errMsg = 'Max Payload must be even.';
+                return;
+            end
+
+            % Variable dim checks
+            for i = 1:numel(config.inputs)
+                d = config.inputs(i).dim;
+                if d < 1 || isnan(d) || d ~= floor(d)
+                    errMsg = sprintf('Input "%s" dim must be a positive integer.', config.inputs(i).name);
+                    return;
+                end
+            end
+            for i = 1:numel(config.outputs)
+                d = config.outputs(i).dim;
+                if d < 1 || isnan(d) || d ~= floor(d)
+                    errMsg = sprintf('Output "%s" dim must be a positive integer.', config.outputs(i).name);
+                    return;
+                end
+            end
+
+            % IP address validation
+            [ok, msg] = validate_ip(config.dsp_ip, 'DSP IP');
+            if ~ok, errMsg = msg; return; end
+            [ok, msg] = validate_ip(config.gateway, 'Gateway');
+            if ~ok, errMsg = msg; return; end
+            [ok, msg] = validate_ip(config.subnet, 'Subnet');
+            if ~ok, errMsg = msg; return; end
+
+            % Payload size validation
+            in_data_bytes = 0;
+            for i = 1:numel(config.inputs)
+                in_data_bytes = in_data_bytes + type_wire_bytes(config.inputs(i).type) * config.inputs(i).dim;
+            end
+            out_data_bytes = 0;
+            for i = 1:numel(config.outputs)
+                out_data_bytes = out_data_bytes + type_wire_bytes(config.outputs(i).type) * config.outputs(i).dim;
+            end
+            in_payload = 4 + in_data_bytes;
+            out_payload = 4 + out_data_bytes;
+
+            if in_payload > config.max_payload_size_bytes
+                errMsg = sprintf('Input payload (%d bytes) exceeds max payload (%d).', ...
+                          in_payload, config.max_payload_size_bytes);
+                return;
+            end
+            if out_payload > config.max_payload_size_bytes
+                errMsg = sprintf('Output payload (%d bytes) exceeds max payload (%d).', ...
+                          out_payload, config.max_payload_size_bytes);
+                return;
+            end
+            if mod(in_payload, 2) ~= 0
+                errMsg = 'Input payload size must be even.';
+                return;
+            end
+            if mod(out_payload, 2) ~= 0
+                errMsg = 'Output payload size must be even.';
+                return;
+            end
+        end
+
         %% ---- Load default Phase 1 config ----
         function loadDefaultConfig(app)
             app.IpField.Value       = '192.168.1.100';
@@ -327,15 +415,22 @@ classdef C2837xBlockConfigurator < handle
                 checked{end+1} = all_names{i}; %#ok<AGROW>
             end
 
-            % Double check
+            % Validate configuration
+            errMsg = validateConfig(app, config);
+            if ~isempty(errMsg)
+                uialert(app.UIFigure, errMsg, 'Config Error');
+                return;
+            end
+
+            % Double check: eabi64 requires eabi ABI
             if strcmp(config.double_mode, 'eabi64') && ~strcmp(config.abi, 'eabi')
                 uialert(app.UIFigure, 'Double eabi64 requires EABI.', 'Config Error');
                 return;
             end
 
             try
-                dsp_path = fullfile(pwd, config.dsp_output_path);
-                pc_path  = fullfile(pwd, config.pc_output_path);
+                dsp_path = resolve_output_path(config.dsp_output_path);
+                pc_path  = resolve_output_path(config.pc_output_path);
 
                 % Check if files already exist
                 existing = {};
@@ -427,6 +522,14 @@ classdef C2837xBlockConfigurator < handle
         %% ---- Preview hash button callback ----
         function previewButtonPushed(app, ~, ~)
             config = collectConfig(app);
+
+            % Validate before computing hash
+            errMsg = validateConfig(app, config);
+            if ~isempty(errMsg)
+                uialert(app.UIFigure, errMsg, 'Validation Error');
+                return;
+            end
+
             [hash_str, hash_val] = c2837x_block_build_hash_string(config);
             app.HashArea.Value = strsplit(hash_str, '\n');
             app.StatusLabel.Text = sprintf('Status: config_hash = 0x%08X', hash_val);
@@ -745,7 +848,42 @@ classdef C2837xBlockConfigurator < handle
     end
 end
 
-%% ---- Local helper ----
+%% ---- Local helpers ----
+function [ok, msg] = validate_ip(ip_str, field_name)
+    ok = true;
+    msg = '';
+    parts = strsplit(ip_str, '.');
+    if numel(parts) ~= 4
+        ok = false;
+        msg = sprintf('%s: expected 4 octets, got %d.', field_name, numel(parts));
+        return;
+    end
+    nums = str2double(parts);
+    if any(isnan(nums))
+        ok = false;
+        msg = sprintf('%s: each octet must be a number.', field_name);
+        return;
+    end
+    if any(nums < 0 | nums > 255 | nums ~= floor(nums))
+        ok = false;
+        msg = sprintf('%s: each octet must be 0..255.', field_name);
+        return;
+    end
+end
+
+function p = resolve_output_path(raw)
+    if is_absolute_path(raw)
+        p = raw;
+    else
+        p = fullfile(pwd, raw);
+    end
+end
+
+function tf = is_absolute_path(p)
+    tf = (length(p) >= 2 && p(2) == ':') || ...
+         (length(p) >= 1 && (p(1) == '/' || p(1) == '\'));
+end
+
 function b = type_wire_bytes(t)
     switch t
         case {'int16','uint16'}, b = 2;
