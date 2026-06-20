@@ -249,13 +249,7 @@ static void mdlInitializeSizes(SimStruct *S)
  */
 static void mdlInitializeSampleTimes(SimStruct *S)
 {
-    /* Check for fixed-step solver */
-    if (ssGetSolverMode(S) != SOLVER_MODE_SINGLETASKING &&
-        ssGetSolverMode(S) != SOLVER_MODE_MULTITASKING) {
-        ssSetErrorStatus(S, "C2837xBlock: Requires fixed-step solver");
-        return;
-    }
-
+    /* Set fixed discrete sample time for this module */
     ssSetSampleTime(S, 0, C2837X_BLOCK_SAMPLE_TIME_SEC);
     ssSetOffsetTime(S, 0, 0.0);
 }
@@ -322,15 +316,15 @@ static void mdlOutputs(SimStruct *S, int_T tid)
             char msg[128];
             const char* err_name;
             switch (ctx->last_dsp_error) {
-                case C2837X_BLOCK_ERR_INTERNAL:      err_name = "Internal error"; break;
-                case C2837X_BLOCK_ERR_LENGTH:        err_name = "Invalid length"; break;
-                case C2837X_BLOCK_ERR_CONFIG_HASH:   err_name = "Config hash mismatch"; break;
-                case C2837X_BLOCK_ERR_PAYLOAD_SIZE:  err_name = "Payload too large"; break;
-                case C2837X_BLOCK_ERR_ALGORITHM:     err_name = "Algorithm error"; break;
+                case C2837X_BLOCK_ERR_UNKNOWN_TYPE:     err_name = "Unknown message type"; break;
+                case C2837X_BLOCK_ERR_LENGTH:           err_name = "Invalid payload length"; break;
+                case C2837X_BLOCK_ERR_CONFIG_HASH:      err_name = "Config hash mismatch"; break;
+                case C2837X_BLOCK_ERR_STATE:            err_name = "Invalid state"; break;
+                case C2837X_BLOCK_ERR_INTERNAL:         err_name = "Internal error"; break;
                 case C2837X_BLOCK_ERR_PROTOCOL_VERSION: err_name = "Protocol version mismatch"; break;
-                case C2837X_BLOCK_ERR_STEP_INDEX:    err_name = "Step index mismatch"; break;
-                case C2837X_BLOCK_ERR_STATE:         err_name = "Invalid state"; break;
-                default:                             err_name = "Unknown error"; break;
+                case C2837X_BLOCK_ERR_STEP_INDEX:       err_name = "Step index mismatch"; break;
+                case C2837X_BLOCK_ERR_UNSUPPORTED_TYPE: err_name = "Unsupported data type or ABI"; break;
+                default:                                err_name = "Unknown error"; break;
             }
             snprintf(msg, sizeof(msg), "C2837xBlock: DSP error %d (%s) at step %u",
                      ctx->last_dsp_error, err_name, (unsigned)ctx->step_index);

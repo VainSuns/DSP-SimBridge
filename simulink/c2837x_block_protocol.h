@@ -26,15 +26,16 @@ extern "C" {
 #define C2837X_BLOCK_TYPE_RESPONSE     0x0005u
 
 /* Response error codes (uint16_t, in RESPONSE payload) */
+/* Must match DSP error codes in dsp/inc/c2837x_block_protocol.h */
 #define C2837X_BLOCK_ERR_NONE                0u  /* Success */
-#define C2837X_BLOCK_ERR_INTERNAL            1u  /* Internal DSP error */
+#define C2837X_BLOCK_ERR_UNKNOWN_TYPE        1u  /* Unknown message type */
 #define C2837X_BLOCK_ERR_LENGTH              2u  /* Invalid payload length */
 #define C2837X_BLOCK_ERR_CONFIG_HASH         3u  /* Config hash mismatch */
-#define C2837X_BLOCK_ERR_PAYLOAD_SIZE        4u  /* Payload size exceeded */
-#define C2837X_BLOCK_ERR_ALGORITHM           5u  /* User algorithm failed */
+#define C2837X_BLOCK_ERR_STATE               4u  /* Invalid state for message */
+#define C2837X_BLOCK_ERR_INTERNAL            5u  /* Internal DSP error */
 #define C2837X_BLOCK_ERR_PROTOCOL_VERSION    6u  /* Protocol version mismatch */
 #define C2837X_BLOCK_ERR_STEP_INDEX          7u  /* Step index mismatch */
-#define C2837X_BLOCK_ERR_STATE               8u  /* Invalid state for message */
+#define C2837X_BLOCK_ERR_UNSUPPORTED_TYPE    8u  /* Unsupported data type or ABI */
 
 /* SIM_START payload: protocol_version (uint16) + config_hash (uint32) = 6 bytes */
 #define C2837X_BLOCK_SIM_START_PAYLOAD_SIZE  6u
