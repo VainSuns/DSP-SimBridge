@@ -1,9 +1,9 @@
-# C2837xBlock — DSP 在环仿真通信模块
+# DSP-SimBridge — DSP 在环仿真通信模块
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2024b%2B-blue)](https://www.mathworks.com/products/matlab.html)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-C2837xBlock 是一个 DSP 在环仿真（DSP-in-the-Loop）通信模块，用于在 Simulink 仿真环境中验证运行在 TI C2000 DSP 上的控制算法。
+DSP-SimBridge 是一个 DSP 在环仿真（DSP-in-the-Loop）通信模块，用于在 Simulink 仿真环境中验证运行在 TI C2000 DSP 上的控制算法。
 
 ## 📋 目录
 
@@ -84,7 +84,7 @@ PC (Simulink)                              DSP
 ## 目录结构
 
 ```
-C2837xBlock/
+DSP-SimBridge/
 ├── app/                                # MATLAB App 配置工具
 │   ├── C2837xBlockConfigurator.m       # App 主文件
 │   ├── c2837x_block_build_hash_string.m # Hash 计算
