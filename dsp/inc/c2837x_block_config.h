@@ -23,7 +23,7 @@
 
 /* ---- Protocol configuration ---- */
 #define C2837X_BLOCK_PROTOCOL_VERSION  0x0001u
-#define C2837X_BLOCK_CONFIG_HASH       0x12345678u  /* placeholder */
+#define C2837X_BLOCK_CONFIG_HASH       0x9C07E537u  /* Generated from config */
 #define C2837X_BLOCK_SAMPLE_TIME_SEC   1.0e-4
 
 /* ---- Network configuration ---- */

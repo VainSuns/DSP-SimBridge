@@ -68,6 +68,20 @@ void c2837x_block_pack_input_from_ports(SimStruct *S,
         offset += 2;
     }
 
+    /* b: int16, port 1 */
+    {
+        const int16_t *u = (const int16_t *)ssGetInputPortSignal(S, 1);
+        write_le16(&payload[offset], u[0]);
+        offset += 2;
+    }
+
+    /* c: int16, port 2 */
+    {
+        const int16_t *u = (const int16_t *)ssGetInputPortSignal(S, 2);
+        write_le16(&payload[offset], u[0]);
+        offset += 2;
+    }
+
 }
 
 /* ---- Unpack output payload directly to ports ---- */
@@ -94,13 +108,23 @@ void c2837x_block_unpack_output_to_ports(SimStruct *S,
 
 int c2837x_block_setup_input_ports(SimStruct *S)
 {
-    if (!ssSetNumInputPorts(S, 1)) return -1;
+    if (!ssSetNumInputPorts(S, 3)) return -1;
 
     /* Port 0: a (int16, dim=1) */
     ssSetInputPortWidth(S, 0, 1);
     ssSetInputPortDataType(S, 0, SS_INT16);
     ssSetInputPortDirectFeedThrough(S, 0, 1);
     ssSetInputPortRequiredContiguous(S, 0, 1);
+    /* Port 1: b (int16, dim=1) */
+    ssSetInputPortWidth(S, 1, 1);
+    ssSetInputPortDataType(S, 1, SS_INT16);
+    ssSetInputPortDirectFeedThrough(S, 1, 1);
+    ssSetInputPortRequiredContiguous(S, 1, 1);
+    /* Port 2: c (int16, dim=1) */
+    ssSetInputPortWidth(S, 2, 1);
+    ssSetInputPortDataType(S, 2, SS_INT16);
+    ssSetInputPortDirectFeedThrough(S, 2, 1);
+    ssSetInputPortRequiredContiguous(S, 2, 1);
     return 0;
 }
 
@@ -114,5 +138,5 @@ int c2837x_block_setup_output_ports(SimStruct *S)
     return 0;
 }
 
-int c2837x_block_get_input_count(void) { return 1; }
+int c2837x_block_get_input_count(void) { return 3; }
 int c2837x_block_get_output_count(void) { return 1; }
