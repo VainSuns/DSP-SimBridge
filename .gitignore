@@ -4,6 +4,7 @@
 .mcp.json
 .vscode/
 .idea/
+.codex/
 
 # OS/editor temporary files
 Thumbs.db
