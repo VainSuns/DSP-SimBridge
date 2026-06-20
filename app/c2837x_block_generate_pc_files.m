@@ -190,44 +190,69 @@ function s = gen_sfun_io_c(config)
     L{end+1} = '#include "simstruc.h"';
     L{end+1} = '';
 
-    % Generate write helpers
-    all_types = unique([{config.inputs.type}, {config.outputs.type}]);
-    need_int16 = any(strcmp(all_types, 'int16'));
-    need_uint16 = any(strcmp(all_types, 'uint16'));
-    need_int32 = any(strcmp(all_types, 'int32'));
-    need_uint32 = any(strcmp(all_types, 'uint32'));
-    need_single = any(strcmp(all_types, 'single'));
-    need_double = any(strcmp(all_types, 'double'));
+    % Determine which types need write helpers (for packing inputs to send to DSP)
+    input_types = unique({config.inputs.type});
+    need_write_int16 = any(strcmp(input_types, 'int16'));
+    need_write_uint16 = any(strcmp(input_types, 'uint16'));
+    need_write_int32 = any(strcmp(input_types, 'int32'));
+    need_write_uint32 = any(strcmp(input_types, 'uint32'));
+    need_write_single = any(strcmp(input_types, 'single'));
+    need_write_double = any(strcmp(input_types, 'double'));
+
+    % Determine which types need read helpers (for unpacking outputs received from DSP)
+    output_types = unique({config.outputs.type});
+    need_read_int16 = any(strcmp(output_types, 'int16'));
+    need_read_uint16 = any(strcmp(output_types, 'uint16'));
+    need_read_int32 = any(strcmp(output_types, 'int32'));
+    need_read_uint32 = any(strcmp(output_types, 'uint32'));
+    need_read_single = any(strcmp(output_types, 'single'));
+    need_read_double = any(strcmp(output_types, 'double'));
 
     L{end+1} = '/* ---- Little-endian serialization helpers ---- */';
     L{end+1} = '';
 
-    % Always needed: write_le16, write_le32, read_le16, read_le32
-    L = [L, gen_le_helper('write_le16', 'uint16_t', true, true)];
+    % Always needed: write_le32 (for step_index), read_le32 (for step_index)
+    L = [L, gen_le_helper('write_le16', 'uint16_t', true, need_write_int16 || need_write_uint16 || need_read_int16 || need_read_uint16)];
     L = [L, gen_le_helper('write_le32', 'uint32_t', true, true)];
-    L = [L, gen_le_helper('read_le16', 'uint16_t', false, true)];
+    L = [L, gen_le_helper('read_le16', 'uint16_t', false, need_write_int16 || need_write_uint16 || need_read_int16 || need_read_uint16)];
     L = [L, gen_le_helper('read_le32', 'uint32_t', false, true)];
     L{end+1} = '';
 
-    % Additional helpers for other types
-    if need_int16
+    % int16 helpers
+    need_write_int16_le = need_write_int16;
+    need_read_int16_le = need_read_int16;
+    if need_write_int16_le
         L{end+1} = 'static inline void write_int16_le(uint8_t* buf, int16_t val) { write_le16(buf, (uint16_t)val); }';
+    end
+    if need_read_int16_le
         L{end+1} = 'static inline int16_t read_int16_le(const uint8_t* buf) { return (int16_t)read_le16(buf); }';
     end
-    if need_int32
+
+    % int32 helpers
+    if need_write_int32
         L{end+1} = 'static inline void write_int32_le(uint8_t* buf, int32_t val) { write_le32(buf, (uint32_t)val); }';
+    end
+    if need_read_int32
         L{end+1} = 'static inline int32_t read_int32_le(const uint8_t* buf) { return (int32_t)read_le32(buf); }';
     end
-    if need_single
+
+    % single helpers
+    if need_write_single
         L{end+1} = 'static inline void write_single_le(uint8_t* buf, float val) { uint32_t raw; memcpy(&raw, &val, sizeof(raw)); write_le32(buf, raw); }';
+    end
+    if need_read_single
         L{end+1} = 'static inline float read_single_le(const uint8_t* buf) { uint32_t raw = read_le32(buf); float val; memcpy(&val, &raw, sizeof(val)); return val; }';
     end
-    if need_double
+
+    % double helpers
+    if need_write_double
         L{end+1} = 'static inline void write_double64_le(uint8_t* buf, double val) {';
         L{end+1} = '    uint64_t raw; memcpy(&raw, &val, sizeof(raw));';
         L{end+1} = '    write_le32(buf, (uint32_t)(raw & 0xFFFFFFFFu));';
         L{end+1} = '    write_le32(buf + 4, (uint32_t)(raw >> 32));';
         L{end+1} = '}';
+    end
+    if need_read_double
         L{end+1} = 'static inline double read_double64_le(const uint8_t* buf) {';
         L{end+1} = '    uint64_t raw = (uint64_t)read_le32(buf) | ((uint64_t)read_le32(buf + 4) << 32);';
         L{end+1} = '    double val; memcpy(&val, &raw, sizeof(val)); return val;';
