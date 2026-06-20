@@ -80,9 +80,10 @@ void c2837x_block_unpack_output_to_ports(SimStruct *S,
 /*
  * Setup input/output ports in mdlInitializeSizes.
  * These functions configure port count, width, and data type.
+ * Returns 0 on success, -1 on failure.
  */
-void c2837x_block_setup_input_ports(SimStruct *S);
-void c2837x_block_setup_output_ports(SimStruct *S);
+int c2837x_block_setup_input_ports(SimStruct *S);
+int c2837x_block_setup_output_ports(SimStruct *S);
 
 /* Get configured port counts */
 int c2837x_block_get_input_count(void);

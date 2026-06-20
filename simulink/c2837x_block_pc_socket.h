@@ -44,9 +44,9 @@ void c2837x_socket_cleanup(void);
  * - s: socket structure to initialize
  * - ip: IP address string (e.g., "192.168.1.100")
  * - port: TCP port number
- * - timeout_ms: connection timeout in milliseconds (reserved for future use)
+ * - timeout_ms: connection timeout in milliseconds
  *
- * Returns 0 on success, -1 on failure.
+ * Returns 0 on success, -1 on failure/timeout.
  */
 int c2837x_socket_connect(c2837x_socket_t* s,
                           const char* ip,
@@ -54,13 +54,13 @@ int c2837x_socket_connect(c2837x_socket_t* s,
                           uint32_t timeout_ms);
 
 /*
- * Send exactly 'length' bytes, blocking until all sent.
+ * Send exactly 'length' bytes, blocking until all sent or timeout.
  * - s: connected socket
  * - data: data buffer to send
  * - length: number of bytes to send
- * - timeout_ms: send timeout in milliseconds (reserved for future use)
+ * - timeout_ms: send timeout in milliseconds
  *
- * Returns 0 on success, -1 on error.
+ * Returns 0 on success, -1 on error/timeout.
  */
 int c2837x_socket_send_all(c2837x_socket_t* s,
                            const uint8_t* data,

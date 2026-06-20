@@ -92,24 +92,26 @@ void c2837x_block_unpack_output_to_ports(SimStruct *S,
 
 /* ---- Port setup functions ---- */
 
-void c2837x_block_setup_input_ports(SimStruct *S)
+int c2837x_block_setup_input_ports(SimStruct *S)
 {
-    if (!ssSetNumInputPorts(S, 1)) return;
+    if (!ssSetNumInputPorts(S, 1)) return -1;
 
     /* Port 0: a (int16, dim=1) */
     ssSetInputPortWidth(S, 0, 1);
     ssSetInputPortDataType(S, 0, SS_INT16);
     ssSetInputPortDirectFeedThrough(S, 0, 1);
     ssSetInputPortRequiredContiguous(S, 0, 1);
+    return 0;
 }
 
-void c2837x_block_setup_output_ports(SimStruct *S)
+int c2837x_block_setup_output_ports(SimStruct *S)
 {
-    if (!ssSetNumOutputPorts(S, 1)) return;
+    if (!ssSetNumOutputPorts(S, 1)) return -1;
 
     /* Port 0: sum (int16, dim=1) */
     ssSetOutputPortWidth(S, 0, 1);
     ssSetOutputPortDataType(S, 0, SS_INT16);
+    return 0;
 }
 
 int c2837x_block_get_input_count(void) { return 1; }

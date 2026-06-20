@@ -153,9 +153,10 @@ function s = gen_pc_config_h(config, config_hash)
     L{end+1} = '/*';
     L{end+1} = ' * Setup input/output ports in mdlInitializeSizes.';
     L{end+1} = ' * These functions configure port count, width, and data type.';
+    L{end+1} = ' * Returns 0 on success, -1 on failure.';
     L{end+1} = ' */';
-    L{end+1} = 'void c2837x_block_setup_input_ports(SimStruct *S);';
-    L{end+1} = 'void c2837x_block_setup_output_ports(SimStruct *S);';
+    L{end+1} = 'int c2837x_block_setup_input_ports(SimStruct *S);';
+    L{end+1} = 'int c2837x_block_setup_output_ports(SimStruct *S);';
     L{end+1} = '';
     L{end+1} = '/* Get configured port counts */';
     L{end+1} = 'int c2837x_block_get_input_count(void);';
@@ -333,14 +334,14 @@ function s = gen_sfun_io_c(config)
     L{end+1} = '}';
     L{end+1} = '';
 
-    % Generate port setup functions
+    % Generate port setup functions (return 0 on success, -1 on failure)
     L{end+1} = '/* ---- Port setup functions ---- */';
     L{end+1} = '';
 
     % Input port setup
-    L{end+1} = 'void c2837x_block_setup_input_ports(SimStruct *S)';
+    L{end+1} = 'int c2837x_block_setup_input_ports(SimStruct *S)';
     L{end+1} = '{';
-    L{end+1} = sprintf('    if (!ssSetNumInputPorts(S, %d)) return;', numel(config.inputs));
+    L{end+1} = sprintf('    if (!ssSetNumInputPorts(S, %d)) return -1;', numel(config.inputs));
     L{end+1} = '';
     for i = 1:numel(config.inputs)
         v = config.inputs(i);
@@ -352,13 +353,14 @@ function s = gen_sfun_io_c(config)
         L{end+1} = sprintf('    ssSetInputPortDirectFeedThrough(S, %d, 1);', idx);
         L{end+1} = sprintf('    ssSetInputPortRequiredContiguous(S, %d, 1);', idx);
     end
+    L{end+1} = '    return 0;';
     L{end+1} = '}';
     L{end+1} = '';
 
     % Output port setup
-    L{end+1} = 'void c2837x_block_setup_output_ports(SimStruct *S)';
+    L{end+1} = 'int c2837x_block_setup_output_ports(SimStruct *S)';
     L{end+1} = '{';
-    L{end+1} = sprintf('    if (!ssSetNumOutputPorts(S, %d)) return;', numel(config.outputs));
+    L{end+1} = sprintf('    if (!ssSetNumOutputPorts(S, %d)) return -1;', numel(config.outputs));
     L{end+1} = '';
     for i = 1:numel(config.outputs)
         v = config.outputs(i);
@@ -368,6 +370,7 @@ function s = gen_sfun_io_c(config)
         L{end+1} = sprintf('    ssSetOutputPortWidth(S, %d, %d);', idx, v.dim);
         L{end+1} = sprintf('    ssSetOutputPortDataType(S, %d, %s);', idx, simtype);
     end
+    L{end+1} = '    return 0;';
     L{end+1} = '}';
     L{end+1} = '';
 

@@ -26,6 +26,10 @@
 #include "c2837x_block_protocol.h"
 #include "c2837x_block_pc_config.h"
 
+/* ---- Standard library includes ---- */
+#include <stdlib.h>   /* calloc, free */
+#include <stdio.h>    /* snprintf */
+
 /* ---- Compile-time configuration validation ---- */
 #if !defined(C2837X_BLOCK_INPUT_COUNT) || (C2837X_BLOCK_INPUT_COUNT < 1)
 #error "C2837X_BLOCK_INPUT_COUNT must be defined and >= 1 in c2837x_block_pc_config.h"
@@ -219,8 +223,14 @@ static void mdlInitializeSizes(SimStruct *S)
     }
 
     /* Setup ports using generated functions from c2837x_block_sfun_io.c */
-    c2837x_block_setup_input_ports(S);
-    c2837x_block_setup_output_ports(S);
+    if (c2837x_block_setup_input_ports(S) != 0) {
+        ssSetErrorStatus(S, "C2837xBlock: Failed to setup input ports");
+        return;
+    }
+    if (c2837x_block_setup_output_ports(S) != 0) {
+        ssSetErrorStatus(S, "C2837xBlock: Failed to setup output ports");
+        return;
+    }
 
     /* Sample time */
     ssSetNumSampleTimes(S, 1);

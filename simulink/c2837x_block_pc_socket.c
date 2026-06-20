@@ -16,6 +16,7 @@
 #define RTIOSTREAM_ECONNRESET WSAECONNRESET
 #define GET_SOCK_ERROR() WSAGetLastError()
 #define WOULD_BLOCK(err) ((err) == WSAEWOULDBLOCK)
+#define CONNECT_IN_PROGRESS(err) ((err) == WSAEWOULDBLOCK || (err) == WSAEINPROGRESS || (err) == WSAEALREADY)
 #else
 /* POSIX socket */
 #include <sys/types.h>
@@ -34,6 +35,7 @@
 typedef int SOCKET;
 #define GET_SOCK_ERROR() errno
 #define WOULD_BLOCK(err) ((err) == EAGAIN || (err) == EWOULDBLOCK)
+#define CONNECT_IN_PROGRESS(err) ((err) == EINPROGRESS || (err) == EALREADY)
 #endif
 
 #include <string.h>
@@ -190,7 +192,7 @@ int c2837x_socket_connect(c2837x_socket_t* s,
     /* Initiate non-blocking connect */
     if (connect(cSock, (struct sockaddr*)&sa, sizeof(sa)) == SOCK_ERR) {
         int err = GET_SOCK_ERROR();
-        if (!WOULD_BLOCK(err)) {
+        if (!CONNECT_IN_PROGRESS(err)) {
             close(cSock);
             return -1;
         }
