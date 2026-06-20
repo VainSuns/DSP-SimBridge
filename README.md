@@ -85,29 +85,48 @@ PC (Simulink)                              DSP
 
 ```
 C2837xBlock/
-├── app/                            # MATLAB App 配置工具
-│   ├── C2837xBlockConfigurator.m   # App 主文件
-│   ├── c2837x_block_build_hash_string.m  # Hash 计算
-│   ├── c2837x_block_crc32.m        # CRC32 实现
+├── app/                                # MATLAB App 配置工具
+│   ├── C2837xBlockConfigurator.m       # App 主文件
+│   ├── c2837x_block_build_hash_string.m # Hash 计算
+│   ├── c2837x_block_crc32.m            # CRC32 实现
 │   ├── c2837x_block_generate_dsp_files.m # DSP 文件生成器
 │   ├── c2837x_block_generate_pc_files.m  # PC 文件生成器
 │   └── c2837x_block_validate_name.m      # 变量名验证
 │
-├── dsp/                            # DSP 端源代码（参考实现）
-│   ├── inc/                        # 头文件
-│   └── src/                        # 源文件
+├── dsp/                                # DSP 端源代码（参考实现）
+│   ├── inc/                            # 头文件目录
+│   │   ├── c2837x_block.h              # DSP 主 API
+│   │   ├── c2837x_block_algorithm.h    # 用户算法接口声明
+│   │   ├── c2837x_block_config.h       # DSP 配置（App 生成）
+│   │   ├── c2837x_block_protocol.h     # 协议定义
+│   │   ├── c2837x_w5300_hal.h          # W5300 硬件抽象层
+│   │   ├── c2837x_w5300_regs.h         # W5300 寄存器定义
+│   │   └── c2837x_w5300_socket.h       # Socket 封装
+│   └── src/                            # 源文件目录
+│       ├── c2837x_block.c              # DSP 主实现（状态机）
+│       ├── c2837x_block_config.c       # 配置实现（App 生成）
+│       ├── c2837x_block_global_variable.c # 全局变量（App 生成）
+│       ├── c2837x_block_protocol.c     # 协议实现
+│       ├── c2837x_w5300_hal.c          # W5300 HAL 实现
+│       ├── c2837x_w5300_socket.c       # Socket 实现
+│       └── my_algorithm.c              # 用户算法示例
 │
-├── simulink/                       # Simulink 端源代码
-│   ├── c2837x_block_sfun.c         # C S-Function 主文件
-│   ├── c2837x_block_sfun.h         # S-Function 头文件
-│   ├── c2837x_block_pc_socket.c/h  # Socket 封装
-│   ├── c2837x_block_protocol.c/h   # 协议实现
-│   ├── build_c2837x_block_sfun.m   # MEX 编译脚本
-│   └── c2837x_block_sfun_matlab.m  # MATLAB S-Function（遗留）
+├── simulink/                           # Simulink 端源代码
+│   ├── c2837x_block_sfun.c             # C S-Function 主文件
+│   ├── c2837x_block_sfun.h             # S-Function 头文件
+│   ├── c2837x_block_sfun_io.c          # 端口 I/O（App 生成）
+│   ├── c2837x_block_pc_config.h        # PC 配置（App 生成）
+│   ├── c2837x_block_pc_socket.c        # Socket 封装
+│   ├── c2837x_block_pc_socket.h        # Socket 头文件
+│   ├── c2837x_block_protocol.c         # 协议实现
+│   ├── c2837x_block_protocol.h         # 协议头文件
+│   ├── build_c2837x_block_sfun.m       # MEX 编译脚本
+│   ├── c2837x_block_sfun_matlab.m      # MATLAB S-Function（遗留）
+│   └── c2837x_block_test.slx           # 测试模型
 │
-├── spec_v2_3.md                    # 协议规范文档
-├── plan.md                         # 开发计划
-└── README.md                       # 本文件
+├── spec_v2_3.md                        # 协议规范文档
+├── plan.md                             # 开发计划
+└── README.md                           # 本文件
 ```
 
 ## 快速开始
