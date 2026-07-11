@@ -1,472 +1,675 @@
-# C2837xBlock 实施计划
+# C2837xBlock 多 IoDevice / 多算法实施计划
 
-本文档依据 `spec_v2_3.md` 制定，目标是实现 C2837xBlock DSP 在环仿真通信模块，并将现有 W5300 驱动从 PIL 风格调整为本项目协议所需的非阻塞 TCP 字节流驱动。
+> **执行依据：** `requirements_multi_iodevice.md`（Frozen）
+>
+> **执行约束：** 实施时逐阶段完成、验证和评审；不得跨过未通过的阶段。
 
-## 1. 实施原则
+**目标：** 在保持 V1 wire format 的前提下，把当前单 W5300/单算法/单 S-Function 实现改造成可由用户运行时注入 IoDevice 的静态多 Block 架构，并由现有 App 生成多个 Algorithm Instance 和多个独立 MEX。
 
-1. 先完成可通信的最小闭环，再推进 MATLAB App 和 C S-Function。
-2. 现有 W5300 驱动可以按本项目需求修改，不要求保留 PIL 包长、ALIGN 或函数命名。
-3. 项目自有代码统一采用 `spec_v2_3.md` 命名风格。
-4. DSP 端协议 `length` 永远表示 TCP 线上 8-bit wire byte 数。
-5. DSP 端 payload 缓冲区使用 `uint16_t` / TI `uint16` word buffer。
-6. 所有 TCP 收发必须处理粘包、拆包、部分发送和超时。
-7. `C2837xBlock_Run()` 必须是非阻塞状态机，不得在等待连接、等待数据或等待 TX buffer 时长期自旋。
-8. W5300 寄存器宏可保留接近数据手册的命名，项目对外 API 统一使用 `c2837x_*` 风格。
+**架构：** `core/algorithm` 只保存通用协议、状态机和实例状态；`autogen` 保存每实例不可变配置、typed adapter 和 PC wrapper；用户在 `user/` 或自己的 DSP 工程中实现 Algorithm、IoDevice、初始化、映射和主循环。PC 端继续使用同步 TCP client，每个生成的 S-Function/MEX 拥有独立 context。
 
-## 2. 命名风格规范
+**技术栈：** ISO C11 可移植 Core、TI C2000 用户集成、MATLAB R2025b、Simulink C MEX S-Function、MATLAB App/uifigure、Windows sockets、MinGW GCC host test。
 
-### 2.1 文件命名
+## 全局约束
 
-项目自有文件使用小写 snake_case。
+- 不修改 `dsp/inc/c2837x_w5300_hal.h`、`dsp/inc/c2837x_w5300_regs.h`、`dsp/inc/c2837x_w5300_socket.h`、`dsp/src/c2837x_w5300_hal.c`、`dsp/src/c2837x_w5300_socket.c`。
+- 不修改用户算法 `dsp/src/my_algorithm.c`，也不创建或修改 `user/**`；用户迁移在本计划外完成。
+- 不创建 DSP 测试工程；AI/Codex 只提供 host-side 和 PC/Mock 验证。
+- 不新增 Block Reset、IoDevice reset、`SetIoDevice`、Manager、动态注册表、`RunAll`、自动恢复或共享资源仲裁。
+- `read/write` 必需，`poll/end_session` 可选；设备初始化和错误处理始终由用户负责。
+- V1 消息类型、frame、little-endian、error code `0`–`8` 和 step wire layout不得改变。
+- 任何阶段都不得声称 MEX、Simulink、DSP 或硬件验证已完成；只有实际执行相应命令并保存结果后才能标记通过。
 
-| 当前文件 | 目标文件 | 说明 |
-|---|---|---|
-| `inc/W5300_define.h` | `inc/c2837x_w5300_regs.h` | W5300 寄存器和位定义 |
-| `inc/W5300_C2837x.h` | `inc/c2837x_w5300_hal.h` | W5300 C2837x 硬件访问层 |
-| `src/W5300_C2837x.c` | `src/c2837x_w5300_hal.c` | W5300 C2837x 硬件访问实现 |
-| `inc/W5300_Socket.h` | `inc/c2837x_w5300_socket.h` | W5300 socket 封装 |
-| `src/W5300_Socket.c` | `src/c2837x_w5300_socket.c` | W5300 socket 封装实现 |
+## 已确认的现有基线
 
-新增文件：
+- DSP 单例位于 `dsp/src/c2837x_block.c`：`g_ctx`、`g_tick_counter` 和 `C2837xBlock_Run()` 内的 `static first_connected` 阻止多实例。
+- DSP Core 直接包含并调用 W5300 HAL/Socket；`C2837xBlock_Init()` 同时初始化硬件、写网络寄存器、配置 Socket 0 内存。
+- typed I/O 依赖 `dsp/src/c2837x_block_global_variable.c` 的全局输入输出以及无 context 的三个全局回调。
+- App `app/C2837xBlockConfigurator.m` 只保存一个 config，并直接配置 gateway、subnet、MAC、Socket 和 W5300 TX/RX 缓存。
+- Hash 生成器 `app/c2837x_block_build_hash_string.m` 当前把 DSP IP、gateway、subnet、TCP port 和 Socket 纳入 Hash。
+- DSP/PC 生成器当前把共享 Core 和 W5300 驱动复制到每个输出目录，并生成单例符号。
+- `simulink/c2837x_block_sfun.c` 使用 `g_c2837x_block_instance_count` 禁止多实例；当前输出解包发生在 step 校验之前。
+- `simulink/build_c2837x_block_sfun.m` 只生成固定名称 `c2837x_block_sfun`。
+- 仓库没有正式自动测试目录；只有协议向量、两个单实例 `.slx` 和创建单实例模型的脚本。
 
-| 文件 | 说明 |
-|---|---|
-| `inc/c2837x_block.h` | DSP 通信库核心 API |
-| `src/c2837x_block.c` | DSP 非阻塞状态机和协议调度 |
-| `inc/c2837x_block_protocol.h` | 协议类型、错误码、帧 helper 声明 |
-| `src/c2837x_block_protocol.c` | 协议组帧、解包、编码、解码 |
-| `inc/c2837x_block_algorithm.h` | App 生成，用户算法接口 |
-| `inc/c2837x_block_config.h` | App 生成，DSP 配置头 |
-| `src/c2837x_block_config.c` | App 生成，DSP payload 序列化 |
-| `src/c2837x_block_global_variable.c` | App 生成，输入输出全局变量 |
+## 计划冻结的公共类型和名称
 
-### 2.2 函数、类型和宏命名
-
-| 类别 | 规则 | 示例 |
-|---|---|---|
-| DSP 公共 API | `C2837xBlock_*` | `C2837xBlock_Init` |
-| 用户回调 | `C2837xBlock_*` | `C2837xBlock_OnStep` |
-| 内部函数 | `c2837x_block_*` | `c2837x_block_recv_frame` |
-| W5300 封装函数 | `c2837x_w5300_*` | `c2837x_w5300_socket_send` |
-| 类型 | `C2837xBlock_*` / `C2837xW5300_*` | `C2837xBlock_State` |
-| 项目宏 | `C2837X_BLOCK_*` / `C2837X_W5300_*` | `C2837X_BLOCK_PROTOCOL_VERSION` |
-| 局部变量 | 小写 snake_case | `expected_step_index` |
-| W5300 寄存器宏 | 可保留手册风格 | `Sn_MR`、`Sn_CR_OPEN` |
-
-## 3. 阶段 0：基线整理
-
-目标：在改逻辑前先建立清晰的边界。
-
-任务：
-
-1. 记录当前文件和函数清单。
-2. 建立旧名称到新名称的映射表。
-3. 明确哪些符号属于项目 API，哪些属于 W5300 寄存器/硬件定义。
-4. 确认 DSP 端类型策略：
-   - DSP 公共头包含 `F28x_Project.h`。
-   - DSP 端用户数据结构可使用 TI 类型，如 `int16`、`uint16`。
-   - PC/MEX 端配置代码使用 `stdint.h` 和 Simulink C API 类型。
-5. 确认阶段一最小配置：
-   - 输入：`a`、`b`、`c`，均为 `int16`。
-   - 输出：`sum`，`int16`。
-   - `INPUT_PAYLOAD_SIZE_BYTES = 10`。
-   - `OUTPUT_PAYLOAD_SIZE_BYTES = 6`。
-
-交付物：
-
-- 命名映射表。
-- 新文件布局。
-- 阶段一固定配置。
-
-验收：
-
-- 全项目不再新增大驼峰 W5300 API。
-- 新增项目文件均采用小写 snake_case。
-
-## 4. 阶段 1：W5300 驱动重构
-
-目标：把现有 PIL 风格驱动改成本项目所需的非阻塞 TCP 字节流驱动。
-
-### 4.1 文件和 API 重命名
-
-任务：
-
-1. 重命名 W5300 文件。
-2. 更新所有 `#include`。
-3. 将旧 API 改为新 API。
-
-建议 API：
+以下名称在阶段 1 固定，后续阶段不得自行改名：
 
 ```c
-int16 c2837x_w5300_init(void);
-void  c2837x_w5300_reset(void);
+typedef uint16_t protocol_octet_t; /* 仅低 8 bit 有效 */
 
-uint16 c2837x_w5300_read16(uint32 addr);
-void   c2837x_w5300_write16(uint32 addr, uint16 data);
+typedef struct C2837xBlockGeneratedConfig C2837xBlockGeneratedConfig;
+typedef struct C2837xBlockAlgorithmOps C2837xBlockAlgorithmOps;
+typedef struct C2837xBlockIoDeviceOps C2837xBlockIoDeviceOps;
+typedef struct C2837xBlock C2837xBlock;
 
-int16 c2837x_w5300_socket_open(C2837xW5300Socket* socket,
-                               uint16 socket_num,
-                               uint16 protocol,
-                               uint16 port,
-                               uint16 flags);
-int16 c2837x_w5300_socket_listen(C2837xW5300Socket* socket);
-int16 c2837x_w5300_socket_close(C2837xW5300Socket* socket);
-int32 c2837x_w5300_socket_send(C2837xW5300Socket* socket,
-                               const uint16* data_words,
-                               uint32 wire_byte_count);
-int32 c2837x_w5300_socket_recv(C2837xW5300Socket* socket,
-                               uint16* data_words,
-                               uint32 wire_capacity_bytes);
-uint16 c2837x_w5300_socket_get_status(const C2837xW5300Socket* socket);
-uint32 c2837x_w5300_socket_get_tx_free(const C2837xW5300Socket* socket);
-uint32 c2837x_w5300_socket_get_rx_size(const C2837xW5300Socket* socket);
+C2837xBlockResult C2837xBlock_Init(
+    C2837xBlock *block,
+    const C2837xBlockGeneratedConfig *generated_config,
+    const C2837xBlockAlgorithmOps *algorithm_ops,
+    void *algorithm_ctx,
+    const C2837xBlockIoDeviceOps *iodevice_ops,
+    void *iodevice_ctx);
+
+C2837xBlockRunResult C2837xBlock_Run(C2837xBlock *block);
 ```
 
-验收：
+- `C2837xBlockGeneratedConfig` 固定保存 protocol version、config hash、input data size 和 output data size；不得保存 endpoint、Socket、SCI 或 IoDevice 信息。
+- `C2837xBlockAlgorithmOps` 固定包含可空 `on_start`、必需 `process`、可空 `on_stop`，签名与 Frozen 需求一致。
+- `C2837xBlockIoDeviceOps` 固定包含可空 `poll`、必需 `read/write`、可空 `end_session`。
+- `read/write` 返回 `>0` 表示 octet 进度、`0` 表示无进度、`C2837X_BLOCK_IO_LINK_DOWN=-1`、`C2837X_BLOCK_IO_ERROR=-2`。
+- `poll` 返回 `DOWN/READY/ERROR`；`end_session` 返回 `DONE/PENDING/ERROR`。
+- `C2837xBlockResult` 固定区分 `OK/INVALID_ARGUMENT/INVALID_STATE/CONFIG_ERROR`；`C2837xBlockRunResult` 固定区分 `IDLE/PROGRESSED/ERROR`。
+- `last_error` 使用简单 `uint16_t`：`0` 为 NONE，`1`–`8` 直接保存 V1 error code，`0x0100` 表示 poll/read/write IoDevice error，`0x0101` 表示 end_session error；这些扩展诊断值不得上 wire。
+- Core 使用固定编译期最大 payload capacity（首版沿用当前默认 1024 octets），Init 只接受不超过该容量的生成配置；不引入动态内存。
 
-- 不再对上层暴露 `OpenSocket`、`CloseSocket`、`ListenSocket`、`SendStream`、`RecvStream`。
-- W5300 封装层所有项目函数统一为 `c2837x_w5300_*`。
+---
 
-### 4.2 移除 PIL 包长语义
+## 阶段 1：现有单实例架构盘点与接口冻结
 
-当前 `RecvStream()` 在非 `Sn_MR_ALIGN` 模式下会读取一个 `pack_size`，这属于 PIL/旧驱动语义，不符合 V2.3 TCP 字节流协议。
+### 修改目标
 
-任务：
+建立可审查的旧到新映射，冻结公共接口和所有权，避免后续阶段继续引用旧单例或 W5300 专用语义。
 
-1. 修改 RX 逻辑为纯 TCP stream：
-   - RX FIFO 有多少 wire bytes 就读多少，受调用方容量限制。
-   - 不读取额外 `pack_size`。
-   - 不假设一次读取就是完整协议帧。
-2. 保留非阻塞返回：
-   - 无数据返回 0。
-   - socket 错误返回负值。
-   - 读到部分数据返回实际 wire bytes。
-3. 明确 `Sn_MR_ALIGN` 的使用策略：
-   - 若本项目固定启用 ALIGN，则删除非 ALIGN 的 PIL 分支。
-   - 若保留兼容，则非 ALIGN 分支也不得引入包长前缀。
+### 涉及的现有文件
 
-验收：
+- 读取：`dsp/inc/c2837x_block.h`
+- 读取：`dsp/src/c2837x_block.c`
+- 读取：`dsp/inc/c2837x_block_algorithm.h`
+- 读取：`dsp/inc/c2837x_block_config.h`
+- 读取：`dsp/src/c2837x_block_config.c`
+- 读取：`dsp/src/c2837x_block_global_variable.c`
+- 读取：`app/C2837xBlockConfigurator.m`
+- 读取：`app/c2837x_block_generate_dsp_files.m`
+- 读取：`app/c2837x_block_generate_pc_files.m`
+- 读取：`simulink/c2837x_block_sfun.c`
+- 读取：`simulink/build_c2837x_block_sfun.m`
 
-- PC 发送任意拆分的协议帧，DSP 驱动只返回原始 TCP wire bytes。
-- `Recv` 不再消费协议外的包长字段。
+### 新增文件
 
-### 4.3 W5300 字节序自检
+- `docs/multi_iodevice_architecture_inventory.md`
 
-任务：
+### 明确不修改的用户文件
 
-1. 增加固定测试向量：
-   - PC payload：`01 02 03 04 05 06`
-   - DSP 还原结果必须为同一顺序。
-2. 文档化 word 映射：
-   - 明确 `word[0]` 对应 `0x0201` 还是 `0x0102`。
-   - 协议层据此统一 read/write。
-3. 保留 `g_w5300_fifo_swap` 或改为 `c2837x_w5300_fifo_swap`，并明确它只属于 HAL 层。
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
 
-验收：
+### 实现步骤
 
-- W5300 FIFO 字节序测试通过。
-- `int16`、`int32`、`single` 原始字节测试通过。
+- [ ] 记录所有全局/静态运行状态、W5300 直接调用、单例回调和生成器复制路径。
+- [ ] 给每个现有文件标注目标归属：`core/algorithm`、`autogen`、PC shared support、legacy example 或用户文件。
+- [ ] 在盘点文档冻结 `C2837xBlock_Init(block, generated_config, algorithm_ops, algorithm_ctx, iodevice_ops, iodevice_ctx)`、`C2837xBlock_Run(block)` 和只读 `last_error` 语义。
+- [ ] 冻结 `protocol_octet_t` 低 8 bit 有效、Core 管理 step、adapter 只处理 user data 的边界。
+- [ ] 列出 V1 error code `0`–`8` 与 Frozen 需求逐项对照结果。
+- [ ] 记录旧 `plan.md` 中修改 W5300、固定 Socket 0、全局 callback 和单实例限制均已废止。
 
-### 4.4 非阻塞关闭和发送
+### 验证方法
 
-任务：
+运行：
 
-1. 清理 `CloseSocket()` 中长时间等待 TX free size 的逻辑。
-2. `socket_send()` 只发送 W5300 当前可接受的部分。
-3. 由上层 DSP 协议状态机保存 `tx_sent_bytes` 和 `tx_total_bytes`。
-4. UDP `SendToSocket()` 不属于主链路，可移动到调试/兼容区或暂不暴露。
-
-验收：
-
-- W5300 TX buffer 满时 `C2837xBlock_Run()` 不会卡死。
-- 连接异常时可以有限时间内关闭并回到 `LISTEN`。
-
-## 5. 阶段 2：DSP 通信库
-
-目标：实现 `C2837xBlock_Init()` 和 `C2837xBlock_Run()`。
-
-### 5.1 上下文设计
-
-建议结构：
-
-```c
-typedef struct {
-    C2837xBlock_State state;
-    C2837xW5300Socket socket;
-
-    uint16 rx_payload_words[C2837X_BLOCK_MAX_PAYLOAD_SIZE_WORDS];
-    uint16 tx_frame_words[(C2837X_BLOCK_MAX_FRAME_SIZE_BYTES + 1u) / 2u];
-
-    uint16 rx_header_words[2];
-    uint16 rx_type;
-    uint16 rx_length_bytes;
-    uint32 rx_received_bytes;
-
-    uint32 tx_total_bytes;
-    uint32 tx_sent_bytes;
-
-    uint32 expected_step_index;
-    uint32 state_start_tick;
-    uint32 frame_start_tick;
-
-    uint16 last_error;
-} C2837xBlock_Context;
+```powershell
+rg -n "g_ctx|g_tick_counter|first_connected|g_c2837x_block_instance_count|C2837X_BLOCK_SOCKET_NUM|C2837xBlock_On" dsp app simulink
 ```
 
-任务：
+预期：盘点文档逐项覆盖命令输出中的单例和硬件耦合点，没有未分类符号。
 
-1. 初始化 context。
-2. 初始化 W5300。
-3. 配置网络参数。
-4. 打开 Socket 0。
-5. 进入 `LISTEN`。
+### 完成判据
 
-验收：
+- 所有当前文件均有唯一目标归属。
+- 后续阶段使用的接口名称、buffer 单位和错误映射没有未定项。
 
-- `C2837xBlock_Init()` 成功返回 0。
-- W5300 初始化失败、socket open 失败时返回非 0。
+### 风险和回退方式
 
-### 5.2 RX 组帧状态机
+- 风险：漏掉生成器字符串中的旧符号。
+- 回退：本阶段只新增盘点文档；删除该文档即可回退，不影响现有实现。
 
-任务：
+---
 
-1. 先接收 4 wire bytes 帧头。
-2. 解析 little-endian `type` 和 `length`。
-3. 校验：
-   - type 是否已知。
-   - length 是否超过最大 payload。
-   - length 是否为偶数。
-   - length 是否匹配报文类型预期。
-4. 分多次接收 payload。
-5. 半帧超时后关闭 socket 并回到 `LISTEN`。
+## 阶段 2：Core 多实例化与全局运行状态清理
 
-验收：
+### 修改目标
 
-- 帧头 2+2 到达可正确组帧。
-- payload 分多次到达可正确组帧。
-- 多帧粘连可逐帧解析。
-- 奇数 length 返回 `RESPONSE(2)`。
+把 DSP Core 从 W5300/全局单例改为可静态分配多个 `C2837xBlock` 的 CPU 无关基础库，并实现原子 `Init`。
 
-### 5.3 TX 分段状态机
+### 涉及的现有文件
 
-任务：
+- 移动并重写：`dsp/inc/c2837x_block.h` → `core/algorithm/inc/c2837x_block.h`
+- 移动并重写：`dsp/inc/c2837x_block_protocol.h` → `core/algorithm/inc/c2837x_block_protocol.h`
+- 移动并重写：`dsp/src/c2837x_block.c` → `core/algorithm/src/c2837x_block.c`
+- 移动并重写：`dsp/src/c2837x_block_protocol.c` → `core/algorithm/src/c2837x_block_protocol.c`
 
-1. 构造完整帧：
-   - header 4 wire bytes。
-   - payload even wire bytes。
-2. 保存发送进度。
-3. 每次 `C2837xBlock_Run()` 发送当前可发送部分。
-4. 全部发送完成后再推进协议状态。
-5. TX 超时后进入 `DISCONNECTED`。
+### 新增文件
 
-验收：
+- `tests/host/mock_iodevice.h`
+- `tests/host/mock_iodevice.c`
+- `tests/host/test_core_init.c`
+- `tests/host/run_host_tests.ps1`
 
-- W5300 TX buffer 不足时可分多次发送。
-- `OUTPUT_DATA` 和 `RESPONSE` 都可走同一发送状态机。
+### 明确不修改的用户文件
 
-### 5.4 报文处理
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
 
-任务：
+### 实现步骤
 
-1. `CONNECTED` 状态只接受 `SIM_START`。
-2. `SIM_START`：
-   - 校验 `length == 6`。
-   - 校验 `protocol_version`。
-   - 校验 `config_hash`。
-   - 调用 `C2837xBlock_OnSimStart()`。
-   - 成功返回 `RESPONSE(0)`。
-   - 失败返回 `RESPONSE(5)`。
-3. `SIM_RUNNING` 状态接受 `INPUT_DATA` 和 `SIM_STOP`。
-4. `INPUT_DATA`：
-   - 校验 length。
-   - 校验 `step_index == expected_step_index`。
-   - 解包 input。
-   - 调用 `C2837xBlock_OnStep()`。
-   - 成功返回 `OUTPUT_DATA(step_index)`。
-   - 失败返回 `RESPONSE(5)`。
-5. `SIM_STOP`：
-   - 调用 `C2837xBlock_OnSimStop()`。
-   - 关闭连接。
-   - 回到 `LISTEN`。
-6. 非法报文返回对应 `RESPONSE(error_code)`。
+- [ ] 用 `<stdint.h>`、`<stdbool.h>` 和 `protocol_octet_t` 替换 Core 中的 `F28x_Project.h`、`Uint16/Uint32` 依赖。
+- [ ] 将状态、RX/TX buffer、进度、`expected_step_index`、`algorithm_started`、注入引用和 `last_error` 全部放入调用者提供的 `C2837xBlock` 对象。
+- [ ] 删除 `g_ctx`、`g_tick_counter`、函数静态连接标志、Socket 对象和所有 W5300 include/call。
+- [ ] 定义每实例不可变 generated config，至少包含 protocol version、config hash、input/output data size 和 Core buffer capacity。
+- [ ] 实现原子 `Init`：先校验全部指针、配置和容量，失败保持原状态；成功后一次性提交新引用并进入 `WAIT_LINK`。
+- [ ] 选择公开 `C2837xBlock` 结构体以支持静态分配；把 `last_error` 标记为调用者只读诊断字段，不增加错误对象或历史。
+- [ ] 在 host test 中创建两个 Block 和两个不同 context，验证两次 `Init` 不共享地址、状态、step、buffer 或错误记录。
 
-验收：
+### 验证方法
 
-- 协议异常验收项全部通过。
-- MATLAB 异常退出后 DSP 能回到 `LISTEN`。
+运行：
 
-## 6. 阶段 3：手工配置和最小算法
+```powershell
+tests\host\run_host_tests.ps1 -Test test_core_init
+rg -n "F28x_Project|c2837x_w5300|static C2837xBlock|g_ctx|g_tick_counter|first_connected" core\algorithm
+```
 
-目标：不依赖 App，先完成固定 3 输入 1 输出闭环。
+预期：host test 通过；第二条命令没有命中 CPU/W5300 或全局运行状态。
 
-任务：
+### 完成判据
 
-1. 编写 `c2837x_block_algorithm.h`。
-2. 编写 `c2837x_block_global_variable.c`。
-3. 编写 `c2837x_block_config.h`。
-4. 编写 `c2837x_block_config.c`。
-5. 编写 `my_algorithm.c`：
-   - `C2837xBlock_OnSimStart()` 返回 0。
-   - `C2837xBlock_OnStep()` 执行三数相加和饱和。
-   - `C2837xBlock_OnSimStop()` 空实现。
+- 两个静态 Block 可在同一 host 进程中独立初始化。
+- 从 `UNINITIALIZED/ERROR` 的失败 Init 均保持原对象内容；活动状态 Init 返回 invalid state。
 
-验收：
+### 风险和回退方式
 
-- DSP 端可编译。
-- payload offset 报告与 `spec_v2_3.md` 一致。
-- 3 个 `int16` 输入和 1 个 `int16` 输出序列化正确。
+- 风险：移动公共头后现有 DSP 示例暂时不能直接编译。
+- 回退：保留阶段 1 基线提交；整阶段使用一次独立提交，失败时回退该提交，不触碰 W5300 文件。
 
-## 7. 阶段 4：MATLAB S-Function 验证
+---
 
-目标：用 MATLAB Level-2 S-Function 完成阶段一通信验证。
+## 阶段 3：IoDevice 接口与有限 Run 状态机
 
-任务：
+### 修改目标
 
-1. 建立 TCP 连接。
-2. 发送 `SIM_START(protocol_version, config_hash)`。
-3. 等待 `RESPONSE(0)`。
-4. 每个 sample hit：
-   - 读取输入。
-   - 打包 `INPUT_DATA(step_index)`。
-   - 等待 `OUTPUT_DATA` 或 `RESPONSE(error)`。
-   - 校验 `step_index`。
-   - 写输出。
-5. 仿真结束发送 `SIM_STOP`。
+实现 Frozen 的 `read/write` 必需、`poll/end_session` 可选接口和 `UNINITIALIZED/WAIT_LINK/WAIT_START/RUNNING/ENDING/ERROR` 状态机。
 
-验收：
+### 涉及的现有文件
 
-- 正常 1000 步通信无错误。
-- 错 protocol version 返回 `RESPONSE(6)`。
-- 错 config hash 返回 `RESPONSE(3)`。
-- 错 length 返回 `RESPONSE(2)`。
-- 错 step_index 返回 `RESPONSE(7)`。
-- DSP 断开时 MATLAB 不会永久卡死。
+- 修改：`core/algorithm/inc/c2837x_block.h`
+- 修改：`core/algorithm/src/c2837x_block.c`
+- 修改：`core/algorithm/inc/c2837x_block_protocol.h`
+- 修改：`core/algorithm/src/c2837x_block_protocol.c`
+- 修改：`tests/host/mock_iodevice.h`
+- 修改：`tests/host/mock_iodevice.c`
+- 修改：`tests/host/test_core_init.c`
 
-## 8. 阶段 5：协议测试工具
+### 新增文件
 
-目标：在无 DSP 硬件时验证 PC 侧协议实现。
+- `tests/host/test_core_state_machine.c`
 
-任务：
+### 明确不修改的用户文件
 
-1. 新增 `Protocol_Test_Vectors.md`。
-2. 新增 `tools/c2837x_block_mock_dsp.py`。
-3. Mock DSP 支持：
-   - 正常 `SIM_START`。
-   - 正常 `INPUT_DATA` 到 `OUTPUT_DATA`。
-   - 粘包。
-   - 拆包。
-   - 半帧超时。
-   - 错 length。
-   - 错 step_index。
-   - socket reset。
-   - `RESPONSE(error_code)` 注入。
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
 
-验收：
+### 实现步骤
 
-- MATLAB S-Function 能连接 Mock DSP 并完成 1000 步。
-- Mock DSP 可稳定复现异常用例。
-- PC 端字节流与 `Protocol_Test_Vectors.md` 一致。
+- [ ] 在 Core 公共头定义 IoDevice 操作表和 `DOWN/READY/ERROR`、部分 octet 进度、`LINK_DOWN`、`DONE/PENDING/ERROR` 结果语义。
+- [ ] 让缺少 `poll` 等价于 `READY`，缺少 `end_session` 等价于 Core-only 会话收尾。
+- [ ] 每次 `Run` 最多调用一次 poll、read、write、end_session，处理一个完整消息和一次 Algorithm process。
+- [ ] 实现部分 header/payload/TX 跨 Run 保存以及 `read/write=0` 立即返回。
+- [ ] 实现 `WAIT_START` 中启动响应尚未发完时断链仍调用一次 `on_stop`。
+- [ ] 实现 `ENDING` 先完成/放弃最终错误 TX，下一次 Run 才调用 end_session；`ENDING` 不调用 poll/read。
+- [ ] 实现 IoDevice `ERROR` 直接进入 `ERROR`，`Run(ERROR)` 不调用用户接口，成功重新 Init 是唯一 Core 恢复入口。
+- [ ] 实现 `last_error` 保留、IoDevice 后发错误覆盖和成功新会话清零规则。
 
-## 9. 阶段 6：MATLAB App / 代码生成器
+### 验证方法
 
-目标：由 App 生成 DSP 端和 Simulink 端配置文件。
+运行：
 
-任务：
+```powershell
+tests\host\run_host_tests.ps1 -Test test_core_state_machine
+```
 
-1. App 配置输入输出变量。
-2. App 配置网络参数。
-3. App 配置 sample time。
-4. App 配置目标 ABI 和 double 策略。
-5. App 检查变量名：
-   - 合法 C 标识符。
-   - 非 C 关键字。
-   - 非保留标识符。
-   - 不重复。
-   - 不与生成代码内部符号冲突。
-6. App 计算：
-   - `*_SIZE_BYTES`。
-   - `*_SIZE_WORDS`。
-   - payload size。
-   - offset 报告。
-7. App 检查：
-   - payload size 不超过最大值。
-   - payload size 为偶数。
-   - `C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES <= 65535`。
-8. App 生成 CRC32 规范化字符串。
-9. App 生成 `config_hash`。
-10. App 生成 DSP 端文件。
-11. App 生成 PC/C S-Function 端配置文件。
+预期：Mock 调用计数证明每次 Run 不超过接口上限；零进度立即返回；ENDING 顺序和 ERROR 无调用均通过。
 
-验收：
+### 完成判据
 
-- App 输出的 CRC32 字符串可显示。
-- 网络参数和 `sample_time_sec` 已纳入 hash。
-- DSP 和 PC 配置文件中的 hash 一致。
-- offset 报告与生成代码一致。
+- 所有六个状态都有测试覆盖的进入和退出路径。
+- 一个成功启动的会话在停止、断链、可报告错误和 IoDevice 错误路径中恰好调用一次 `on_stop`。
 
-## 10. 阶段 7：C S-Function
+### 风险和回退方式
 
-目标：替代 MATLAB S-Function，提高通信稳定性和性能。
+- 风险：把最终错误响应的零进度放弃规则误用于正常 OUTPUT_DATA。
+- 回退：状态机与测试同一提交；回退该提交恢复阶段 2 的多实例骨架。
 
-任务：
+---
 
-1. 实现 `c2837x_block_sfun.c`。
-2. 实现 `c2837x_block_pc_socket.c`。
-3. 实现 `c2837x_block_protocol.c`。
-4. 实现 `build_c2837x_block_sfun.m`。
-5. 在 `mdlStart` 中：
-   - 检查单实例。
-   - 分配 ctx。
-   - 连接 DSP。
-   - 发送 `SIM_START`。
-   - 等待 `RESPONSE(0)`。
-6. 在 `mdlOutputs` 中：
-   - 读取输入端口。
-   - 发送 `INPUT_DATA(step_index)`。
-   - 等待 `OUTPUT_DATA` 或 `RESPONSE(error)`。
-   - 校验 length 和 step_index。
-   - 写输出端口。
-7. 在 `mdlTerminate` 中：
-   - 尽力发送 `SIM_STOP`。
-   - 关闭 socket。
-   - 释放 ctx。
-   - 恢复单实例计数。
+## 阶段 4：Algorithm adapter 与 typed I/O 生成
 
-验收：
+### 修改目标
 
-- MEX 一键编译成功。
-- Normal mode fixed-step discrete 正常运行。
-- variable-step solver 明确报错。
-- 多实例明确报错。
-- 任意启动失败路径都能释放资源。
-- 等待 `OUTPUT_DATA` 时收到 `RESPONSE(0)` 按协议错误处理。
-- `step_index` mismatch 能终止仿真。
-- `UINT32_MAX` 溢出能终止仿真。
+删除 DSP 全局 typed input/output，生成每实例 typed 类型和组合 adapter；Core 不接触实例类型或 step 之外的协议数据。
 
-## 11. 阶段 8：最终验收
+### 涉及的现有文件
 
-按以下顺序执行：
+- 修改：`app/c2837x_block_generate_dsp_files.m`
+- 修改：`app/c2837x_block_validate_name.m`
+- 停止生成/复制：`dsp/inc/c2837x_block_algorithm.h`
+- 停止生成/复制：`dsp/inc/c2837x_block_config.h`
+- 停止生成/复制：`dsp/src/c2837x_block_config.c`
+- 停止生成/复制：`dsp/src/c2837x_block_global_variable.c`
 
-1. 命名风格扫描。
-2. W5300 原始字节序验收。
-3. DSP 端协议测试向量验收。
-4. MATLAB S-Function 1000 步验收。
-5. 协议异常验收。
-6. Mock DSP 验收。
-7. C S-Function 编译验收。
-8. C S-Function 1000 步验收。
-9. 大 payload 粘包/拆包验收。
-10. DSP 断电、网线断开、socket reset 验收。
+### 新增文件
 
-## 12. 推荐开工顺序
+- `app/c2837x_block_validate_instance_name.m`
+- 生成模板目标：`autogen/<instance>/dsp/c2837x_block_<instance>_config.h`
+- 生成模板目标：`autogen/<instance>/dsp/c2837x_block_<instance>_algorithm.h`
+- 生成模板目标：`autogen/<instance>/dsp/c2837x_block_<instance>_adapter.c`
+- `tests/host/fixtures/example_algorithm.c`
+- `tests/matlab/test_dsp_generation.m`
 
-第一批只做以下内容：
+### 明确不修改的用户文件
 
-1. 完成 W5300 文件和 API 重命名。
-2. 移除 `RecvStream()` 中 PIL 包长语义。
-3. 实现 W5300 raw TCP stream 收发。
-4. 加入 W5300 字节序测试。
-5. 实现 `c2837x_block.c` 的最小非阻塞状态机。
-6. 用手写配置完成 `SIM_START`、`INPUT_DATA`、`OUTPUT_DATA`、`SIM_STOP` 闭环。
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
 
-完成第一批后，再进入 MATLAB S-Function 和 App。这样风险最小，反馈最快。
+### 实现步骤
+
+- [ ] 为 instance name 实现不改写字符的 ASCII C 标识符校验和不区分大小写冲突检查。
+- [ ] 生成 `C2837xBlock_<instance>_InputData/OutputData` 和确定性 OnStep/可选生命周期声明。
+- [ ] 生成 `C2837xBlock_<instance>_Process`，只解码 input data、调用用户 OnStep、编码 output data，不解析或生成 step。
+- [ ] 让 adapter 检查固定 input/output data length，并在失败时返回 Algorithm/internal error。
+- [ ] 删除生成全局 `c2837x_block_input/output` 和无 context 的全局 callback。
+- [ ] DSP 生成器只生成实例差异文件，不再复制 W5300 HAL/Socket、用户算法或主循环。
+- [ ] 用 tests fixture 提供 OnStep 实现，在 host 上编译生成 adapter，证明两个实例类型和符号不冲突。
+
+### 验证方法
+
+运行：
+
+```powershell
+matlab -batch "addpath('app'); run('tests/matlab/test_dsp_generation.m')"
+tests\host\run_host_tests.ps1 -Test test_generated_adapters
+```
+
+预期：生成两个不同实例；生成文件不包含 `step_index` 解析、W5300、Socket 或全局 typed 数据。
+
+### 完成判据
+
+- 两个不同 typed I/O 实例可与同一 Core 一起 host 编译。
+- 用户 Algorithm 只需实现生成头中声明的实例 OnStep；autogen 不包含用户算法实现。
+
+### 风险和回退方式
+
+- 风险：TI 编译器的 byte/word 存储模型与 host 不同。
+- 回退：adapter 只依赖 `protocol_octet_t` 低 8 bit 契约；若 host 编译通过但用户硬件不通过，只修正 adapter 序列化，不修改 Core/IoDevice 边界。
+
+---
+
+## 阶段 5：每实例 Hash、step、V1 error response 与诊断
+
+### 修改目标
+
+让每实例 Hash、step、错误映射和 `last_error` 完全符合 Frozen 需求及现有 V1 wire format。
+
+### 涉及的现有文件
+
+- 修改：`app/c2837x_block_build_hash_string.m`
+- 修改：`core/algorithm/src/c2837x_block.c`
+- 修改：`core/algorithm/src/c2837x_block_protocol.c`
+- 修改：`Protocol_Test_Vectors.md`
+- 修改：`tests/host/test_core_state_machine.c`
+
+### 新增文件
+
+- `tests/matlab/test_instance_hash.m`
+- `tests/host/test_protocol_vectors.c`
+
+### 明确不修改的用户文件
+
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
+
+### 实现步骤
+
+- [ ] 在 Hash 的 `protocol=0x0001` 后插入保留大小写的 `instance=<normalized_instance_name>`。
+- [ ] 从 Hash 删除 PC endpoint、gateway/subnet、Socket、IoDevice 和硬件字段，保持其余 V1 字段顺序、数字格式、换行和 CRC32 参数。
+- [ ] Core 从 INPUT_DATA 前 4 octet 解析 step，只把 user data 交给 adapter，并把当前 step 写回 OUTPUT_DATA 前 4 octet。
+- [ ] 仅在完整 OUTPUT_DATA 被 write 全部接受后递增 DSP step；保留 uint32 回绕。
+- [ ] 固定 error code 1–8 的映射；可报告错误必须产生 RESPONSE(error)，致命 IoDevice 错误不得产生响应。
+- [ ] 实现最终错误响应零进度放弃规则和 `last_error` 的保留/清除生命周期。
+- [ ] 更新黄金向量，增加两个不同 instance name 的 Hash 和同一 user data 下的 INPUT/OUTPUT frame。
+
+### 验证方法
+
+运行：
+
+```powershell
+matlab -batch "addpath('app'); run('tests/matlab/test_instance_hash.m')"
+tests\host\run_host_tests.ps1 -Test test_protocol_vectors
+```
+
+预期：PC/DSP 黄金 octet 完全一致；error code、step 写入位置和递增时机全部通过。
+
+### 完成判据
+
+- V1 frame/message/error wire 值与 `spec_v2_3.md` 一致。
+- Hash 只因实例协议配置变化而变化，不因 IoDevice/PC endpoint 变化而变化。
+
+### 风险和回退方式
+
+- 风险：旧 Hash 与新实例 Hash 不兼容。
+- 回退：这是 Frozen 要求的有意不兼容；回退整个阶段可恢复旧 Hash，但不得在新旧算法间增加兼容分支。
+
+---
+
+## 阶段 6：现有 App 多实例配置改造
+
+### 修改目标
+
+把现有单实例 App 改成一个工程内管理多个 Algorithm Instance，并完全移除 DSP 设备、Socket 和 W5300 缓存配置。
+
+### 涉及的现有文件
+
+- 修改：`app/C2837xBlockConfigurator.m`
+- 修改：`app/c2837x_block_generate_dsp_files.m`
+- 修改：`app/c2837x_block_generate_pc_files.m`
+- 修改：`app/c2837x_block_build_hash_string.m`
+- 修改：`app/c2837x_block_validate_name.m`
+
+### 新增文件
+
+- `app/c2837x_block_validate_project_config.m`
+- `app/c2837x_block_generate_project.m`
+- `tests/matlab/test_multi_instance_config.m`
+
+### 明确不修改的用户文件
+
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
+
+### 实现步骤
+
+- [ ] 将 App 数据模型改成 project config + `instances` 数组；project 级只保留 autogen output root 和 Core max payload，实例只含 name、PC TCP endpoint、sample time、I/O、ABI/double。
+- [ ] 增加实例列表、新增、删除、选择和编辑；复用现有 I/O table，不新建第二套工具。
+- [ ] 从 UI、保存文件、Hash 和生成参数删除 gateway、subnet、MAC、Socket、TX/RX 缓存。
+- [ ] 对实例名和派生 S-Function/MEX/符号/目录执行不区分大小写唯一性检查；对 endpoint 执行 `(address, port)` 唯一性检查。
+- [ ] 保存/加载完整多实例 `.mat` 配置；旧单实例配置明确拒绝，不做迁移。
+- [ ] `c2837x_block_generate_project` 顺序生成全部实例，并写一个简单 manifest：生成器版本、规范化工程摘要、实例列表、生成文件列表。
+- [ ] 生成失败时报告实例名和原始错误，不增加 evidence、阶段状态机或回滚系统。
+
+### 验证方法
+
+运行：
+
+```powershell
+matlab -batch "addpath('app'); run('tests/matlab/test_multi_instance_config.m')"
+rg -n "socket_num|gateway|subnet|mac|socket0_tx|socket0_rx|IoDevice|SciChannel" app
+```
+
+预期：MATLAB 测试完成双实例保存/加载/生成；第二条命令只允许出现在明确拒绝旧字段的迁移错误文本中。
+
+### 完成判据
+
+- App 可一次生成两个不同 Hash、不同 typed I/O 的实例。
+- App 配置和生成物没有 DSP IoDevice、Socket、SCI channel 或硬件初始化字段。
+
+### 风险和回退方式
+
+- 风险：42 KB 单类 App 修改面较大。
+- 回退：先把 project config 校验/生成放入独立 helper，再改 UI；UI 提交可单独回退而保留已验证 helper。
+
+---
+
+## 阶段 7：多 S-Function/MEX 生成和构建
+
+### 修改目标
+
+从同一 PC shared support 为每实例生成唯一 S-Function/MEX，并删除单实例限制和输出提前提交问题。
+
+### 涉及的现有文件
+
+- 修改：`simulink/c2837x_block_sfun.c`
+- 修改：`simulink/c2837x_block_sfun.h`
+- 修改：`simulink/c2837x_block_protocol.c`
+- 修改：`simulink/c2837x_block_protocol.h`
+- 修改：`simulink/build_c2837x_block_sfun.m`
+- 修改：`app/c2837x_block_generate_pc_files.m`
+- 修改：`app/c2837x_block_generate_project.m`
+
+### 新增文件
+
+- `app/c2837x_block_build_all_mex.m`
+- 生成模板目标：`autogen/<instance>/pc/c2837x_block_<instance>_pc_config.h`
+- 生成模板目标：`autogen/<instance>/pc/c2837x_block_<instance>_sfun_io.c`
+- 生成模板目标：`autogen/<instance>/pc/c2837x_block_<instance>_sfun.c`
+- 生成模板目标：`autogen/<instance>/pc/build_c2837x_block_<instance>_sfun.m`
+- `tests/matlab/test_multi_mex_build_args.m`
+
+### 明确不修改的用户文件
+
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
+
+### 实现步骤
+
+- [ ] 把 `simulink/c2837x_block_sfun.c` 作为唯一 wrapper 模板源，由 PC 生成器写出带唯一 `S_FUNCTION_NAME` 的实例 wrapper；MEX output name由实例构建参数提供。
+- [ ] 删除 `g_c2837x_block_instance_count` 和所有“Only one instance allowed”路径；每个 block 只使用自己的 PWork context。
+- [ ] 保持 `simulink/c2837x_block_pc_socket.*` 和 `simulink/c2837x_block_protocol.*` 为共享 PC TCP support，不称为 IoDevice。
+- [ ] 把 OUTPUT_DATA 校验顺序改为：type、length、DSP error、step、完整字段边界全部成功后，才调用生成的端口提交函数。
+- [ ] 让每实例生成文件使用唯一 include guard、C symbol、S-Function name、MEX name 和目录。
+- [ ] 将 `build_c2837x_block_sfun` 参数化为实例源目录、实例 wrapper、实例名和输出目录；共享 socket/protocol 源始终从仓库 `simulink/` 读取，保留 Windows/MinGW 与 MSVC 现有链接逻辑。
+- [ ] `c2837x_block_build_all_mex` 遍历全部实例，逐一构建并在失败时报告实例；不增加复杂制品事务。
+
+### 验证方法
+
+运行：
+
+```powershell
+matlab -batch "addpath('app'); addpath('simulink'); run('tests/matlab/test_multi_mex_build_args.m')"
+rg -n "Only one instance allowed|g_c2837x_block_instance_count" simulink app
+```
+
+预期：构建参数测试产生两个不同 S-Function/MEX 名；第二条命令无命中。实际 MEX 编译在本阶段执行前仍标记“未验证”。
+
+### 完成判据
+
+- 两个实例的 MEX 构建命令不存在文件名、宏或符号冲突。
+- 失败 sample hit 在校验完成前没有任何输出端口写入。
+
+### 风险和回退方式
+
+- 风险：已加载 MEX 被 Windows 锁定导致替换失败。
+- 回退：构建失败直接保留已存在文件并报告用户先卸载模型/MEX；不实现跨文件回滚系统。
+
+---
+
+## 阶段 8：host-side Core/Mock 回归门
+
+### 修改目标
+
+用一个小型 GCC 测试程序覆盖 Frozen Core 契约，不创建 DSP 测试工程或大型测试矩阵。
+
+### 涉及的现有文件
+
+- 修改：`tests/host/mock_iodevice.c`
+- 修改：`tests/host/test_core_init.c`
+- 修改：`tests/host/test_core_state_machine.c`
+- 修改：`tests/host/test_protocol_vectors.c`
+- 修改：`tests/host/run_host_tests.ps1`
+- 读取：`Protocol_Test_Vectors.md`
+
+### 新增文件
+
+- `tests/host/test_two_instances.c`
+
+### 明确不修改的用户文件
+
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
+
+### 实现步骤
+
+- [ ] 覆盖两个静态 Block、不同 config/hash/typed adapter/context 和 1000 次独立交换。
+- [ ] 覆盖部分 header、部分 payload、部分 TX、`read/write=0` 和单次 Run 调用上限。
+- [ ] 覆盖 `poll/end_session=NULL` 缺省行为与 end_session `PENDING→DONE/ERROR`。
+- [ ] 覆盖 Init 原子失败、ERROR 重新 Init、`last_error` 保留和成功新会话清零。
+- [ ] 覆盖 V1 error code 1–8、可报告错误 RESPONSE(error) 和 IoDevice ERROR 直接 ERROR。
+- [ ] 覆盖 OnStart 成功但启动响应未完成时断链、process 失败和所有 on_stop 恰好一次路径。
+- [ ] 覆盖 step 仅由 Core 解析/生成，OUTPUT_DATA 完整接受后才递增和 uint32 回绕。
+
+### 验证方法
+
+运行：
+
+```powershell
+tests\host\run_host_tests.ps1
+```
+
+预期：脚本使用 `E:\Mingw_w64\mingw64\bin\gcc.exe` 或 PATH 中 GCC，以 `-std=c11 -Wall -Wextra -Werror` 编译并运行全部 host tests，最终返回 exit code 0。
+
+### 完成判据
+
+- Frozen Core 的关键正常路径、状态边界和错误分流均由可重复 host test 证明。
+- 测试不 include 或链接任何 W5300、TI DSP 或用户文件。
+
+### 风险和回退方式
+
+- 风险：测试为追求覆盖引入大规模 fake 框架。
+- 回退：Mock 只保留操作表、预置 RX/TX octet 队列和调用计数；删除没有直接需求对应的测试分支。
+
+---
+
+## 阶段 9：PC 双 S-Function、双 Mock endpoint 验证
+
+### 修改目标
+
+在同一 Normal mode 模型中运行两个不同 MEX，各连接一个独立 TCP Mock endpoint，验证 1000 步无串扰。
+
+### 涉及的现有文件
+
+- 读取：`simulink/create_test_model.m`
+- 读取：`simulink/c2837x_block_c_function_test.slx`
+- 读取：`simulink/c2837x_block_test.slx`
+- 使用：阶段 7 生成的两个实例 MEX
+
+### 新增文件
+
+- `tests/pc/mock_dsp_endpoint.c`
+- `tests/pc/create_dual_sfun_model.m`
+- `tests/pc/run_dual_sfun_smoke.ps1`
+
+### 明确不修改的用户文件
+
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
+- 现有单实例 `.slx` 文件
+
+### 实现步骤
+
+- [ ] 用标准 socket 编写一个可通过命令行指定 port、config hash 和确定性输出规则的 Mock endpoint；不引入第三方依赖。
+- [ ] PowerShell 编排器编译 Mock，启动两个独立进程，并保证退出时终止两个进程。
+- [ ] MATLAB 脚本创建临时双 S-Function 模型，两个实例使用不同端口、Hash 和 typed I/O。
+- [ ] 两个 endpoint 分别验证 SIM_START、1000 个 INPUT_DATA step、OUTPUT_DATA step 和 SIM_STOP。
+- [ ] 模型记录两个输出序列并验证各自规则、step 单调和不存在跨实例数据。
+- [ ] 增加一个 RESPONSE(error) 场景，确认 S-Function 在失败 sample hit 不写输出并设置 Simulink error status。
+
+### 验证方法
+
+运行：
+
+```powershell
+tests\pc\run_dual_sfun_smoke.ps1
+```
+
+预期：脚本实际构建两个 MEX、启动两个 Mock、运行 Normal mode 1000 步并返回 exit code 0；任一环节未执行时结果必须标记“未验证”。
+
+### 完成判据
+
+- 同一模型加载两个唯一 MEX 并完成 1000 步。
+- 两个 PC context 的 socket、Hash、step、I/O 和错误互不串扰。
+
+### 风险和回退方式
+
+- 风险：MATLAB/MEX 文件锁或后台 Mock 进程残留。
+- 回退：编排器在 `finally` 等价清理路径中关闭模型、clear MEX 并终止自己启动的进程；不删除用户文件。
+
+---
+
+## 阶段 10：用户 DSP/W5300 集成说明与硬件验收入口
+
+### 修改目标
+
+向用户交付最小、明确的集成契约和硬件验收入口，不代替用户实现 IoDevice、初始化或 DSP 测试。
+
+### 涉及的现有文件
+
+- 修改：`README.md`
+- 读取：`requirements_multi_iodevice.md`
+- 读取：`core/algorithm/inc/c2837x_block.h`
+- 读取：现有 W5300 HAL/Socket，仅用于列出用户适配边界
+
+### 新增文件
+
+- `docs/multi_iodevice_user_integration.md`
+- `docs/multi_iodevice_hardware_acceptance.md`
+
+### 明确不修改的用户文件
+
+- `user/**`
+- `dsp/src/my_algorithm.c`
+- 全部 `dsp/**/c2837x_w5300_*`
+- 用户 CCS 工程、主循环和硬件初始化代码
+
+### 实现步骤
+
+- [ ] 更新 README 目录和快速开始，删除“App 配置 Socket/W5300 缓存”和“生成器复制 W5300 驱动”的旧说明。
+- [ ] 文档化用户负责的设备初始化、8 Socket 固定均分缓存、IoDevice context/ops、Algorithm context/ops 和运行时映射。
+- [ ] 给出两个静态 Block 的声明、Init 注入顺序和 main loop 轮询顺序，只说明接口调用，不提供具体 W5300/SCI 实现。
+- [ ] 说明 W5300 end_session 可关闭当前 Socket 并重新监听，SCI end_session 可清缓存；具体动作由用户决定。
+- [ ] 说明 ERROR 后用户外部处理设备，再重新 Init 或重启 DSP；没有 Reset API。
+- [ ] 硬件验收清单要求两个 W5300 Socket、两个 IoDevice、两个 Algorithm、两个 S-Function 完成 1000 步，并验证一次 SIM_STOP→end_session→重新监听→新 SIM_START。
+- [ ] 明确所有未实际执行的 CCS、DSP 和硬件结果标记为“未验证”。
+
+### 验证方法
+
+运行：
+
+```powershell
+rg -n "SocketField|SocketTxField|SocketRxField|C2837X_BLOCK_SOCKET_NUM|copy.*w5300|Only one instance" README.md docs app core simulink
+```
+
+预期：仅在历史说明或明确禁止项中出现；新用户流程不要求修改 Core 或生成器来选择设备。
+
+### 完成判据
+
+- 用户可仅根据文档完成自己的 IoDevice、实例映射和主循环集成。
+- 文档没有声称 AI/Codex 已完成 DSP、W5300 或硬件验证。
+
+### 风险和回退方式
+
+- 风险：文档示例误写成 W5300 专用公共接口。
+- 回退：以 `core/algorithm/inc/c2837x_block.h` 为唯一接口源，删除任何具体寄存器或 Socket API 示例。
+
+---
+
+## 实施完成总门槛
+
+- Frozen 需求编号、V1 wire format 和 error code 无变化。
+- `core/algorithm` 无 TI/W5300 include、无全局运行实例、无设备分支。
+- `autogen` 无用户 Algorithm、IoDevice、Socket、SCI channel、硬件配置或缓存表。
+- App 能保存、加载、生成并构建至少两个实例，且派生名称无大小写冲突。
+- host tests 全部通过；双 S-Function/双 Mock 1000 步实际执行后通过。
+- W5300 HAL/Socket 和用户文件的 Git diff 为空。
+- DSP/W5300 硬件验收仍由用户执行；未执行前明确标记“未验证”。
+
+## 建议提交边界
+
+每个阶段使用一个独立提交；阶段 2–5 如改动过大，可按“测试/接口”和“最小实现”拆成两个提交，但不得把不同阶段混在同一提交。任何阶段失败时只回退本阶段提交，不使用 `git reset --hard`，不修改或还原用户未提交内容。
