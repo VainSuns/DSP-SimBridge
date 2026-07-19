@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "task_ids": [],
+  "fr_ids": [],
+  "gate": "",
+  "command": "",
+  "environment": {
+    "matlab_version": "",
+    "simulink_version": "",
+    "operating_system": "",
+    "compiler": ""
+  },
+  "counts": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "not_implemented": 0
+  },
+  "unverified": [],
+  "log_path": "",
+  "result": "NOT_EXECUTED"
+}
