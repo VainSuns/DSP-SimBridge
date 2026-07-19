@@ -44,7 +44,7 @@ end
 
 function testOddAndTruncatedFramesAreRejected(testCase)
 verifyError(testCase, @() legacy_v1_parse_dsp_frame(uint8([1 0 1 0 0 0])), ...
-    'MATLAB:assertion:failed');
+    'DSPSimBridge:LegacyV1:OddPayloadOctetCount');
 verifyError(testCase, @() legacy_v1_parse_pc_frame(uint8([1 0 6 0 1 0])), ...
-    'MATLAB:assertion:failed');
+    'DSPSimBridge:LegacyV1:FrameLengthMismatch');
 end
