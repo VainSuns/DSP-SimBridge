@@ -3,6 +3,10 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2024b%2B-blue)](https://www.mathworks.com/products/matlab.html)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
+## 当前开发状态
+
+当前唯一需求入口是 `requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md`，当前唯一实施计划是 `plan.md`。当前 App、DSP 和 S-Function 产品代码仍为“旧单实例”实现；README 后续功能和使用说明描述的是现有旧单实例代码。多实例实现必须按照 `feature/multi-instance-v1` 上的计划任务和门禁推进。
+
 DSP-SimBridge 是一个 DSP 在环仿真（DSP-in-the-Loop）通信模块，用于在 Simulink 仿真环境中验证运行在 TI C2000 DSP 上的控制算法。
 
 ## 📋 目录
@@ -124,8 +128,10 @@ DSP-SimBridge/
 │   ├── c2837x_block_sfun_matlab.m      # MATLAB S-Function（遗留）
 │   └── c2837x_block_test.slx           # 测试模型
 │
-├── spec_v2_3.md                        # 协议规范文档
-├── plan.md                             # 开发计划
+├── requirements/
+│   └── requirements_multi_iodevice_v1.0_frozen_rev2.md # 当前唯一需求入口
+├── plan.md                             # 当前唯一实施计划
+├── tests/                              # MATLAB 测试
 └── README.md                           # 本文件
 ```
 
@@ -529,7 +535,6 @@ C S-Function 的端口配置由 `c2837x_block_sfun_io.c` 自动生成。如需�
 ## 关于本项目
 
 本项目由 AI 辅助生成，包括：
-- 协议规范文档（spec_v2_3.md）
 - DSP 端通信库代码
 - PC 端 C S-Function 代码
 - MATLAB App 配置工具
