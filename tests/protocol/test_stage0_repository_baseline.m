@@ -38,7 +38,7 @@ for index = 1:numel(singles)
         covered(value) = true;
     end
 end
-verifyEqual(testCase, find(~covered), []);
+verifyFalse(testCase, any(~covered));
 end
 
 function testStageZeroTasksAndGateExist(testCase)
