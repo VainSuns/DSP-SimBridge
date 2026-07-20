@@ -58,10 +58,12 @@ classdef C2837xBlockConfigurator < handle
         % Output
         HashArea            matlab.ui.control.TextArea
         StatusLabel         matlab.ui.control.Label
+        ProjectSession
     end
 
     methods (Access = public)
         function app = C2837xBlockConfigurator()
+            app.ProjectSession = c2837x_block_project_session();
             createComponents(app);
             loadDefaultConfig(app);
             updateReport(app);
@@ -77,8 +79,10 @@ classdef C2837xBlockConfigurator < handle
     methods (Access = private)
 
         %% ---- Close callback ----
-        function closeApp(~, src)
-            delete(src);
+        function closeApp(app, src)
+            if confirmDiscardChanges(app)
+                delete(src);
+            end
         end
 
         %% ---- Collect config from UI ----
@@ -562,38 +566,97 @@ classdef C2837xBlockConfigurator < handle
 
         %% ---- Save button callback ----
         function saveButtonPushed(app, ~, ~)
-            [file, path] = uiputfile('*.mat', 'Save Configuration', 'c2837x_block_config.mat');
+            try
+                [saved, filepath] = saveProject(app);
+                if ~saved, return; end
+                [~, file, ext] = fileparts(filepath);
+                app.StatusLabel.Text = sprintf('Status: Saved to %s%s', file, ext);
+                app.StatusLabel.FontColor = [0 0.5 0];
+            catch e
+                uialert(app.UIFigure, e.message, 'Save Error');
+            end
+        end
+
+        %% ---- Load button callback ----
+        function loadButtonPushed(app, ~, ~)
+            [file, path] = uigetfile('*.mat', 'Load Project');
             if isequal(file, 0), return; end
+            filepath = fullfile(path, file);
+            choice = '';
+            savePath = '';
+            if app.ProjectSession.Dirty
+                choice = unsavedChoice(app);
+                if strcmp(choice, 'Save') && isempty(app.ProjectSession.FilePath)
+                    [savePath, selected] = chooseSavePath(app);
+                    if ~selected, return; end
+                end
+            end
+            try
+                loaded = app.ProjectSession.loadProject(filepath, choice, savePath);
+                if ~loaded, return; end
+                app.StatusLabel.Text = sprintf('Status: Loaded from %s', file);
+                app.StatusLabel.FontColor = [0 0.5 0];
+            catch e
+                uialert(app.UIFigure, e.message, 'Load Error');
+            end
+        end
+
+        function proceed = confirmDiscardChanges(app)
+            if ~app.ProjectSession.Dirty
+                proceed = true;
+                return;
+            end
+            choice = unsavedChoice(app);
+            savePath = '';
+            if strcmp(choice, 'Save') && isempty(app.ProjectSession.FilePath)
+                [savePath, selected] = chooseSavePath(app);
+                if ~selected
+                    proceed = false;
+                    return;
+                end
+            end
+            try
+                proceed = app.ProjectSession.canDiscardChanges(choice, savePath);
+            catch e
+                uialert(app.UIFigure, e.message, 'Save Error');
+                proceed = false;
+            end
+        end
+
+        function choice = unsavedChoice(app)
+            choice = uiconfirm(app.UIFigure, ...
+                'The current project has unsaved changes.', 'Unsaved Project', ...
+                'Options', {'Save', 'Don''t Save', 'Cancel'}, ...
+                'DefaultOption', 'Save', 'CancelOption', 'Cancel');
+        end
+
+        function [saved, filepath] = saveProject(app)
+            filepath = app.ProjectSession.FilePath;
+            if isempty(filepath)
+                [filepath, saved] = chooseSavePath(app);
+                if ~saved, return; end
+            else
+                saved = true;
+            end
+            app.ProjectSession.saveProject(filepath);
+        end
+
+        function [filepath, selected] = chooseSavePath(app)
+            [file, path] = uiputfile('*.mat', 'Save Project', ...
+                app.ProjectSession.DefaultFileName);
+            selected = ~isequal(file, 0);
+            if ~selected
+                filepath = '';
+                return;
+            end
             filepath = fullfile(path, file);
             if isfile(filepath)
                 choice = uiconfirm(app.UIFigure, ...
                     sprintf('File already exists:\n%s\n\nReplace?', filepath), ...
                     'Confirm Replace', ...
                     'Options', {'Replace', 'Cancel'}, 'DefaultOption', 'Cancel');
-                if strcmp(choice, 'Cancel')
-                    return;
-                end
+                selected = strcmp(choice, 'Replace');
             end
-            config = collectConfig(app); %#ok<NASGU>
-            save(filepath, 'config');
-            app.StatusLabel.Text = sprintf('Status: Saved to %s', file);
-            app.StatusLabel.FontColor = [0 0.5 0];
-        end
-
-        %% ---- Load button callback ----
-        function loadButtonPushed(app, ~, ~)
-            [file, path] = uigetfile('*.mat', 'Load Configuration');
-            if isequal(file, 0), return; end
-            data = load(fullfile(path, file));
-            if ~isfield(data, 'config')
-                uialert(app.UIFigure, 'No config variable in file.', 'Load Error');
-                return;
-            end
-            config = data.config;
-            applyConfig(app, config);
-            updateReport(app);
-            app.StatusLabel.Text = sprintf('Status: Loaded from %s', file);
-            app.StatusLabel.FontColor = [0 0.5 0];
         end
 
         %% ---- Preview hash button callback ----
@@ -611,51 +674,6 @@ classdef C2837xBlockConfigurator < handle
             app.HashArea.Value = strsplit(hash_str, '\n');
             app.StatusLabel.Text = sprintf('Status: config_hash = 0x%08X', hash_val);
             app.StatusLabel.FontColor = [0 0.5 0];
-        end
-
-        %% ---- Apply loaded config to UI ----
-        function applyConfig(app, config)
-            if isfield(config, 'dsp_ip'),       app.IpField.Value = config.dsp_ip; end
-            if isfield(config, 'gateway'),       app.GatewayField.Value = config.gateway; end
-            if isfield(config, 'subnet'),        app.SubnetField.Value = config.subnet; end
-            if isfield(config, 'tcp_port'),      app.PortField.Value = config.tcp_port; end
-            if isfield(config, 'socket_num'),    app.SocketField.Value = num2str(config.socket_num); end
-            if isfield(config, 'sample_time_sec'), app.SampleTimeField.Value = config.sample_time_sec; end
-            if isfield(config, 'abi'),           app.AbiDropDown.Value = config.abi; end
-            if isfield(config, 'double_mode'),   app.DoubleDropDown.Value = config.double_mode; end
-            if isfield(config, 'max_payload_size_bytes'), app.MaxPayloadField.Value = config.max_payload_size_bytes; end
-            if isfield(config, 'socket0_tx_kb'), app.SocketTxField.Value = config.socket0_tx_kb; end
-            if isfield(config, 'socket0_rx_kb'), app.SocketRxField.Value = config.socket0_rx_kb; end
-            if isfield(config, 'dsp_output_path'), app.DspPathField.Value = config.dsp_output_path; end
-            if isfield(config, 'pc_output_path'),  app.PcPathField.Value = config.pc_output_path; end
-
-            if isfield(config, 'mac')
-                app.MacField.Value = sprintf('%02X:%02X:%02X:%02X:%02X:%02X', ...
-                    config.mac(1), config.mac(2), config.mac(3), ...
-                    config.mac(4), config.mac(5), config.mac(6));
-            end
-
-            if isfield(config, 'inputs')
-                n = numel(config.inputs);
-                data = cell(n, 3);
-                for i = 1:n
-                    data{i,1} = config.inputs(i).name;
-                    data{i,2} = config.inputs(i).type;
-                    data{i,3} = config.inputs(i).dim;
-                end
-                app.InputTable.Data = data;
-            end
-
-            if isfield(config, 'outputs')
-                n = numel(config.outputs);
-                data = cell(n, 3);
-                for i = 1:n
-                    data{i,1} = config.outputs(i).name;
-                    data{i,2} = config.outputs(i).type;
-                    data{i,3} = config.outputs(i).dim;
-                end
-                app.OutputTable.Data = data;
-            end
         end
 
         %% ---- Add/Remove input ----
@@ -837,9 +855,9 @@ classdef C2837xBlockConfigurator < handle
             app.GenerateBtn = uibutton(btn_grid, 'Text', 'Generate', ...
                 'BackgroundColor', [0.3 0.7 0.3], 'FontWeight', 'bold', ...
                 'ButtonPushedFcn', @(s,e) generateButtonPushed(app,s,e));
-            app.SaveBtn = uibutton(btn_grid, 'Text', 'Save Config', ...
+            app.SaveBtn = uibutton(btn_grid, 'Text', 'Save Project', ...
                 'ButtonPushedFcn', @(s,e) saveButtonPushed(app,s,e));
-            app.LoadBtn = uibutton(btn_grid, 'Text', 'Load Config', ...
+            app.LoadBtn = uibutton(btn_grid, 'Text', 'Load Project', ...
                 'ButtonPushedFcn', @(s,e) loadButtonPushed(app,s,e));
             app.PreviewBtn = uibutton(btn_grid, 'Text', 'Preview Hash', ...
                 'ButtonPushedFcn', @(s,e) previewButtonPushed(app,s,e));
