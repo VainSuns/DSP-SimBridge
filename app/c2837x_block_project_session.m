@@ -162,6 +162,9 @@ require_text(network.subnet, 'project.common.network.subnet');
 if ~isstruct(project.instances)
     invalid_project('project.instances must be a struct array.');
 end
+require_fields(project.instances, {'display_name', 'internal_name', ...
+    'iodevice', 'sample_time_sec', 'max_payload_size_bytes', 'inputs', ...
+    'outputs', 'algorithm', 'interface_hash'}, 'project.instances');
 for index = 1:numel(project.instances)
     validate_instance(project.instances(index));
 end
@@ -229,14 +232,17 @@ end
 end
 
 function validate_version(value, supported, name)
-if ~isnumeric(value) || ~isscalar(value) || ~isreal(value) || ...
-        ~isfinite(value) || value ~= fix(value) || value == 0
+if ~isa(value, 'uint16') || ~isscalar(value) || value == 0
     error('C2837xBlock:Project:InvalidVersion', ...
-        '%s must be a positive integer scalar.', name);
+        '%s must be a nonzero uint16 scalar.', name);
 end
 if value > supported
     error('C2837xBlock:Project:UnsupportedVersion', ...
         '%s %g is newer than supported version %g.', name, value, supported);
+end
+if value ~= supported
+    error('C2837xBlock:Project:InvalidVersion', ...
+        '%s must equal supported version %g.', name, supported);
 end
 end
 

@@ -198,6 +198,69 @@ classdef test_project_session < matlab.unittest.TestCase
                 'C2837xBlock:Project:InvalidVersion');
         end
 
+        function testRejectsDoubleFormatVersionWithoutChangingSession(testCase)
+            project = c2837x_block_create_default_project();
+            project.format_version = double(2);
+
+            verify_rejected_load_preserves_session(testCase, ...
+                testCase.WorkFolder, 'double-format.mat', project, ...
+                'C2837xBlock:Project:InvalidVersion');
+        end
+
+        function testRejectsDoubleProtocolVersionWithoutChangingSession(testCase)
+            project = c2837x_block_create_default_project();
+            project.common.protocol_version = double(1);
+
+            verify_rejected_load_preserves_session(testCase, ...
+                testCase.WorkFolder, 'double-protocol.mat', project, ...
+                'C2837xBlock:Project:InvalidVersion');
+        end
+
+        function testRejectsOtherIntegerVersionTypesWithoutChangingSession(testCase)
+            formatProject = c2837x_block_create_default_project();
+            formatProject.format_version = int32(2);
+            protocolProject = c2837x_block_create_default_project();
+            protocolProject.common.protocol_version = uint32(1);
+
+            verify_rejected_load_preserves_session(testCase, ...
+                testCase.WorkFolder, 'int32-format.mat', formatProject, ...
+                'C2837xBlock:Project:InvalidVersion');
+            verify_rejected_load_preserves_session(testCase, ...
+                testCase.WorkFolder, 'uint32-protocol.mat', protocolProject, ...
+                'C2837xBlock:Project:InvalidVersion');
+        end
+
+        function testRejectsUntypedEmptyInstancesWithoutChangingSession(testCase)
+            project = c2837x_block_create_default_project();
+            project.instances = struct([]);
+
+            verify_rejected_load_preserves_session(testCase, ...
+                testCase.WorkFolder, 'untyped-empty-instances.mat', project, ...
+                'C2837xBlock:Project:InvalidStructure');
+        end
+
+        function testRejectsIncompleteEmptyInstanceSchemaWithoutChangingSession(testCase)
+            project = c2837x_block_create_default_project();
+            project.instances = struct('display_name', {});
+
+            verify_rejected_load_preserves_session(testCase, ...
+                testCase.WorkFolder, 'incomplete-empty-instances.mat', project, ...
+                'C2837xBlock:Project:InvalidStructure');
+        end
+
+        function testTypedEmptyInstancesRoundTrip(testCase)
+            project = c2837x_block_create_default_project();
+            filePath = fullfile(testCase.WorkFolder, 'typed-empty-instances.mat');
+            source = c2837x_block_project_session(project);
+            target = c2837x_block_project_session();
+
+            source.saveProject(filePath);
+            target.loadProject(filePath);
+
+            testCase.verifyEmpty(target.Project.instances);
+            testCase.verifyEqual(target.Project, project);
+        end
+
         function testRejectsMissingProjectAndCriticalField(testCase)
             missingProjectPath = fullfile(testCase.WorkFolder, 'missing-project.mat');
             config = struct();
@@ -262,6 +325,17 @@ function verify_snapshot(testCase, session, expected)
 testCase.verifyEqual(session.Project, expected.project);
 testCase.verifyEqual(session.FilePath, expected.filePath);
 testCase.verifyEqual(session.Dirty, expected.dirty);
+end
+
+function verify_rejected_load_preserves_session(testCase, folder, name, ...
+        project, errorID)
+filePath = write_project(folder, name, project);
+currentPath = fullfile(folder, ['current-' name]);
+session = saved_dirty_session(currentPath);
+before = snapshot(session);
+
+testCase.verifyError(@() session.loadProject(filePath, 'Don''t Save'), errorID);
+verify_snapshot(testCase, session, before);
 end
 
 function load_new_session(filePath)
