@@ -67,21 +67,34 @@ classdef c2837x_block_project_session < handle
                 return;
             end
 
-            if ~ismember('project', who('-file', filePath))
+            variables = who('-file', filePath);
+            migrated = false;
+            if ismember('project', variables)
+                data = load(filePath, 'project');
+                project = data.project;
+            elseif ismember('config', variables)
+                data = load(filePath, 'config');
+                project = c2837x_block_migrate_legacy_config(data.config);
+                migrated = true;
+            else
                 error('C2837xBlock:Project:MissingProject', ...
-                    'Project file does not contain a project variable.');
+                    'Project file does not contain a project or config variable.');
             end
-            data = load(filePath, 'project');
-            validate_project(data.project);
+            validate_project(project);
 
             loaded = session.canDiscardChanges(choice, savePath);
             if ~loaded
                 return;
             end
 
-            session.Project = data.project;
-            session.FilePath = filePath;
-            session.Dirty = false;
+            session.Project = project;
+            if migrated
+                session.FilePath = '';
+                session.Dirty = true;
+            else
+                session.FilePath = filePath;
+                session.Dirty = false;
+            end
         end
 
         function proceed = canDiscardChanges(session, choice, savePath)

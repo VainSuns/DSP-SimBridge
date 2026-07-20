@@ -263,8 +263,8 @@ classdef test_project_session < matlab.unittest.TestCase
 
         function testRejectsMissingProjectAndCriticalField(testCase)
             missingProjectPath = fullfile(testCase.WorkFolder, 'missing-project.mat');
-            config = struct();
-            save(missingProjectPath, 'config');
+            other = struct();
+            save(missingProjectPath, 'other');
             project = c2837x_block_create_default_project();
             project.common = rmfield(project.common, 'network');
             missingFieldPath = write_project(testCase.WorkFolder, ...
