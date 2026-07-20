@@ -1,3 +1,7 @@
 # App tests
 
-This category is intentionally not implemented during stage0. Future tests must be added only by the assigned stage1 plan tasks. The unified runner reports this category as `NOT_IMPLEMENTED`, not passed.
+This category contains stage1 App model and service tests. Run it with:
+
+```matlab
+run_all_tests('app')
+```
