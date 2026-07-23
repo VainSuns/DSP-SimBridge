@@ -1,30 +1,34 @@
 function [valid, msg] = c2837x_block_validate_name(name, existing_names)
-%C2837X_BLOCK_VALIDATE_NAME  Validate a variable name for generated C code.
+%C2837X_BLOCK_VALIDATE_NAME Validate an internal or I/O C identifier.
 %
 %   [valid, msg] = c2837x_block_validate_name(name, existing_names)
 %
 %   Checks:
 %     1. Non-empty
-%     2. Valid C identifier (letter/underscore start, alphanumeric/underscore body)
+%     2. ASCII letter start, then ASCII letters, digits, or underscores
 %     3. Not a C keyword
-%     4. Not a reserved identifier (starts with _ or double underscore)
+%     4. Not an implementation-reserved identifier
 %     5. Not a generated-code internal symbol
 %     6. Not duplicate of existing_names
 
     valid = true;
     msg = '';
 
-    % --- Non-empty ---
-    if isempty(strtrim(name))
+    if ~(ischar(name) && isrow(name)) && ...
+            ~(isstring(name) && isscalar(name))
         valid = false;
-        msg = 'Variable name is empty.';
+        msg = 'Name must be a character row vector or scalar string.';
+        return;
+    end
+    name = char(name);
+    if isempty(name)
+        valid = false;
+        msg = 'Name is empty.';
         return;
     end
 
-    name = strtrim(name);
-
     % --- Valid C identifier ---
-    if isempty(regexp(name, '^[A-Za-z_][A-Za-z0-9_]*$', 'once'))
+    if isempty(regexp(name, '^[A-Za-z][A-Za-z0-9_]*$', 'once'))
         valid = false;
         msg = sprintf('"%s" is not a valid C identifier.', name);
         return;
@@ -45,31 +49,19 @@ function [valid, msg] = c2837x_block_validate_name(name, existing_names)
         return;
     end
 
-    % --- Reserved identifiers ---
-    % Starts with underscore followed by uppercase or another underscore
-    if numel(name) >= 2 && name(1) == '_' && (isupper(name(2)) || name(2) == '_')
-        valid = false;
-        msg = sprintf('"%s" is a reserved identifier (starts with _%s).', ...
-                       name, name(2));
-        return;
-    end
-    % Single underscore
-    if strcmp(name, '_')
-        valid = false;
-        msg = '"_" is a reserved identifier.';
-        return;
-    end
-
-    % --- Generated-code internal symbols ---
-    internal_symbols = { ...
+    % --- Generated-code and public API symbols ---
+    reserved_symbols = { ...
         'c2837x_block_input', 'c2837x_block_output', ...
         'C2837xBlock_InputData', 'C2837xBlock_OutputData', ...
         'C2837xBlock_OnSimStart', 'C2837xBlock_OnStep', ...
         'C2837xBlock_OnSimStop', 'c2837x_block_unpack_input_payload', ...
         'c2837x_block_pack_output_payload', 'step_index', ...
-        'payload_words', 'offset' ...
+        'payload_words', 'offset', 'C2837xBlock', 'C2837xBlock_Error', ...
+        'C2837xBlock_PlatformResult', ...
+        'C2837xBlock_PlatformInit', 'C2837xBlock_Init', ...
+        'C2837xBlock_Run', 'C2837xBlock_GetLastError' ...
     };
-    if any(strcmp(name, internal_symbols))
+    if any(strcmpi(name, reserved_symbols))
         valid = false;
         msg = sprintf('"%s" conflicts with generated code internal symbol.', name);
         return;
@@ -84,14 +76,10 @@ function [valid, msg] = c2837x_block_validate_name(name, existing_names)
 
     % --- Duplicate check ---
     if nargin >= 2 && ~isempty(existing_names)
-        if any(strcmp(name, existing_names))
+        if any(strcmpi(name, existing_names))
             valid = false;
             msg = sprintf('"%s" is duplicate.', name);
             return;
         end
     end
-end
-
-function tf = isupper(c)
-    tf = (c >= 'A') && (c <= 'Z');
 end
