@@ -186,9 +186,10 @@ classdef test_instance_operations < matlab.unittest.TestCase
             testCase.verifyTrue(session.Dirty);
         end
 
-        function testFailedEditPreservesCompleteSession(testCase)
+        function testFailedInternalRenamePreservesCompleteSession(testCase)
             project = project_with_instances({'first', 'second'}, [0 1], [5000 5001]);
             session = c2837x_block_project_session(project);
+            session.saveProject(fullfile(testCase.WorkFolder, 'project.mat'));
             session.renameInstance(1, 'First renamed', 'renamed_first');
             before = snapshot(session);
 
@@ -241,27 +242,77 @@ classdef test_instance_operations < matlab.unittest.TestCase
             verify_snapshot(testCase, session, before);
         end
 
-        function testDisplayRenameHasNoLegacyRisk(testCase)
+        function testUpdateDisplayNameAddsNoLegacyRisk(testCase)
             session = c2837x_block_project_session( ...
                 project_with_instances({'motor'}, 0, 5000));
 
-            session.renameInstance(1, 'Motor display', 'motor');
+            session.updateInstance(1, struct('display_name', 'Motor display'));
 
             testCase.verifyEqual(session.Project.instances.display_name, 'Motor display');
             testCase.verifyEmpty(session.LegacyFileRisks);
             testCase.verifyTrue(session.Dirty);
         end
 
-        function testInternalRenameAddsLegacyRisk(testCase)
+        function testUpdateOrdinaryFieldAddsNoLegacyRisk(testCase)
+            session = c2837x_block_project_session( ...
+                project_with_instances({'motor'}, 0, 5000));
+
+            session.updateInstance(1, struct('sample_time_sec', 2e-4));
+
+            testCase.verifyEmpty(session.LegacyFileRisks);
+            testCase.verifyTrue(session.Dirty);
+        end
+
+        function testUpdateSameInternalNameAddsNoLegacyRisk(testCase)
+            session = c2837x_block_project_session( ...
+                project_with_instances({'motor'}, 0, 5000));
+
+            session.updateInstance(1, struct('internal_name', 'motor'));
+
+            testCase.verifyEmpty(session.LegacyFileRisks);
+            testCase.verifyTrue(session.Dirty);
+        end
+
+        function testUpdateInternalNameAddsLegacyRisk(testCase)
+            filePath = fullfile(testCase.WorkFolder, 'project.mat');
+            session = c2837x_block_project_session( ...
+                project_with_instances({'motor'}, 0, 5000));
+            session.saveProject(filePath);
+
+            session.updateInstance(1, struct('internal_name', 'motor_new'));
+
+            testCase.verifyEqual(session.Project.instances.internal_name, 'motor_new');
+            testCase.verifyTrue(session.Dirty);
+            testCase.verifyEqual(session.FilePath, filePath);
+            testCase.verifyNumElements(session.LegacyFileRisks, 1);
+            testCase.verifyEqual(session.LegacyFileRisks.action, 'rename');
+            testCase.verifyEqual(session.LegacyFileRisks.internal_name, 'motor');
+            testCase.verifyNotEmpty(session.LegacyFileRisks.reason);
+        end
+
+        function testRenameInstanceAddsOnlyOneLegacyRisk(testCase)
             session = c2837x_block_project_session( ...
                 project_with_instances({'motor'}, 0, 5000));
 
             session.renameInstance(1, 'Motor', 'motor_new');
 
             testCase.verifyEqual(session.Project.instances.internal_name, 'motor_new');
+            testCase.verifyNumElements(session.LegacyFileRisks, 1);
             testCase.verifyEqual(session.LegacyFileRisks.action, 'rename');
             testCase.verifyEqual(session.LegacyFileRisks.internal_name, 'motor');
             testCase.verifyNotEmpty(session.LegacyFileRisks.reason);
+        end
+
+        function testCaseOnlyInternalRenameAddsLegacyRisk(testCase)
+            session = c2837x_block_project_session( ...
+                project_with_instances({'motor'}, 0, 5000));
+
+            session.updateInstance(1, struct('internal_name', 'Motor'));
+
+            testCase.verifyEqual(session.Project.instances.internal_name, 'Motor');
+            testCase.verifyNumElements(session.LegacyFileRisks, 1);
+            testCase.verifyEqual(session.LegacyFileRisks.action, 'rename');
+            testCase.verifyEqual(session.LegacyFileRisks.internal_name, 'motor');
         end
 
         function testDeletePreservesOrderAndAddsLegacyRisk(testCase)

@@ -52,12 +52,17 @@ classdef c2837x_block_project_session < handle
 
         function updateInstance(session, index, changes)
             index = valid_instance_index(session.Project, index);
+            oldName = session.Project.instances(index).internal_name;
             instance = merge_changes(session.Project.instances(index), changes);
             validate_instance_operation(instance);
             validate_instance_conflicts(instance, session.Project.instances, index);
             project = session.Project;
             project.instances(index) = instance;
             session.updateProject(project);
+            if ~strcmp(char(oldName), char(instance.internal_name))
+                session.LegacyFileRisks(end + 1) = legacy_risk( ...
+                    'rename', oldName, 'Internal name changed; old generated files may remain.');
+            end
         end
 
         function copyInstance(session, index, displayName, internalName, ...
@@ -83,15 +88,9 @@ classdef c2837x_block_project_session < handle
         end
 
         function renameInstance(session, index, displayName, internalName)
-            index = valid_instance_index(session.Project, index);
-            oldName = session.Project.instances(index).internal_name;
             changes = struct('display_name', displayName, ...
                 'internal_name', internalName);
             session.updateInstance(index, changes);
-            if ~strcmp(oldName, char(string(internalName)))
-                session.LegacyFileRisks(end + 1) = legacy_risk( ...
-                    'rename', oldName, 'Internal name changed; old generated files may remain.');
-            end
         end
 
         function deleteInstance(session, index)
