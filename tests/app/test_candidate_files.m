@@ -159,6 +159,68 @@ classdef test_candidate_files < matlab.unittest.TestCase
             testCase.verifyEqual(two, one);
         end
 
+        function testCandidateValidationRejectsUnknownCategory(testCase)
+            candidate = c2837x_block_build_candidate_files(definition( ...
+                testCase.WorkFolder, 'unknown.txt', 'user', uint8(1), 3));
+            candidate.category = 'unknown';
+
+            issues = c2837x_block_validate_candidate_files(candidate);
+
+            testCase.verifyEqual(numel(issues), 1);
+            testCase.verifyEqual(issues.severity, 'Error');
+            testCase.verifyEqual(issues.code, 'CANDIDATE_CATEGORY_INVALID');
+            testCase.verifyEqual(issues.field_path, 'candidates(1).category');
+            testCase.verifyEqual(issues.instance_index, 3);
+            testCase.verifyEqual(issues.file_path, candidate.target_path);
+        end
+
+        function testCandidateValidationRejectsMalformedFixedModel(testCase)
+            candidates = c2837x_block_build_candidate_files( ...
+                repmat(definition(testCase.WorkFolder, 'model.txt', ...
+                'user', uint8(1), 2), 1, 6));
+            candidates(1).target_path = 'relative.txt';
+            candidates(2).category = 'Core';
+            candidates(3).owner = '';
+            candidates(4).instance_index = NaN;
+            candidates(5).content_bytes = uint8([1; 2]);
+            candidates(5).content_size_octets = 2;
+            candidates(6).content_size_octets = 99;
+
+            first = c2837x_block_validate_candidate_files(candidates);
+            second = c2837x_block_validate_candidate_files(candidates);
+
+            testCase.verifyEqual(second, first);
+            testCase.verifyEqual({first.code}, {'CANDIDATE_PATH_INVALID', ...
+                'CANDIDATE_CATEGORY_INVALID', 'CANDIDATE_OWNER_INVALID', ...
+                'CANDIDATE_INSTANCE_INDEX_INVALID', 'CANDIDATE_CONTENT_INVALID', ...
+                'CANDIDATE_CONTENT_SIZE_INVALID'});
+            testCase.verifyEqual({first.field_path}, { ...
+                'candidates(1).target_path', 'candidates(2).category', ...
+                'candidates(3).owner', 'candidates(4).instance_index', ...
+                'candidates(5).content_bytes', ...
+                'candidates(6).content_size_octets'});
+        end
+
+        function testComparisonBlocksUnknownCategory(testCase)
+            target = fullfile(testCase.WorkFolder, 'existing.bin');
+            write_bytes(target, uint8([1 2 3]));
+            value = definition_with_path(target);
+            value.content_bytes = uint8([1 2 3]);
+            candidate = c2837x_block_build_candidate_files(value);
+            candidate.category = 'unknown';
+            before = filesystem_snapshot(testCase.WorkFolder);
+
+            [comparison, issues] = c2837x_block_compare_candidate_files(candidate);
+            after = filesystem_snapshot(testCase.WorkFolder);
+
+            testCase.verifyEqual(comparison.target_state, 'blocked');
+            testCase.verifyEqual(comparison.default_action, 'blocked');
+            testCase.verifyEqual(comparison.selected_action, 'blocked');
+            testCase.verifyTrue(comparison.action_mandatory);
+            testCase.verifyEqual({issues.code}, {'CANDIDATE_CATEGORY_INVALID'});
+            testCase.verifyEqual(after, before);
+        end
+
         function testFixedFixtureDecisionMatrix(testCase)
             [definitions, expected] = c2837x_block_stage1_candidate_fixture(testCase.WorkFolder);
             candidates = c2837x_block_build_candidate_files(definitions);
@@ -214,6 +276,62 @@ classdef test_candidate_files < matlab.unittest.TestCase
 
             testCase.verifyEqual({issues.code}, {'CANDIDATE_COMPARISON_BLOCKED'});
             testCase.verifyEqual({issues.field_path}, {'comparisons(1).selected_action'});
+        end
+
+        function testActionValidationRejectsUnknownCategory(testCase)
+            comparisons = fixture_comparisons(testCase.WorkFolder);
+            comparison = comparisons(8);
+
+            keepIssue = validate_action(comparison, 'unknown', 'different', 'keep');
+            replaceIssue = validate_action(comparison, 'unknown', 'different', 'replace');
+            createIssue = validate_action(comparison, 'unknown', 'different', 'create');
+
+            testCase.verifyEqual({keepIssue.code, replaceIssue.code, createIssue.code}, ...
+                repmat({'CANDIDATE_ACTION_INVALID'}, 1, 3));
+            testCase.verifyEqual(keepIssue.field_path, 'comparisons(1).category');
+        end
+
+        function testActionValidationRejectsUnknownAction(testCase)
+            comparisons = fixture_comparisons(testCase.WorkFolder);
+
+            userIssue = validate_action(comparisons(8), 'user', 'different', 'unknown');
+            autoIssue = validate_action(comparisons(3), ...
+                'auto_generated', 'different', 'unknown');
+            missingIssue = validate_action(comparisons(6), 'user', 'missing', 'unknown');
+            sameIssue = validate_action(comparisons(4), 'core', 'same', 'unknown');
+
+            testCase.verifyEqual( ...
+                {userIssue.code, autoIssue.code, missingIssue.code, sameIssue.code}, ...
+                repmat({'CANDIDATE_ACTION_INVALID'}, 1, 4));
+            testCase.verifyEqual(userIssue.field_path, ...
+                'comparisons(1).selected_action');
+        end
+
+        function testActionValidationRejectsUnknownState(testCase)
+            comparisons = fixture_comparisons(testCase.WorkFolder);
+
+            issue = validate_action(comparisons(8), 'user', 'unknown', 'keep');
+
+            testCase.verifyEqual({issue.code}, {'CANDIDATE_ACTION_INVALID'});
+            testCase.verifyEqual(issue.field_path, 'comparisons(1).target_state');
+        end
+
+        function testActionValidationRejectsInvalidTextTypes(testCase)
+            comparisons = fixture_comparisons(testCase.WorkFolder);
+            values = comparisons([8 8 8 8]);
+            values(1).category = 1;
+            values(2).category = ["user" "core"];
+            values(3).target_state = {'different'};
+            values(4).selected_action = missing;
+
+            issues = c2837x_block_validate_candidate_actions(values);
+
+            testCase.verifyEqual({issues.code}, ...
+                repmat({'CANDIDATE_ACTION_INVALID'}, 1, 4));
+            testCase.verifyEqual({issues.field_path}, { ...
+                'comparisons(1).category', 'comparisons(2).category', ...
+                'comparisons(3).target_state', ...
+                'comparisons(4).selected_action'});
         end
 
         function testExactOctetComparison(testCase)
@@ -317,6 +435,13 @@ function code = invalid_code(comparisons, index, action)
 comparisons(index).selected_action = action;
 issues = c2837x_block_validate_candidate_actions(comparisons);
 code = issues.code;
+end
+
+function issue = validate_action(comparison, category, state, action)
+comparison.category = category;
+comparison.target_state = state;
+comparison.selected_action = action;
+issue = c2837x_block_validate_candidate_actions(comparison);
 end
 
 function state = compare_after_write(path, candidateBytes, existingBytes)
