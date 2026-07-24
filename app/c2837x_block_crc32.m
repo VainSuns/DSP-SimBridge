@@ -1,10 +1,10 @@
 function hash = c2837x_block_crc32(data)
-%C2837X_BLOCK_CRC32  CRC-32/ISO-HDLC calculation for config_hash.
+%C2837X_BLOCK_CRC32 CRC-32/ISO-HDLC for Interface Hash octets or UTF-8 text.
 %
 %   hash = c2837x_block_crc32(data)
 %
 %   Parameters:
-%       data - uint8 array or char array (UTF-8 encoded string)
+%       data - uint8 vector, char vector, or scalar string
 %       hash - uint32 CRC-32 hash value
 %
 %   CRC-32/ISO-HDLC parameters:
@@ -34,8 +34,17 @@ function hash = c2837x_block_crc32(data)
         end
     end
 
-    if ischar(data)
-        data = uint8(data);
+    if isa(data, 'uint8')
+        if ~isempty(data) && ~isvector(data)
+            invalid_input();
+        end
+        data = data(:).';
+    elseif ischar(data) && (isempty(data) || isvector(data))
+        data = encode_text(data(:).');
+    elseif isstring(data) && isscalar(data) && ~ismissing(data)
+        data = encode_text(char(data));
+    else
+        invalid_input();
     end
 
     crc = uint32(0xFFFFFFFF);
@@ -44,4 +53,19 @@ function hash = c2837x_block_crc32(data)
         crc = bitxor(bitshift(crc, -8), crc_table(idx + 1));
     end
     hash = bitxor(crc, uint32(0xFFFFFFFF));
+end
+
+function data = encode_text(text)
+try
+    data = unicode2native(text, 'UTF-8');
+catch cause
+    failure = MException('C2837xBlock:CRC32:EncodingFailed', ...
+        'Text could not be encoded as UTF-8.');
+    throwAsCaller(addCause(failure, cause));
+end
+end
+
+function invalid_input()
+error('C2837xBlock:CRC32:InvalidInput', ...
+    'Input must be a uint8 vector, char vector, or scalar string.');
 end
