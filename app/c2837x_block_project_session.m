@@ -281,15 +281,19 @@ if any(strcmpi(instance.internal_name, {instances(indices).internal_name}))
 end
 for index = indices
     other = instances(index);
-    if isequal(instance.iodevice.settings.socket_number, ...
+    if numeric_values_equal(instance.iodevice.settings.socket_number, ...
             other.iodevice.settings.socket_number)
         instance_error('DuplicateSocket', 'Socket number is already used.');
     end
-    if isequal(instance.iodevice.settings.tcp_port, ...
+    if numeric_values_equal(instance.iodevice.settings.tcp_port, ...
             other.iodevice.settings.tcp_port)
         instance_error('DuplicatePort', 'TCP port is already used.');
     end
 end
+end
+
+function tf = numeric_values_equal(left, right)
+tf = double(left) == double(right);
 end
 
 function tf = is_nonempty_text(value)

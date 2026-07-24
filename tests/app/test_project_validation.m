@@ -78,6 +78,51 @@ classdef test_project_validation < matlab.unittest.TestCase
             testCase.verifyEqual([duplicate.instance_index], [2 2 2]);
         end
 
+        function testDuplicateSocketAcrossNumericClasses(testCase)
+            project = valid_project(testCase.WorkFolder);
+            second = project.instances;
+            second.display_name = 'Second';
+            second.internal_name = 'second';
+            second.iodevice.settings.socket_number = double(0);
+            second.iodevice.settings.tcp_port = double(5001);
+            project.instances(2) = second;
+            issues = c2837x_block_validate_project(project, 'instant');
+            duplicate = issues(strcmp({issues.code}, 'SOCKET_DUPLICATE'));
+            testCase.verifyNumElements(duplicate, 1);
+            testCase.verifyEqual(duplicate.instance_index, 2);
+            testCase.verifyEqual(duplicate.field_path, ...
+                'project.instances(2).iodevice.settings.socket_number');
+        end
+
+        function testDuplicatePortAcrossNumericClasses(testCase)
+            project = valid_project(testCase.WorkFolder);
+            second = project.instances;
+            second.display_name = 'Second';
+            second.internal_name = 'second';
+            second.iodevice.settings.socket_number = double(1);
+            second.iodevice.settings.tcp_port = double(5000);
+            project.instances(2) = second;
+            issues = c2837x_block_validate_project(project, 'instant');
+            duplicate = issues(strcmp({issues.code}, 'TCP_PORT_DUPLICATE'));
+            testCase.verifyNumElements(duplicate, 1);
+            testCase.verifyEqual(duplicate.instance_index, 2);
+            testCase.verifyEqual(duplicate.field_path, ...
+                'project.instances(2).iodevice.settings.tcp_port');
+        end
+
+        function testDifferentValuesAcrossNumericClassesAreNotDuplicates(testCase)
+            project = valid_project(testCase.WorkFolder);
+            second = project.instances;
+            second.display_name = 'Second';
+            second.internal_name = 'second';
+            second.iodevice.settings.socket_number = double(1);
+            second.iodevice.settings.tcp_port = double(5001);
+            project.instances(2) = second;
+            issues = c2837x_block_validate_project(project, 'instant');
+            testCase.verifyFalse(any(ismember({issues.code}, ...
+                {'SOCKET_DUPLICATE', 'TCP_PORT_DUPLICATE'})));
+        end
+
         function testNetworkRules(testCase)
             project = valid_project(testCase.WorkFolder);
             project.common.network.mac = [0 0 0 0 0 0];

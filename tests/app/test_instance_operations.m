@@ -172,6 +172,21 @@ classdef test_instance_operations < matlab.unittest.TestCase
             verify_snapshot(testCase, portSession, portBefore);
         end
 
+        function testAddInstanceRejectsCrossClassSocketConflict(testCase)
+            project = project_with_instances({'motor'}, 0, 5000);
+            session = c2837x_block_project_session(project);
+            session.saveProject(fullfile(testCase.WorkFolder, 'project.mat'));
+            session.renameInstance(1, 'Motor renamed', 'motor_renamed');
+            candidate = valid_instance('candidate', 1, 5001);
+            candidate.iodevice.settings.socket_number = double(0);
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.addInstance(candidate), ...
+                'C2837xBlock:Instance:DuplicateSocket');
+
+            verify_snapshot(testCase, session, before);
+        end
+
         function testEditPreservesPositionAndUnchangedFields(testCase)
             project = project_with_instances({'first', 'second'}, [0 1], [5000 5001]);
             session = c2837x_block_project_session(project);
@@ -196,6 +211,21 @@ classdef test_instance_operations < matlab.unittest.TestCase
             testCase.verifyError(@() session.updateInstance(1, ...
                 struct('internal_name', 'SECOND')), ...
                 'C2837xBlock:Instance:DuplicateName');
+
+            verify_snapshot(testCase, session, before);
+        end
+
+        function testUpdateInstanceRejectsCrossClassPortConflict(testCase)
+            project = project_with_instances({'first', 'second'}, [0 1], [5000 5001]);
+            session = c2837x_block_project_session(project);
+            session.saveProject(fullfile(testCase.WorkFolder, 'project.mat'));
+            session.renameInstance(1, 'First renamed', 'first_renamed');
+            changes = struct('iodevice', struct('settings', ...
+                struct('tcp_port', double(5000))));
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.updateInstance(2, changes), ...
+                'C2837xBlock:Instance:DuplicatePort');
 
             verify_snapshot(testCase, session, before);
         end
@@ -237,7 +267,7 @@ classdef test_instance_operations < matlab.unittest.TestCase
             before = snapshot(session);
 
             testCase.verifyError(@() session.copyInstance(1, ...
-                'Copy', 'copy', uint16(0), uint16(5001)), ...
+                'Copy', 'copy', double(0), double(5001)), ...
                 'C2837xBlock:Instance:DuplicateSocket');
 
             verify_snapshot(testCase, session, before);
