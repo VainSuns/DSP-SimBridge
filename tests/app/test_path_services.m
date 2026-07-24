@@ -88,6 +88,32 @@ classdef test_path_services < matlab.unittest.TestCase
             testCase.verifyTrue(any(strcmp({issues.code}, 'TARGET_BELOW_FILE')));
         end
 
+        function testWindowsRootTargetFileParentConflict(testCase)
+            testCase.assumeTrue(ispc);
+            root = filesystem_root(testCase.WorkFolder);
+            targets = [target(root, 'file'), ...
+                target(fullfile(root, 'generated', 'file.c'), 'file')];
+            issues = c2837x_block_validate_path_targets(targets);
+            testCase.verifyTrue(any(strcmp({issues.code}, 'TARGET_BELOW_FILE')));
+        end
+
+        function testUnixRootTargetFileParentConflict(testCase)
+            testCase.assumeFalse(ispc);
+            targets = [target(filesep, 'file'), ...
+                target(fullfile(filesep, 'generated', 'file.c'), 'file')];
+            issues = c2837x_block_validate_path_targets(targets);
+            testCase.verifyTrue(any(strcmp({issues.code}, 'TARGET_BELOW_FILE')));
+        end
+
+        function testSimilarTargetDirectoryNamesAreNotRelated(testCase)
+            root = filesystem_root(testCase.WorkFolder);
+            targets = [target(fullfile(root, 'dsp'), 'file'), ...
+                target(fullfile(root, 'dsp2', 'file.c'), 'file')];
+            issues = c2837x_block_validate_path_targets(targets);
+            testCase.verifyFalse(any(ismember({issues.code}, ...
+                {'TARGET_BELOW_FILE', 'TARGET_FILE_IS_PARENT'})));
+        end
+
         function testExistingTypeConflictsAndOrder(testCase)
             filePath = fullfile(testCase.WorkFolder, 'occupied');
             fileID = fopen(filePath, 'w'); fclose(fileID);
@@ -122,4 +148,11 @@ end
 function value = target(path, kind)
 value = struct('path', c2837x_block_normalize_absolute_path(path), ...
     'kind', kind, 'owner', 'test');
+end
+
+function root = filesystem_root(path)
+root = path;
+while ~strcmp(fileparts(root), root)
+    root = fileparts(root);
+end
 end

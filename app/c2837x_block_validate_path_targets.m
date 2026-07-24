@@ -99,7 +99,11 @@ if paths_equal(parent, child)
     tf = false;
     return;
 end
-prefix = [parent filesep];
+if endsWith(parent, filesep)
+    prefix = parent;
+else
+    prefix = [parent filesep];
+end
 if ispc
     tf = startsWith(child, prefix, 'IgnoreCase', true);
 else

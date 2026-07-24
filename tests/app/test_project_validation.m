@@ -166,6 +166,29 @@ classdef test_project_validation < matlab.unittest.TestCase
             testCase.verifyFalse(has_code(project, 'DSP_ROOT_CONTAINS_SFUN_ROOT'));
         end
 
+        function testWindowsRootOutputRelationships(testCase)
+            testCase.assumeTrue(ispc);
+            driveRoot = filesystem_root(testCase.WorkFolder);
+            project = valid_project(testCase.WorkFolder);
+            project.output.dsp_root = driveRoot;
+            project.output.sfun_root = fullfile(driveRoot, 'generated_sfun');
+            testCase.verifyTrue(has_code(project, 'DSP_ROOT_CONTAINS_SFUN_ROOT'));
+            project.output.sfun_root = driveRoot;
+            project.output.dsp_root = fullfile(driveRoot, 'generated_dsp');
+            testCase.verifyTrue(has_code(project, 'SFUN_ROOT_CONTAINS_DSP_ROOT'));
+        end
+
+        function testUnixRootOutputRelationships(testCase)
+            testCase.assumeFalse(ispc);
+            project = valid_project(testCase.WorkFolder);
+            project.output.dsp_root = filesep;
+            project.output.sfun_root = fullfile(filesep, 'generated_sfun');
+            testCase.verifyTrue(has_code(project, 'DSP_ROOT_CONTAINS_SFUN_ROOT'));
+            project.output.sfun_root = filesep;
+            project.output.dsp_root = fullfile(filesep, 'generated_dsp');
+            testCase.verifyTrue(has_code(project, 'SFUN_ROOT_CONTAINS_DSP_ROOT'));
+        end
+
         function testFullOutputChecksDoNotCreate(testCase)
             project = valid_project(testCase.WorkFolder);
             before = tree(testCase.WorkFolder);
@@ -186,10 +209,59 @@ classdef test_project_validation < matlab.unittest.TestCase
             testCase.verifyTrue(any(strcmp({issues.severity}, 'Information')));
         end
 
+        function testEmptyAndNonemptyRootsAreEnumeratedIndependently(testCase)
+            project = valid_project(testCase.WorkFolder);
+            mkdir(project.output.dsp_root);
+            mkdir(project.output.sfun_root);
+            fileID = fopen(fullfile(project.output.sfun_root, 'existing.txt'), 'w');
+            fclose(fileID);
+            before = tree(testCase.WorkFolder);
+            issues = c2837x_block_validate_project(project, 'full');
+            warnings = issues(strcmp({issues.code}, 'OUTPUT_ROOT_NONEMPTY'));
+            testCase.verifyEqual({warnings.file_path}, {project.output.sfun_root});
+            testCase.verifyEqual(tree(testCase.WorkFolder), before);
+        end
+
+        function testUnreadableOutputRootOnUnix(testCase)
+            testCase.assumeFalse(ispc);
+            project = valid_project(testCase.WorkFolder);
+            mkdir(project.output.dsp_root);
+            mkdir(project.output.sfun_root);
+            fileID = fopen(fullfile(project.output.sfun_root, 'existing.txt'), 'w');
+            fclose(fileID);
+            restrict_permissions(testCase, project.output.dsp_root, 'a-r');
+            testCase.assumeFalse(path_is_readable_for_test(project.output.dsp_root));
+            issues = c2837x_block_validate_project(project, 'full');
+            testCase.verifyTrue(any(strcmp({issues.code}, 'OUTPUT_ROOT_NOT_READABLE')));
+            testCase.verifyTrue(any(strcmp({issues.code}, 'OUTPUT_ROOT_NONEMPTY')));
+        end
+
+        function testUnwritableOutputRootOnUnix(testCase)
+            testCase.assumeFalse(ispc);
+            project = valid_project(testCase.WorkFolder);
+            mkdir(project.output.dsp_root);
+            before = tree(testCase.WorkFolder);
+            restrict_permissions(testCase, project.output.dsp_root, 'a-w');
+            testCase.assumeFalse(path_is_writable_for_test(project.output.dsp_root));
+            issues = c2837x_block_validate_project(project, 'full');
+            testCase.verifyTrue(any(strcmp({issues.code}, 'OUTPUT_ROOT_NOT_WRITABLE')));
+            testCase.verifyEqual(tree(testCase.WorkFolder), before);
+        end
+
         function testOutputRootOccupiedByFile(testCase)
             project = valid_project(testCase.WorkFolder);
             fileID = fopen(project.output.dsp_root, 'w'); fclose(fileID);
             testCase.verifyTrue(has_code(project, 'OUTPUT_ROOT_IS_FILE', 'full'));
+        end
+
+        function testMissingOutputRootWithFileParent(testCase)
+            project = valid_project(testCase.WorkFolder);
+            parent = fullfile(testCase.WorkFolder, 'occupied');
+            fileID = fopen(parent, 'w'); fclose(fileID);
+            project.output.dsp_root = fullfile(parent, 'generated');
+            issues = c2837x_block_validate_project(project, 'full');
+            testCase.verifyTrue(any(strcmp({issues.code}, 'OUTPUT_PARENT_INVALID')));
+            testCase.verifyTrue(any(strcmp({issues.code}, 'OUTPUT_ROOT_WILL_CREATE')));
         end
 
         function testAlgorithmModesAndReadableCFile(testCase)
@@ -260,4 +332,25 @@ end
 function value = tree(folder)
 entries = dir(fullfile(folder, '**', '*'));
 value = sort({entries.name});
+end
+
+function root = filesystem_root(path)
+root = path;
+while ~strcmp(fileparts(root), root)
+    root = fileparts(root);
+end
+end
+
+function restrict_permissions(testCase, path, mode)
+testCase.addTeardown(@() system(sprintf('chmod u+rwx "%s"', path)));
+[status, output] = system(sprintf('chmod %s "%s"', mode, path));
+testCase.assertEqual(status, 0, output);
+end
+
+function tf = path_is_readable_for_test(path)
+tf = java.nio.file.Files.isReadable(java.io.File(path).toPath());
+end
+
+function tf = path_is_writable_for_test(path)
+tf = java.nio.file.Files.isWritable(java.io.File(path).toPath());
 end

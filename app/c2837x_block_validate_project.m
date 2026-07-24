@@ -319,26 +319,54 @@ end
             return;
         end
         if isfolder(root)
-            if ~path_accessible_writable(root)
+            readable = path_is_readable(root);
+            writable = path_is_writable(root);
+            if ~readable
+                add('Error', 'OUTPUT_ROOT_NOT_READABLE', ...
+                    'Output root is not readable.', fieldPath, index, root);
+            end
+            if ~writable
                 add('Error', 'OUTPUT_ROOT_NOT_WRITABLE', ...
                     'Output root is not writable.', fieldPath, index, root);
             end
-            entries = dir(root);
-            if any(~ismember({entries.name}, {'.', '..'}))
-                add('Warning', 'OUTPUT_ROOT_NONEMPTY', ...
-                    'Directory may contain another project or old generated files; ownership is not inferred.', ...
-                    fieldPath, index, root);
+            if readable
+                try
+                    entries = dir(root);
+                    if any(~ismember({entries.name}, {'.', '..'}))
+                        add('Warning', 'OUTPUT_ROOT_NONEMPTY', ...
+                            'Directory may contain another project or old generated files; ownership is not inferred.', ...
+                            fieldPath, index, root);
+                    end
+                catch
+                    add('Error', 'OUTPUT_ROOT_ENUMERATION_FAILED', ...
+                        'Output root contents could not be enumerated.', ...
+                        fieldPath, index, root);
+                end
             end
         else
             ancestor = nearest_existing_parent(root);
-            if isempty(ancestor) || ~isfolder(ancestor) || ~path_accessible_writable(ancestor)
-                add('Error', 'OUTPUT_PARENT_INACCESSIBLE', ...
-                    'Nearest existing output parent must be an accessible writable directory.', ...
+            if isempty(ancestor) || ~isfolder(ancestor)
+                add('Error', 'OUTPUT_PARENT_INVALID', ...
+                    'Nearest existing output parent must be a directory.', ...
                     fieldPath, index, root);
             else
-                add('Information', 'OUTPUT_ROOT_WILL_CREATE', ...
-                    'Output root does not exist and will be created during generation.', ...
-                    fieldPath, index, root);
+                readable = path_is_readable(ancestor);
+                writable = path_is_writable(ancestor);
+                if ~readable
+                    add('Error', 'OUTPUT_PARENT_NOT_READABLE', ...
+                        'Nearest existing output parent is not readable.', ...
+                        fieldPath, index, root);
+                end
+                if ~writable
+                    add('Error', 'OUTPUT_PARENT_NOT_WRITABLE', ...
+                        'Nearest existing output parent is not writable.', ...
+                        fieldPath, index, root);
+                end
+                if readable && writable
+                    add('Information', 'OUTPUT_ROOT_WILL_CREATE', ...
+                        'Output root does not exist and will be created during generation.', ...
+                        fieldPath, index, root);
+                end
             end
         end
         for childIndex = 1:numel(requiredChildren)
@@ -445,11 +473,19 @@ while ~isempty(ancestor) && ~isfolder(ancestor) && ~isfile(ancestor)
 end
 end
 
-function tf = path_accessible_writable(path)
+function tf = path_is_readable(path)
 try
     file = java.io.File(path);
-    tf = java.nio.file.Files.isReadable(file.toPath()) && ...
-        java.nio.file.Files.isWritable(file.toPath());
+    tf = java.nio.file.Files.isReadable(file.toPath());
+catch
+    tf = false;
+end
+end
+
+function tf = path_is_writable(path)
+try
+    file = java.io.File(path);
+    tf = java.nio.file.Files.isWritable(file.toPath());
 catch
     tf = false;
 end
@@ -468,10 +504,15 @@ if paths_equal(parent, child)
     tf = false;
     return;
 end
-if ispc
-    tf = startsWith(child, [parent filesep], 'IgnoreCase', true);
+if endsWith(parent, filesep)
+    prefix = parent;
 else
-    tf = startsWith(child, [parent filesep]);
+    prefix = [parent filesep];
+end
+if ispc
+    tf = startsWith(child, prefix, 'IgnoreCase', true);
+else
+    tf = startsWith(child, prefix);
 end
 end
 
