@@ -81,7 +81,11 @@ end
 
 function tf = valid_interfaces(values)
 required = {'instance_index', 'internal_name', 'canonical_text', 'interface_hash'};
-tf = isstruct(values) && exact_fields(values, required);
+if ~isstruct(values) || ~exact_fields(values, required)
+    tf = false;
+    return;
+end
+tf = true;
 for index = 1:numel(values)
     value = values(index);
     tf = tf && valid_integer(value.instance_index, 1) && ...
@@ -94,7 +98,11 @@ end
 function tf = valid_dependencies(values)
 required = {'role', 'identity', 'source_kind', 'source_path', ...
     'content_bytes', 'content_size_octets'};
-tf = isstruct(values) && exact_fields(values, required);
+if ~isstruct(values) || ~exact_fields(values, required)
+    tf = false;
+    return;
+end
+tf = true;
 identities = cell(1, numel(values));
 roles = cell(1, numel(values));
 for index = 1:numel(values)
@@ -119,7 +127,11 @@ end
 function tf = valid_external_sources(values)
 required = {'instance_index', 'mode', 'source_path', ...
     'content_bytes', 'content_size_octets'};
-tf = isstruct(values) && exact_fields(values, required);
+if ~isstruct(values) || ~exact_fields(values, required)
+    tf = false;
+    return;
+end
+tf = true;
 for index = 1:numel(values)
     value = values(index);
     tf = tf && valid_integer(value.instance_index, 1) && ...
@@ -133,7 +145,11 @@ end
 function tf = valid_candidates(values)
 required = {'target_path', 'category', 'owner', 'instance_index', ...
     'content_bytes', 'content_size_octets'};
-tf = isstruct(values) && exact_fields(values, required);
+if ~isstruct(values) || ~exact_fields(values, required)
+    tf = false;
+    return;
+end
+tf = true;
 for index = 1:numel(values)
     value = values(index);
     tf = tf && valid_text(value.target_path, false) && ...
@@ -150,7 +166,11 @@ required = {'target_path', 'category', 'owner', 'instance_index', ...
     'content_bytes', 'content_size_octets', 'target_state', ...
     'default_action', 'selected_action', 'action_mandatory', ...
     'existing_size_octets'};
-tf = isstruct(values) && exact_fields(values, required);
+if ~isstruct(values) || ~exact_fields(values, required)
+    tf = false;
+    return;
+end
+tf = true;
 for index = 1:numel(values)
     value = values(index);
     tf = tf && valid_text(value.target_path, false) && ...
@@ -172,7 +192,11 @@ end
 
 function tf = valid_target_states(values)
 required = {'target_path', 'state', 'content_bytes', 'content_size_octets'};
-tf = isstruct(values) && exact_fields(values, required);
+if ~isstruct(values) || ~exact_fields(values, required)
+    tf = false;
+    return;
+end
+tf = true;
 for index = 1:numel(values)
     value = values(index);
     state = text_or_empty(value.state);

@@ -340,6 +340,28 @@ classdef test_preview_snapshot < matlab.unittest.TestCase
             verify_snapshot_invalid(testCase, badTarget, bundle);
         end
 
+        function testSnapshotRejectsNonstructNestedModels(testCase)
+            bundle = preview_bundle(testCase.WorkFolder);
+            snapshot = create_snapshot(bundle);
+
+            verify_nonstruct_nested_models(testCase, snapshot, bundle);
+        end
+
+        function testSnapshotRejectsNestedModelsWithMissingFields(testCase)
+            bundle = preview_bundle(testCase.WorkFolder);
+            snapshot = create_snapshot(bundle);
+
+            verify_missing_nested_fields(testCase, snapshot, bundle);
+        end
+
+        function testSnapshotRejectsNestedModelsWithExtraFields(testCase)
+            bundle = preview_bundle(testCase.WorkFolder);
+            snapshot = create_snapshot(bundle);
+            snapshot.dependencies(1).unexpected = true;
+
+            verify_snapshot_invalid_with_summary(testCase, snapshot, bundle);
+        end
+
         function testSelectedActionDoesNotInvalidateSnapshot(testCase)
             bundle = preview_bundle(testCase.WorkFolder);
             snapshot = create_snapshot(bundle);
@@ -463,6 +485,35 @@ function verify_snapshot_invalid(testCase, snapshot, bundle)
 [isValid, issues] = validate_snapshot(snapshot, bundle);
 testCase.verifyFalse(isValid);
 testCase.verifyEqual({issues.code}, {'SNAPSHOT_INVALID'});
+end
+
+function verify_nonstruct_nested_models(testCase, snapshot, bundle)
+fields = {'interface_specs', 'dependencies', 'external_sources', ...
+    'candidates', 'comparison_baseline', 'target_states'};
+for index = 1:numel(fields)
+    damaged = snapshot;
+    damaged.(fields{index}) = 7;
+    verify_snapshot_invalid_with_summary(testCase, damaged, bundle);
+end
+end
+
+function verify_missing_nested_fields(testCase, snapshot, bundle)
+models = {'interface_specs', 'dependencies', 'external_sources', ...
+    'candidates', 'comparison_baseline', 'target_states'};
+missing = {'interface_hash', 'role', 'mode', 'category', ...
+    'target_state', 'state'};
+for index = 1:numel(models)
+    damaged = snapshot;
+    damaged.(models{index}) = rmfield(damaged.(models{index}), missing{index});
+    verify_snapshot_invalid_with_summary(testCase, damaged, bundle);
+end
+end
+
+function verify_snapshot_invalid_with_summary(testCase, snapshot, bundle)
+[isValid, issues, summary] = validate_snapshot(snapshot, bundle);
+testCase.verifyFalse(isValid);
+testCase.verifyEqual({issues.code}, {'SNAPSHOT_INVALID'});
+testCase.verifyEqual(summary, empty_summary());
 end
 
 function verify_target_mutation(testCase, bundle, index, bytes, action)
