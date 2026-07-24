@@ -205,7 +205,8 @@ classdef test_instance_operations < matlab.unittest.TestCase
             source.sample_time_sec = 3e-4;
             source.max_payload_size_bytes = uint32(2048);
             source.algorithm.mode = 'external_copy';
-            source.algorithm.source_path = 'old_algorithm.c';
+            source.algorithm.source_path = c2837x_block_normalize_absolute_path( ...
+                fullfile(testCase.WorkFolder, 'old_algorithm.c'));
             source.interface_hash = uint32(123);
             project = c2837x_block_create_default_project();
             project.instances = source;

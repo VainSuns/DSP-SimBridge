@@ -77,7 +77,7 @@ classdef test_project_session < matlab.unittest.TestCase
 
             testCase.verifyTrue(loaded);
             testCase.verifyEqual(saved.project, dirtyProject);
-            testCase.verifyEqual(session.Project.output.dsp_root, 'target');
+            testCase.verifyEqual(session.Project.output.dsp_root, project_path('target'));
             testCase.verifyEqual(session.FilePath, targetPath);
             testCase.verifyFalse(session.Dirty);
         end
@@ -92,8 +92,8 @@ classdef test_project_session < matlab.unittest.TestCase
             saved = load(currentPath, 'project');
 
             testCase.verifyTrue(loaded);
-            testCase.verifyEqual(saved.project.output.dsp_root, 'original');
-            testCase.verifyEqual(session.Project.output.dsp_root, 'target');
+            testCase.verifyEqual(saved.project.output.dsp_root, project_path('original'));
+            testCase.verifyEqual(session.Project.output.dsp_root, project_path('target'));
             testCase.verifyFalse(session.Dirty);
         end
 
@@ -294,10 +294,14 @@ end
 
 function project = populated_project(dspRoot)
 project = c2837x_block_create_default_project();
-project.output.dsp_root = dspRoot;
+project.output.dsp_root = project_path(dspRoot);
 project.instances = c2837x_block_create_default_instance();
 project.instances.display_name = 'Instance';
 project.instances.internal_name = 'instance';
+end
+
+function path = project_path(name)
+path = c2837x_block_normalize_absolute_path(fullfile(tempdir, ['c2837x-' name]));
 end
 
 function filePath = write_project(folder, name, project)

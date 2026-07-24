@@ -261,7 +261,8 @@ function session = saved_dirty_session(folder)
 session = c2837x_block_project_session();
 session.saveProject(fullfile(folder, 'current.mat'));
 project = session.Project;
-project.output.dsp_root = 'dirty';
+project.output.dsp_root = c2837x_block_normalize_absolute_path( ...
+    fullfile(folder, 'dirty'));
 session.updateProject(project);
 end
 
