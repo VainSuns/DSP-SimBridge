@@ -12,6 +12,13 @@ classdef test_s2_02_platform_init < matlab.unittest.TestCase
             testCase.verifyEqual(status, 0, output);
         end
 
+        function testRealW5300HalInitializationControlFlow(testCase)
+            [status, output] = compileAndRun('w5300_hal_init_test.c', ...
+                {'c2837x_w5300_hal.c', 'c2837x_block_platform.c'}, ...
+                {'-Wno-unknown-pragmas', '-Wno-int-to-pointer-cast'});
+            testCase.verifyEqual(status, 0, output);
+        end
+
         function testResetTimingAndScope(testCase)
             root = repositoryRoot();
             halHeader = fileread(fullfile(root, 'dsp', 'inc', ...
@@ -35,16 +42,19 @@ classdef test_s2_02_platform_init < matlab.unittest.TestCase
     end
 end
 
-function [status, output] = compileAndRun(fixture, sources)
+function [status, output] = compileAndRun(fixture, sources, extraFlags)
+if nargin < 3
+    extraFlags = {};
+end
 root = repositoryRoot();
 folder = fileparts(mfilename('fullpath'));
 [~, executableName] = fileparts(fixture);
 executable = fullfile(tempdir, [executableName '.exe']);
 sourceArguments = cellfun(@(name) sprintf('"%s"', ...
     fullfile(root, 'dsp', 'src', name)), sources, 'UniformOutput', false);
-command = sprintf(['gcc -std=c11 -Wall -Wextra -Werror -I"%s" -I"%s" ' ...
-    '-I"%s" "%s" %s -o "%s" 2>&1'], fullfile(folder, 'include'), ...
-    fullfile(root, 'dsp', 'inc'), fullfile(root, 'dsp', 'src'), ...
+command = sprintf(['gcc -std=c11 -Wall -Wextra -Werror %s -I"%s" -I"%s" ' ...
+    '-I"%s" "%s" %s -o "%s" 2>&1'], strjoin(extraFlags, ' '), ...
+    fullfile(folder, 'include'), fullfile(root, 'dsp', 'inc'), fullfile(root, 'dsp', 'src'), ...
     fullfile(folder, fixture), strjoin(sourceArguments, ' '), executable);
 [compileStatus, compileOutput] = system(command);
 if compileStatus ~= 0

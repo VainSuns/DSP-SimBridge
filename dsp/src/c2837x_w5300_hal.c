@@ -104,19 +104,18 @@ void c2837x_w5300_reset(void)
 
 int16 c2837x_w5300_init(void)
 {
-    int16 emif_result;
-
     GPIO_SetupPinMux(C2837X_W5300_RESET_PIN, GPIO_MUX_CPU1, 0);
     GPIO_SetupPinOptions(C2837X_W5300_RESET_PIN, GPIO_OUTPUT, GPIO_PUSHPULL);
 
-    emif_result = c2837x_w5300_init_emif1();
+    if (c2837x_w5300_init_emif1() != 0)
+        return -1;
 
     GPIO_SetupPinMux(30, GPIO_MUX_CPU1, 0);
     GPIO_SetupPinOptions(30, GPIO_OUTPUT, GPIO_PUSHPULL);
     GPIO_WritePin(30, 1);
 
     c2837x_w5300_reset();
-    return emif_result;
+    return 0;
 }
 
 static inline Uint16 c2837x_w5300_swap16(Uint16 value)

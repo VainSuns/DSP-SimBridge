@@ -133,6 +133,7 @@ static void test_failures_stop(void)
     failure = FAILURE_W5300;
     assert(C2837xBlock_PlatformInit() == C2837X_BLOCK_PLATFORM_ERROR_W5300_INIT);
     assert(registers[register_index(TMS01R)] == 0u);
+    assert(registers[register_index(SHAR0)] == 0u);
 
     reset_fixture();
     failure = FAILURE_ID;
