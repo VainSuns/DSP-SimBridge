@@ -11,6 +11,25 @@ access and per-channel Socket command progression. S2-05 delays public send
 progress until the corresponding W5300 `SEND_OK` event. S2-06 adds the
 per-Channel bounded close transaction, Erratum 1 workaround, software deadline,
 fault gate, and PlatformInit generation recovery.
+S2-07 parameterizes the device-independent Core around `IoDeviceOps`, separates
+the four communication states from the two protocol phases, validates complete
+Headers before receiving Payloads, and advances close transactions through the
+generic `close()` BUSY/DONE/ERROR contract across Run calls.
+
+## S2-07 Core protocol and lifecycle evidence
+
+`core_protocol_state_test.c` uses only a Fake IoDevice and covers split Header
+and Payload receive, the fixed-length/type/phase matrix, SIM_START send boundary,
+step commit after complete OUTPUT_DATA send, error RESPONSE segmentation,
+SIM_STOP, primary-error latching, and algorithm cleanup.
+`core_iodevice_lifecycle_test.c` covers close BUSY/DONE/ERROR, one-operation
+WAIT_CONNECTION progression, peer/error termination, and cleanup. The existing
+`core_instance_test.c` remains the interleaved two-instance isolation check.
+
+Each `C2837xBlock_Run` services exactly one communication state: one close; or
+one connection-state query plus at most one open/listen; or one receive; or one
+complete local frame dispatch; or one send. Formal Core communication timeout
+handling remains intentionally deferred to S2-08.
 
 ## S2-04 W5300 evidence and call budget
 

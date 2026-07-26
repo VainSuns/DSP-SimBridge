@@ -1,14 +1,4 @@
-/*
- * C2837xBlock non-blocking DSP communication state machine.
- *
- * Protocol flow:
- *   LISTEN      -> wait for a client through the bound IoDevice
- *   CONNECTED   -> receive SIM_START, validate version/config, send RESPONSE(0)
- *   SIM_RUNNING -> receive INPUT_DATA/SIM_STOP, send OUTPUT_DATA or RESPONSE(error)
- *   ERROR       -> finish sending RESPONSE(error), then disconnect
- *
- * One C2837xBlock_Run(instance) call performs a bounded amount of work and returns.
- */
+/* Device-independent, non-blocking C2837xBlock protocol Core. */
 
 #define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 1u
 #include "c2837x_block.h"
@@ -16,15 +6,13 @@
 #include "c2837x_block_protocol.h"
 #include <string.h>
 
-/*
- * These are loop-count budgets, not wall-clock ticks.  Keep them large because
- * the bare-metal main loop can spin much faster than the PC can complete
- * connect/write operations.
- */
-#define C2837X_BLOCK_STATE_TIMEOUT_TICKS  1000000000u
-#define C2837X_BLOCK_FRAME_TIMEOUT_TICKS  1000000000u
-
-static void c2837x_block_disconnect(C2837xBlock* ctx);
+typedef enum
+{
+    C2837X_BLOCK_HEADER_VALID = 0,
+    C2837X_BLOCK_HEADER_UNKNOWN_TYPE,
+    C2837X_BLOCK_HEADER_STATE_ERROR,
+    C2837X_BLOCK_HEADER_LENGTH_ERROR
+} C2837xBlock_HeaderResult;
 
 static Uint32 c2837x_block_maximum_inbound_payload_octets(
     const C2837xBlock_Config *config)
@@ -39,7 +27,6 @@ static int16 c2837x_block_config_is_valid(const C2837xBlock_Config *config)
 {
     const C2837xBlock_IoDeviceOps *ops;
     const C2837xBlock_AlgorithmAdapter *algorithm;
-    Uint32 maximum_inbound_payload_octets;
     Uint32 minimum_rx_octets;
     Uint32 minimum_tx_octets;
 
@@ -73,10 +60,8 @@ static int16 c2837x_block_config_is_valid(const C2837xBlock_Config *config)
         (config->output_payload_octets > config->max_payload_octets))
         return 0;
 
-    maximum_inbound_payload_octets =
-        c2837x_block_maximum_inbound_payload_octets(config);
     minimum_rx_octets = (Uint32)C2837X_BLOCK_HEADER_SIZE_BYTES +
-        maximum_inbound_payload_octets;
+        c2837x_block_maximum_inbound_payload_octets(config);
     minimum_tx_octets = (Uint32)C2837X_BLOCK_HEADER_SIZE_BYTES +
         ((config->output_payload_octets > C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES)
             ? config->output_payload_octets
@@ -92,530 +77,455 @@ static int16 c2837x_block_config_is_valid(const C2837xBlock_Config *config)
     return 1;
 }
 
-static inline Uint32 c2837x_block_now(const C2837xBlock* ctx)
+static void c2837x_block_latch_error(C2837xBlock *ctx,
+                                     C2837xBlock_Error error)
 {
-    return ctx->runtime.tick_counter;
+    if (ctx->runtime.last_error == C2837X_BLOCK_ERROR_NONE)
+        ctx->runtime.last_error = error;
 }
 
-static inline void c2837x_block_tick(C2837xBlock* ctx)
-{
-    ctx->runtime.tick_counter++;
-}
-
-static inline int16 c2837x_block_timed_out(const C2837xBlock* ctx,
-                                           Uint32 start_tick,
-                                           Uint32 timeout_ticks)
-{
-    if (start_tick < timeout_ticks)
-    {
-        return (c2837x_block_now(ctx) >= (start_tick + timeout_ticks)) ? 1 : 0;
-    }
-    else
-    {
-        return (c2837x_block_now(ctx) < (start_tick - timeout_ticks)) ? 1 : 0;
-    }
-}
-
-static inline void c2837x_block_set_state(C2837xBlock* ctx,
-                                    C2837xBlock_State state)
-{
-    ctx->runtime.state = state;
-}
-
-static inline void c2837x_block_reset_rx(C2837xBlock* ctx)
+static void c2837x_block_reset_rx(C2837xBlock *ctx)
 {
     C2837xBlock_Runtime *runtime = &ctx->runtime;
-    runtime->rx_state = C2837X_RX_WAIT_HEADER;
-    runtime->rx_header_received_bytes = 0;
-    runtime->rx_payload_received_bytes = 0;
-    runtime->rx_msg_type = 0;
-    runtime->rx_payload_length_bytes = 0;
+    runtime->rx_phase = C2837X_BLOCK_RX_HEADER;
+    runtime->rx_header_received_octets = 0u;
+    runtime->rx_msg_type = 0u;
+    runtime->rx_payload_length_octets = 0u;
+    runtime->rx_payload_received_octets = 0u;
 }
 
-static inline void c2837x_block_reset_tx(C2837xBlock* ctx)
+static void c2837x_block_reset_tx(C2837xBlock *ctx)
 {
-    ctx->runtime.tx_total_bytes = 0;
-    ctx->runtime.tx_sent_bytes = 0;
+    ctx->runtime.tx_total_octets = 0u;
+    ctx->runtime.tx_sent_octets = 0u;
+    ctx->runtime.response_error = C2837X_ERR_OK;
+    ctx->runtime.tx_done_action = C2837X_BLOCK_TX_DONE_CLOSE;
 }
 
-static inline void c2837x_block_reset_session(C2837xBlock* ctx)
+static void c2837x_block_start_receiving(C2837xBlock *ctx)
 {
+    c2837x_block_reset_rx(ctx);
+    ctx->runtime.state = C2837X_BLOCK_STATE_RECEIVING;
+}
+
+static void c2837x_block_start_sending(C2837xBlock *ctx,
+                                       Uint32 total_octets,
+                                       C2837xBlock_TxDoneAction action)
+{
+    ctx->runtime.tx_total_octets = total_octets;
+    ctx->runtime.tx_sent_octets = 0u;
+    ctx->runtime.tx_done_action = action;
+    ctx->runtime.state = C2837X_BLOCK_STATE_SENDING;
+}
+
+static void c2837x_block_terminate_session(C2837xBlock *ctx)
+{
+    C2837xBlock_Runtime *runtime = &ctx->runtime;
+
+    if (runtime->algorithm_started != 0u)
+    {
+        ctx->config->algorithm->on_stop(ctx->config->algorithm_context);
+        runtime->algorithm_started = 0u;
+    }
+    ctx->config->algorithm->reset_io(ctx->config->algorithm_context,
+                                     ctx->config->input_object,
+                                     ctx->config->output_object);
     c2837x_block_reset_rx(ctx);
     c2837x_block_reset_tx(ctx);
-    ctx->runtime.expected_step_index = 0;
-    ctx->runtime.tx_done_action = C2837X_TX_DONE_DISCONNECT;
-    ctx->runtime.sim_started = 0;
-    ctx->runtime.response_error = C2837X_ERR_OK;
+    runtime->protocol_phase = C2837X_BLOCK_PROTOCOL_WAIT_SIM_START;
+    runtime->expected_step_index = 0u;
+    runtime->close_pending = 1u;
+    runtime->state = C2837X_BLOCK_STATE_WAIT_CONNECTION;
 }
 
-static inline void c2837x_block_start_tx(C2837xBlock* ctx,
-                                   Uint32 total_wire_bytes)
+static void c2837x_block_start_error_response(C2837xBlock *ctx,
+                                              C2837xBlock_Error primary_error,
+                                              Uint16 wire_error)
 {
-    ctx->runtime.tx_total_bytes = total_wire_bytes;
-    ctx->runtime.tx_sent_bytes = 0;
-    c2837x_block_set_state(ctx, C2837X_STATE_SEND);
-    ctx->runtime.frame_start_tick = c2837x_block_now(ctx);
+    Uint32 frame_octets;
+
+    c2837x_block_latch_error(ctx, primary_error);
+    ctx->runtime.response_error = wire_error;
+    frame_octets = c2837x_block_build_response(ctx->config->tx_frame_words,
+                                               wire_error);
+    c2837x_block_start_sending(ctx, frame_octets,
+                               C2837X_BLOCK_TX_DONE_CLOSE);
 }
 
-static inline void c2837x_block_start_rx(C2837xBlock* ctx)
-{
-    c2837x_block_reset_rx(ctx);
-
-    c2837x_block_set_state(ctx, C2837X_STATE_RECV);
-    ctx->runtime.frame_start_tick = c2837x_block_now(ctx);
-}
-
-static inline int16 c2837x_block_tx_pending(const C2837xBlock* ctx)
-{
-    return (ctx->runtime.tx_sent_bytes < ctx->runtime.tx_total_bytes) ? 1 : 0;
-}
-
-static inline void c2837x_block_start_error_response(C2837xBlock* ctx,
-                                               Uint16 error_code)
-{
-    Uint32 frame_bytes;
-
-    ctx->runtime.response_error = error_code;
-    ctx->runtime.tx_done_action = C2837X_TX_DONE_DISCONNECT;
-    frame_bytes = c2837x_block_build_response(ctx->config->tx_frame_words,
-                                               error_code);
-    c2837x_block_start_tx(ctx, frame_bytes);
-}
-
-static int16 c2837x_block_continue_tx(C2837xBlock* ctx)
+static C2837xBlock_HeaderResult c2837x_block_validate_header(
+    C2837xBlock *ctx)
 {
     C2837xBlock_Runtime *runtime = &ctx->runtime;
-    Uint32 remaining_bytes;
-    Uint32 offset_words;
-    int32 sent_bytes;
+    Uint16 type = ctx->config->rx_frame_words[0];
+    Uint16 length = ctx->config->rx_frame_words[1];
+    Uint16 expected_length;
+    int16 allowed;
 
-    if (!c2837x_block_tx_pending(ctx))
-        return 1;
-
-    remaining_bytes = runtime->tx_total_bytes - runtime->tx_sent_bytes;
-    offset_words = runtime->tx_sent_bytes / 2u;
-
-    sent_bytes = ctx->config->iodevice_ops->send(
-        ctx->config->iodevice_channel,
-        &ctx->config->tx_frame_words[offset_words],
-        remaining_bytes);
-    if (sent_bytes < 0)
-        return -1;
-
-    if (sent_bytes == 0)
+    switch (type)
     {
-        if (c2837x_block_timed_out(ctx, runtime->frame_start_tick,
-                                    C2837X_BLOCK_FRAME_TIMEOUT_TICKS))
-        {
-            runtime->last_error = C2837X_BLOCK_ERROR_TIMEOUT;
-            return -1;
-        }
-        return 0;
+    case C2837X_MSG_SIM_START:
+        allowed = (runtime->protocol_phase ==
+                   C2837X_BLOCK_PROTOCOL_WAIT_SIM_START) ? 1 : 0;
+        expected_length = C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES;
+        break;
+    case C2837X_MSG_INPUT_DATA:
+        allowed = (runtime->protocol_phase ==
+                   C2837X_BLOCK_PROTOCOL_SIM_RUNNING) ? 1 : 0;
+        expected_length = ctx->config->input_payload_octets;
+        break;
+    case C2837X_MSG_SIM_STOP:
+        allowed = (runtime->protocol_phase ==
+                   C2837X_BLOCK_PROTOCOL_SIM_RUNNING) ? 1 : 0;
+        expected_length = 0u;
+        break;
+    case C2837X_MSG_OUTPUT_DATA:
+    case C2837X_MSG_RESPONSE:
+        return C2837X_BLOCK_HEADER_STATE_ERROR;
+    default:
+        return C2837X_BLOCK_HEADER_UNKNOWN_TYPE;
     }
 
-    if ((((Uint32)sent_bytes & 1u) != 0u) ||
-        ((Uint32)sent_bytes > remaining_bytes))
-    {
-        runtime->last_error = C2837X_BLOCK_ERROR_IODEVICE;
-        return -1;
-    }
+    if (allowed == 0)
+        return C2837X_BLOCK_HEADER_STATE_ERROR;
 
-    runtime->frame_start_tick = c2837x_block_now(ctx);
-    runtime->tx_sent_bytes += (Uint32)sent_bytes;
-    return c2837x_block_tx_pending(ctx) ? 0 : 1;
+    if (((length & 1u) != 0u) ||
+        (length > ctx->config->max_payload_octets) ||
+        (((Uint32)C2837X_BLOCK_HEADER_SIZE_BYTES + (Uint32)length) >
+         ctx->config->rx_frame_capacity_octets) ||
+        (length != expected_length))
+        return C2837X_BLOCK_HEADER_LENGTH_ERROR;
+
+    runtime->rx_msg_type = type;
+    runtime->rx_payload_length_octets = length;
+    return C2837X_BLOCK_HEADER_VALID;
 }
 
-static int16 c2837x_block_continue_rx(C2837xBlock* ctx)
+static void c2837x_block_handle_header_result(C2837xBlock *ctx,
+                                               C2837xBlock_HeaderResult result)
+{
+    if (result == C2837X_BLOCK_HEADER_UNKNOWN_TYPE)
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_PROTOCOL,
+                                          C2837X_ERR_UNKNOWN_TYPE);
+    else if (result == C2837X_BLOCK_HEADER_STATE_ERROR)
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_PROTOCOL,
+                                          C2837X_ERR_STATE);
+    else if (result == C2837X_BLOCK_HEADER_LENGTH_ERROR)
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_PROTOCOL,
+                                          C2837X_ERR_PAYLOAD_LENGTH);
+}
+
+static void c2837x_block_service_receiving(C2837xBlock *ctx)
 {
     C2837xBlock_Runtime *runtime = &ctx->runtime;
-    int32 received_bytes;
-    Uint16* data_words;
-    Uint32 needed_bytes;
-    
-    if (runtime->rx_state == C2837X_RX_WAIT_HEADER)
+    Uint16 *destination;
+    Uint32 remaining_octets;
+    int32 received_octets;
+
+    if (runtime->rx_phase == C2837X_BLOCK_RX_HEADER)
     {
-        needed_bytes =
-            C2837X_BLOCK_HEADER_SIZE_BYTES - runtime->rx_header_received_bytes;
-        Uint32 offset_words = runtime->rx_header_received_bytes / 2u;
-        data_words = &ctx->config->rx_frame_words[offset_words];
-    }
-    else if (runtime->rx_state == C2837X_RX_WAIT_PAYLOAD)
-    {
-        needed_bytes =
-            (Uint32)runtime->rx_payload_length_bytes -
-            runtime->rx_payload_received_bytes;
-        Uint32 offset_words = (C2837X_BLOCK_HEADER_SIZE_BYTES +
-            runtime->rx_payload_received_bytes) / 2u;
-        data_words = &ctx->config->rx_frame_words[offset_words];
+        remaining_octets = C2837X_BLOCK_HEADER_SIZE_BYTES -
+            runtime->rx_header_received_octets;
+        destination = &ctx->config->rx_frame_words[
+            runtime->rx_header_received_octets / 2u];
     }
     else
     {
-        return 0;
+        remaining_octets = (Uint32)runtime->rx_payload_length_octets -
+            runtime->rx_payload_received_octets;
+        destination = &ctx->config->rx_frame_words[
+            (C2837X_BLOCK_HEADER_SIZE_BYTES +
+             runtime->rx_payload_received_octets) / 2u];
     }
 
-    received_bytes = ctx->config->iodevice_ops->receive(
-        ctx->config->iodevice_channel,
-        data_words,
-        needed_bytes);
-
-    if (received_bytes < 0)
+    received_octets = ctx->config->iodevice_ops->receive(
+        ctx->config->iodevice_channel, destination, remaining_octets);
+    if (received_octets < 0)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_IODEVICE;
-        return -1;
+        c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
+        c2837x_block_terminate_session(ctx);
+        return;
     }
-    else if (received_bytes == 0)
+    if (received_octets == 0)
+        return;
+    if ((((Uint32)received_octets & 1u) != 0u) ||
+        ((Uint32)received_octets > remaining_octets))
     {
-        if (c2837x_block_timed_out(ctx, runtime->frame_start_tick,
-                                    C2837X_BLOCK_FRAME_TIMEOUT_TICKS))
-        {
-            runtime->last_error = C2837X_BLOCK_ERROR_TIMEOUT;
-            return -1;
-        }
-        return 0;
+        c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
+        c2837x_block_terminate_session(ctx);
+        return;
     }
 
-    if ((((Uint32)received_bytes & 1u) != 0u) ||
-        ((Uint32)received_bytes > needed_bytes))
+    if (runtime->rx_phase == C2837X_BLOCK_RX_HEADER)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_IODEVICE;
-        return -1;
+        C2837xBlock_HeaderResult result;
+        runtime->rx_header_received_octets += (Uint32)received_octets;
+        if (runtime->rx_header_received_octets <
+            C2837X_BLOCK_HEADER_SIZE_BYTES)
+            return;
+
+        result = c2837x_block_validate_header(ctx);
+        if (result != C2837X_BLOCK_HEADER_VALID)
+        {
+            c2837x_block_handle_header_result(ctx, result);
+            return;
+        }
+        if (runtime->rx_payload_length_octets == 0u)
+            runtime->state = C2837X_BLOCK_STATE_FRAME_READY;
+        else
+            runtime->rx_phase = C2837X_BLOCK_RX_PAYLOAD;
+        return;
     }
 
-    runtime->frame_start_tick = c2837x_block_now(ctx);
-
-    if (runtime->rx_state == C2837X_RX_WAIT_HEADER)
-    {
-        runtime->rx_header_received_bytes += (Uint32)received_bytes;
-
-        if (runtime->rx_header_received_bytes < C2837X_BLOCK_HEADER_SIZE_BYTES)
-        {
-            return 0;
-        }
-
-        if (c2837x_block_parse_header(ctx->config->rx_frame_words,
-                                       &runtime->rx_msg_type,
-                                       &runtime->rx_payload_length_bytes) < 0)
-        {
-            runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-            runtime->response_error = C2837X_ERR_PAYLOAD_LENGTH;
-            return -1;
-        }
-
-        if (runtime->rx_payload_length_bytes > ctx->config->max_payload_octets)
-        {
-            runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-            runtime->response_error = C2837X_ERR_PAYLOAD_LENGTH;
-            return -1;
-        }
-
-        if ((Uint32)runtime->rx_payload_length_bytes >
-            c2837x_block_maximum_inbound_payload_octets(ctx->config))
-        {
-            runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-            runtime->response_error = C2837X_ERR_PAYLOAD_LENGTH;
-            return -1;
-        }
-
-        if (runtime->rx_payload_length_bytes == 0u)
-        {
-            runtime->rx_state = C2837X_RX_PROCESSING;
-            return 0;
-        }
-
-        runtime->rx_state = C2837X_RX_WAIT_PAYLOAD;
-        runtime->rx_payload_received_bytes = 0;
-        
-        return 0;
-    }
-
-    if (runtime->rx_state == C2837X_RX_WAIT_PAYLOAD)
-    {
-        runtime->rx_payload_received_bytes += (Uint32)received_bytes;
-        if (runtime->rx_payload_received_bytes >=
-            (Uint32)runtime->rx_payload_length_bytes)
-        {
-            runtime->rx_state = C2837X_RX_PROCESSING;
-            return 0;
-        }
-    }
-
-    return 0;
+    runtime->rx_payload_received_octets += (Uint32)received_octets;
+    if (runtime->rx_payload_received_octets ==
+        (Uint32)runtime->rx_payload_length_octets)
+        runtime->state = C2837X_BLOCK_STATE_FRAME_READY;
 }
 
-static void c2837x_block_after_tx_done(C2837xBlock* ctx)
-{
-    C2837xBlock_TxDoneAction action = ctx->runtime.tx_done_action;
-
-    ctx->runtime.tx_done_action = C2837X_TX_DONE_DISCONNECT;
-
-    if (action == C2837X_TX_DONE_ADVANCE_STEP)
-    {
-        ctx->runtime.expected_step_index++;
-        c2837x_block_start_rx(ctx);
-    }
-    else if (action == C2837X_TX_DONE_START_RX)
-    {
-        c2837x_block_start_rx(ctx);
-    }
-    else
-    {
-        c2837x_block_disconnect(ctx);
-    }
-}
-
-static void c2837x_block_handle_sim_start(C2837xBlock* ctx)
+static void c2837x_block_handle_sim_start(C2837xBlock *ctx)
 {
     C2837xBlock_Runtime *runtime = &ctx->runtime;
     const C2837xBlock_Config *config = ctx->config;
-    const Uint16 *payload_words = &config->rx_frame_words[2];
-    Uint16 protocol_version;
-    Uint32 config_hash;
-    Uint32 frame_bytes;
+    const Uint16 *payload = &config->rx_frame_words[2];
+    Uint32 interface_hash = (Uint32)payload[1] | ((Uint32)payload[2] << 16);
+    Uint32 frame_octets;
 
-    if (runtime->rx_payload_length_bytes !=
-        C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES)
+    if (runtime->protocol_phase != C2837X_BLOCK_PROTOCOL_WAIT_SIM_START)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_PAYLOAD_LENGTH);
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_PROTOCOL,
+                                          C2837X_ERR_STATE);
         return;
     }
-
-    protocol_version = payload_words[0];
-    config_hash = (Uint32)payload_words[1] |
-                  ((Uint32)payload_words[2] << 16);
-
-    if (protocol_version != config->protocol_version)
+    if (payload[0] != config->protocol_version)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-        c2837x_block_start_error_response(ctx,
-                                           C2837X_ERR_PROTOCOL_VERSION);
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_PROTOCOL,
+                                          C2837X_ERR_PROTOCOL_VERSION);
         return;
     }
-
-    if (config_hash != config->interface_hash)
+    if (interface_hash != config->interface_hash)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-        c2837x_block_start_error_response(ctx,
-                                           C2837X_ERR_CONFIG_MISMATCH);
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_PROTOCOL,
+                                          C2837X_ERR_CONFIG_MISMATCH);
         return;
     }
-
     if (config->algorithm->on_start(config->algorithm_context) != 0)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_ALGORITHM_START;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_INTERNAL);
+        c2837x_block_start_error_response(
+            ctx, C2837X_BLOCK_ERROR_ALGORITHM_START, C2837X_ERR_INTERNAL);
         return;
     }
 
-    frame_bytes = c2837x_block_build_response(config->tx_frame_words,
+    runtime->algorithm_started = 1u;
+    frame_octets = c2837x_block_build_response(config->tx_frame_words,
                                                C2837X_ERR_OK);
-    c2837x_block_start_tx(ctx, frame_bytes);
-    runtime->tx_done_action = C2837X_TX_DONE_START_RX;
-    runtime->expected_step_index = 0;
-    runtime->sim_started = 1;
+    c2837x_block_start_sending(ctx, frame_octets,
+                               C2837X_BLOCK_TX_DONE_ENTER_SIM_RUNNING);
 }
 
-static void c2837x_block_handle_input_data(C2837xBlock* ctx)
+static void c2837x_block_handle_input_data(C2837xBlock *ctx)
 {
     C2837xBlock_Runtime *runtime = &ctx->runtime;
     const C2837xBlock_Config *config = ctx->config;
-    const Uint16 *payload_words = &config->rx_frame_words[2];
-    Uint16 *tx_words = config->tx_frame_words;
-    Uint32 step_index;
-
-    if (runtime->rx_payload_length_bytes != config->input_payload_octets)
-    {
-        runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_PAYLOAD_LENGTH);
-        return;
-    }
-
-    step_index = (Uint32)payload_words[0] | ((Uint32)payload_words[1] << 16);
+    const Uint16 *payload = &config->rx_frame_words[2];
+    Uint16 *tx = config->tx_frame_words;
+    Uint32 step_index = (Uint32)payload[0] | ((Uint32)payload[1] << 16);
 
     if (step_index != runtime->expected_step_index)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_STEP_INDEX);
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_PROTOCOL,
+                                          C2837X_ERR_STEP_INDEX);
         return;
     }
-
     if (config->algorithm->decode_input(
-            config->algorithm_context,
-            config->input_object,
-            &payload_words[2],
+            config->algorithm_context, config->input_object, &payload[2],
             (Uint16)(config->input_payload_octets - 4u)) != 0)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_INTERNAL;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_INTERNAL);
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_INTERNAL,
+                                          C2837X_ERR_INTERNAL);
         return;
     }
-
     if (config->algorithm->on_step(config->algorithm_context,
             config->input_object, config->output_object) != 0)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_ALGORITHM_STEP;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_INTERNAL);
+        c2837x_block_start_error_response(
+            ctx, C2837X_BLOCK_ERROR_ALGORITHM_STEP, C2837X_ERR_INTERNAL);
         return;
     }
 
-    tx_words[0] = C2837X_MSG_OUTPUT_DATA;
-    tx_words[1] = config->output_payload_octets;
-    tx_words[2] = (Uint16)(step_index & 0xFFFFu);
-    tx_words[3] = (Uint16)(step_index >> 16);
+    tx[0] = C2837X_MSG_OUTPUT_DATA;
+    tx[1] = config->output_payload_octets;
+    tx[2] = (Uint16)(step_index & 0xffffu);
+    tx[3] = (Uint16)(step_index >> 16);
     if (config->algorithm->encode_output(
-            config->algorithm_context,
-            config->output_object,
-            &tx_words[4],
+            config->algorithm_context, config->output_object, &tx[4],
             (Uint16)(config->output_payload_octets - 4u)) != 0)
     {
-        runtime->last_error = C2837X_BLOCK_ERROR_INTERNAL;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_INTERNAL);
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_INTERNAL,
+                                          C2837X_ERR_INTERNAL);
         return;
     }
 
-    c2837x_block_start_tx(ctx, C2837X_BLOCK_HEADER_SIZE_BYTES +
-        config->output_payload_octets);
-    runtime->tx_done_action = C2837X_TX_DONE_ADVANCE_STEP;
+    c2837x_block_start_sending(
+        ctx, C2837X_BLOCK_HEADER_SIZE_BYTES + config->output_payload_octets,
+        C2837X_BLOCK_TX_DONE_ADVANCE_STEP);
 }
 
-static void c2837x_block_handle_sim_stop(C2837xBlock* ctx)
+static void c2837x_block_service_frame_ready(C2837xBlock *ctx)
 {
-    if (ctx->runtime.rx_payload_length_bytes != 0u)
+    switch (ctx->runtime.rx_msg_type)
     {
-        ctx->runtime.last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_PAYLOAD_LENGTH);
-        return;
-    }
-
-    ctx->config->algorithm->on_stop(ctx->config->algorithm_context);
-    ctx->runtime.sim_started = 0;
-    ctx->runtime.last_error = C2837X_BLOCK_ERROR_NONE;
-
-    c2837x_block_disconnect(ctx);
-}
-
-static void c2837x_block_dispatch_message(C2837xBlock* ctx)
-{
-    C2837xBlock_Runtime *runtime = &ctx->runtime;
-
-    if ((runtime->rx_msg_type == C2837X_MSG_SIM_START) &&
-        (runtime->sim_started != 0u))
-    {
-        runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_STATE);
-        return;
-    }
-
-    if (((runtime->rx_msg_type == C2837X_MSG_INPUT_DATA) ||
-         (runtime->rx_msg_type == C2837X_MSG_SIM_STOP)) &&
-        (runtime->sim_started == 0u))
-    {
-        runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_STATE);
-        return;
-    }
-
-    switch (runtime->rx_msg_type)
-    {
-    case C2837X_MSG_INPUT_DATA:
-        c2837x_block_handle_input_data(ctx);
-        break;
-
-    case C2837X_MSG_SIM_STOP:
-        c2837x_block_handle_sim_stop(ctx);
-        break;
-
     case C2837X_MSG_SIM_START:
         c2837x_block_handle_sim_start(ctx);
         break;
-
+    case C2837X_MSG_INPUT_DATA:
+        c2837x_block_handle_input_data(ctx);
+        break;
+    case C2837X_MSG_SIM_STOP:
+        c2837x_block_terminate_session(ctx);
+        break;
     default:
-        runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-        c2837x_block_start_error_response(ctx, C2837X_ERR_UNKNOWN_TYPE);
+        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_PROTOCOL,
+                                          C2837X_ERR_UNKNOWN_TYPE);
         break;
     }
 }
 
-static inline void c2837x_block_disconnect(C2837xBlock* ctx)
+static void c2837x_block_finish_sending(C2837xBlock *ctx)
 {
-    if (ctx->runtime.sim_started != 0u)
+    C2837xBlock_TxDoneAction action = ctx->runtime.tx_done_action;
+    ctx->runtime.tx_done_action = C2837X_BLOCK_TX_DONE_CLOSE;
+
+    if (action == C2837X_BLOCK_TX_DONE_ENTER_SIM_RUNNING)
     {
-        ctx->config->algorithm->on_stop(ctx->config->algorithm_context);
-        ctx->runtime.sim_started = 0;
+        ctx->runtime.protocol_phase = C2837X_BLOCK_PROTOCOL_SIM_RUNNING;
+        ctx->runtime.expected_step_index = 0u;
+        c2837x_block_start_receiving(ctx);
     }
-
-    if (ctx->config->iodevice_ops->close(ctx->config->iodevice_channel) < 0)
-        ctx->runtime.last_error = C2837X_BLOCK_ERROR_IODEVICE;
-    c2837x_block_reset_session(ctx);
-}
-
-static inline void c2837x_block_accept_connection(C2837xBlock* ctx)
-{
-    c2837x_block_reset_session(ctx);
-    c2837x_block_start_rx(ctx);
-}
-
-static void c2837x_block_service_running(C2837xBlock* ctx)
-{
-    c2837x_block_tick(ctx);
-    if (ctx->runtime.state == C2837X_STATE_RECV)
+    else if (action == C2837X_BLOCK_TX_DONE_RECEIVE_NEXT)
     {
-        int16 rx_result = c2837x_block_continue_rx(ctx);
-
-        if (rx_result < 0)
-        {
-            if (ctx->runtime.response_error != C2837X_ERR_OK)
-            {
-                c2837x_block_start_error_response(ctx,
-                    ctx->runtime.response_error);
-            }
-            else
-            {
-                c2837x_block_disconnect(ctx);
-            }
-            return;
-        }
-
-        if (ctx->runtime.rx_state == C2837X_RX_PROCESSING)
-        {
-            c2837x_block_dispatch_message(ctx);
-        }
+        c2837x_block_start_receiving(ctx);
+    }
+    else if (action == C2837X_BLOCK_TX_DONE_ADVANCE_STEP)
+    {
+        ctx->runtime.expected_step_index++;
+        c2837x_block_start_receiving(ctx);
     }
     else
     {
-        if (c2837x_block_tx_pending(ctx))
-        {
-            int16 tx_result = c2837x_block_continue_tx(ctx);
-            if (tx_result < 0)
-            {
-                if (ctx->runtime.last_error == C2837X_BLOCK_ERROR_NONE)
-                    ctx->runtime.last_error = C2837X_BLOCK_ERROR_IODEVICE;
-                c2837x_block_disconnect(ctx);
-                return;
-            }
-
-            if (tx_result == 0)
-                return;
-
-            c2837x_block_after_tx_done(ctx);
-        }
+        c2837x_block_terminate_session(ctx);
     }
 }
 
-void C2837xBlock_Init(C2837xBlock* instance)
+static void c2837x_block_service_sending(C2837xBlock *ctx)
+{
+    C2837xBlock_Runtime *runtime = &ctx->runtime;
+    Uint32 remaining_octets = runtime->tx_total_octets -
+        runtime->tx_sent_octets;
+    int32 sent_octets = ctx->config->iodevice_ops->send(
+        ctx->config->iodevice_channel,
+        &ctx->config->tx_frame_words[runtime->tx_sent_octets / 2u],
+        remaining_octets);
+
+    if (sent_octets < 0)
+    {
+        c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
+        c2837x_block_terminate_session(ctx);
+        return;
+    }
+    if (sent_octets == 0)
+        return;
+    if ((((Uint32)sent_octets & 1u) != 0u) ||
+        ((Uint32)sent_octets > remaining_octets))
+    {
+        c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
+        c2837x_block_terminate_session(ctx);
+        return;
+    }
+
+    runtime->tx_sent_octets += (Uint32)sent_octets;
+    if (runtime->tx_sent_octets == runtime->tx_total_octets)
+        c2837x_block_finish_sending(ctx);
+}
+
+static void c2837x_block_accept_connection(C2837xBlock *ctx)
+{
+    C2837xBlock_Runtime *runtime = &ctx->runtime;
+    c2837x_block_reset_rx(ctx);
+    c2837x_block_reset_tx(ctx);
+    ctx->config->algorithm->reset_io(ctx->config->algorithm_context,
+                                     ctx->config->input_object,
+                                     ctx->config->output_object);
+    runtime->protocol_phase = C2837X_BLOCK_PROTOCOL_WAIT_SIM_START;
+    runtime->expected_step_index = 0u;
+    runtime->algorithm_started = 0u;
+    runtime->close_pending = 0u;
+    runtime->state = C2837X_BLOCK_STATE_RECEIVING;
+}
+
+static void c2837x_block_service_wait_connection(C2837xBlock *ctx)
+{
+    C2837xBlock_Runtime *runtime = &ctx->runtime;
+    C2837xBlock_IoConnectionState connection_state;
+    int16 result;
+
+    if (runtime->close_pending != 0u)
+    {
+        result = ctx->config->iodevice_ops->close(
+            ctx->config->iodevice_channel);
+        if (result == 0)
+            return;
+        runtime->close_pending = 0u;
+        if (result < 0)
+            c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
+        return;
+    }
+
+    connection_state = ctx->config->iodevice_ops->get_connection_state(
+        ctx->config->iodevice_channel);
+    switch (connection_state)
+    {
+    case C2837X_IODEVICE_CONNECTION_CLOSED:
+        if (ctx->config->iodevice_ops->open(
+                ctx->config->iodevice_channel) < 0)
+            c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
+        return;
+    case C2837X_IODEVICE_CONNECTION_OPEN:
+        if (ctx->config->iodevice_ops->listen(
+                ctx->config->iodevice_channel) < 0)
+            c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
+        return;
+    case C2837X_IODEVICE_CONNECTION_LISTENING:
+        return;
+    case C2837X_IODEVICE_CONNECTION_CONNECTED:
+        c2837x_block_accept_connection(ctx);
+        return;
+    case C2837X_IODEVICE_CONNECTION_PEER_CLOSED:
+        c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_DISCONNECTED);
+        c2837x_block_terminate_session(ctx);
+        return;
+    case C2837X_IODEVICE_CONNECTION_ERROR:
+    default:
+        c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
+        c2837x_block_terminate_session(ctx);
+        return;
+    }
+}
+
+void C2837xBlock_Init(C2837xBlock *instance)
 {
     if (instance == NULL)
         return;
 
     memset(&instance->runtime, 0, sizeof(instance->runtime));
+    instance->runtime.state = C2837X_BLOCK_STATE_WAIT_CONNECTION;
+    instance->runtime.protocol_phase =
+        C2837X_BLOCK_PROTOCOL_WAIT_SIM_START;
     if (!c2837x_block_config_is_valid(instance->config))
     {
         instance->runtime.last_error = C2837X_BLOCK_ERROR_INVALID_ARGUMENT;
         return;
     }
 
-    instance->runtime.last_error = C2837X_BLOCK_ERROR_NONE;
-    c2837x_block_reset_session(instance);
     instance->config->iodevice_ops->channel_init(
         instance->config->iodevice_channel);
     instance->config->algorithm->reset_io(
@@ -624,59 +534,38 @@ void C2837xBlock_Init(C2837xBlock* instance)
         instance->config->output_object);
 }
 
-void C2837xBlock_Run(C2837xBlock* instance)
+void C2837xBlock_Run(C2837xBlock *instance)
 {
-    C2837xBlock_IoConnectionState connection_state;
-
     if (instance == NULL)
         return;
-
     if (!c2837x_block_config_is_valid(instance->config))
     {
         instance->runtime.last_error = C2837X_BLOCK_ERROR_INVALID_ARGUMENT;
         return;
     }
 
-    connection_state = instance->config->iodevice_ops->get_connection_state(
-        instance->config->iodevice_channel);
-    switch (connection_state)
+    switch (instance->runtime.state)
     {
-    case C2837X_IODEVICE_CONNECTION_OPEN:
-        if (instance->config->iodevice_ops->listen(
-                instance->config->iodevice_channel) < 0)
-            instance->runtime.last_error = C2837X_BLOCK_ERROR_IODEVICE;
-        instance->runtime.first_connected = 0;
+    case C2837X_BLOCK_STATE_WAIT_CONNECTION:
+        c2837x_block_service_wait_connection(instance);
         break;
-    case C2837X_IODEVICE_CONNECTION_CONNECTED:
-        if (instance->runtime.first_connected == 0u)
-        {
-            instance->runtime.first_connected = 1u;
-            c2837x_block_accept_connection(instance);
-        }
-        c2837x_block_service_running(instance);
+    case C2837X_BLOCK_STATE_RECEIVING:
+        c2837x_block_service_receiving(instance);
         break;
-    case C2837X_IODEVICE_CONNECTION_PEER_CLOSED:
-        instance->runtime.last_error = C2837X_BLOCK_ERROR_DISCONNECTED;
-        if (instance->config->iodevice_ops->close(
-                instance->config->iodevice_channel) < 0)
-            instance->runtime.last_error = C2837X_BLOCK_ERROR_IODEVICE;
+    case C2837X_BLOCK_STATE_FRAME_READY:
+        c2837x_block_service_frame_ready(instance);
         break;
-    case C2837X_IODEVICE_CONNECTION_CLOSED:
-        if (instance->config->iodevice_ops->open(
-                instance->config->iodevice_channel) < 0)
-            instance->runtime.last_error = C2837X_BLOCK_ERROR_IODEVICE;
-        break;
-    case C2837X_IODEVICE_CONNECTION_ERROR:
-        instance->runtime.last_error = C2837X_BLOCK_ERROR_IODEVICE;
-        break;
-    case C2837X_IODEVICE_CONNECTION_LISTENING:
+    case C2837X_BLOCK_STATE_SENDING:
+        c2837x_block_service_sending(instance);
         break;
     default:
+        c2837x_block_latch_error(instance, C2837X_BLOCK_ERROR_INTERNAL);
+        c2837x_block_terminate_session(instance);
         break;
     }
 }
 
-C2837xBlock_Error C2837xBlock_GetLastError(const C2837xBlock* instance)
+C2837xBlock_Error C2837xBlock_GetLastError(const C2837xBlock *instance)
 {
     return (instance != NULL) ? instance->runtime.last_error
                               : C2837X_BLOCK_ERROR_INVALID_ARGUMENT;

@@ -274,8 +274,13 @@ static void load_frame(FakeChannel *channel, Uint16 type, Uint16 length,
 
 static void run_received_frame(C2837xBlock *instance)
 {
+    if (instance->runtime.state == C2837X_BLOCK_STATE_WAIT_CONNECTION)
+        C2837xBlock_Run(instance);
     C2837xBlock_Run(instance);
-    C2837xBlock_Run(instance);
+    if (instance->runtime.state == C2837X_BLOCK_STATE_RECEIVING)
+        C2837xBlock_Run(instance);
+    if (instance->runtime.state == C2837X_BLOCK_STATE_FRAME_READY)
+        C2837xBlock_Run(instance);
 }
 
 static void test_init_and_static_isolation(void)
@@ -290,7 +295,7 @@ static void test_init_and_static_isolation(void)
     input_b.values[0] = 77u;
     output_b.values[0] = 88u;
     rx_b[0] = 99u;
-    instance_b.runtime.tick_counter = 123u;
+    instance_b.runtime.expected_step_index = 123u;
     C2837xBlock_Init(&instance_a);
 
     assert(instance_a.config == saved_config);
@@ -298,7 +303,7 @@ static void test_init_and_static_isolation(void)
     assert(adapter_context_a.reset_calls == 1u);
     assert(adapter_context_b.reset_calls == 0u);
     assert(input_b.values[0] == 77u && output_b.values[0] == 88u);
-    assert(rx_b[0] == 99u && instance_b.runtime.tick_counter == 123u);
+    assert(rx_b[0] == 99u && instance_b.runtime.expected_step_index == 123u);
     assert(platform_init_calls == 0u);
 
     C2837xBlock_Init(&instance_b);
@@ -370,6 +375,8 @@ static void test_config_driven_adapter_routing(void)
     C2837xBlock_Run(&instance_b);
     assert(adapter_context_b.decode_calls == 0u);
     C2837xBlock_Run(&instance_b);
+    assert(adapter_context_b.decode_calls == 0u);
+    C2837xBlock_Run(&instance_b);
     assert(adapter_context_b.decode_calls == 1u);
     assert(input_b.values[0] == 6u && input_b.values[1] == 7u);
     assert(output_b.values[0] == 26u && output_b.values[1] == 27u);
@@ -388,7 +395,7 @@ static void test_step_failure_has_no_normal_output(void)
     run_received_frame(&instance_a);
     assert(adapter_context_a.decode_calls == 2u);
     assert(adapter_context_a.encode_calls == encode_calls);
-    assert(instance_a.runtime.state == C2837X_STATE_SEND);
+    assert(instance_a.runtime.state == C2837X_BLOCK_STATE_SENDING);
     C2837xBlock_Run(&instance_a);
     assert(channel_a.last_tx_words[0] == C2837X_MSG_RESPONSE);
     assert(channel_a.last_tx_words[2] == C2837X_ERR_INTERNAL);
@@ -463,26 +470,28 @@ static void test_runtime_declared_length_uses_max_payload(void)
 {
     C2837xBlock_Init(&instance_a);
     channel_a.state = C2837X_IODEVICE_CONNECTION_CONNECTED;
-    channel_a.rx_words[0] = C2837X_MSG_INPUT_DATA;
+    channel_a.rx_words[0] = C2837X_MSG_SIM_START;
     channel_a.rx_words[1] = 10u;
     channel_a.rx_octets = C2837X_BLOCK_HEADER_SIZE_BYTES;
     channel_a.rx_offset_octets = 0u;
 
     C2837xBlock_Run(&instance_a);
-    assert(instance_a.runtime.state == C2837X_STATE_SEND);
+    C2837xBlock_Run(&instance_a);
+    assert(instance_a.runtime.state == C2837X_BLOCK_STATE_SENDING);
     assert(instance_a.runtime.response_error == C2837X_ERR_PAYLOAD_LENGTH);
     assert(channel_a.rx_offset_octets == C2837X_BLOCK_HEADER_SIZE_BYTES);
     assert(adapter_context_a.decode_calls == 2u);
 
     C2837xBlock_Init(&instance_a);
     channel_a.state = C2837X_IODEVICE_CONNECTION_CONNECTED;
-    channel_a.rx_words[0] = C2837X_MSG_INPUT_DATA;
+    channel_a.rx_words[0] = C2837X_MSG_SIM_START;
     channel_a.rx_words[1] = 8u;
     channel_a.rx_octets = C2837X_BLOCK_HEADER_SIZE_BYTES;
     channel_a.rx_offset_octets = 0u;
 
     C2837xBlock_Run(&instance_a);
-    assert(instance_a.runtime.state == C2837X_STATE_SEND);
+    C2837xBlock_Run(&instance_a);
+    assert(instance_a.runtime.state == C2837X_BLOCK_STATE_SENDING);
     assert(instance_a.runtime.response_error == C2837X_ERR_PAYLOAD_LENGTH);
     assert(channel_a.rx_offset_octets == C2837X_BLOCK_HEADER_SIZE_BYTES);
     assert(adapter_context_a.decode_calls == 2u);
