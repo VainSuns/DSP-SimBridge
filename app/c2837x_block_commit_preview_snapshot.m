@@ -22,9 +22,6 @@ catch
 end
 issues = [issues snapshotIssues];
 if ~snapshotValid || has_errors(snapshotIssues)
-    if valid_target_models(snapshot, candidates)
-        issues = [issues verify_targets(snapshot.target_states, candidates)];
-    end
     return;
 end
 
@@ -149,15 +146,11 @@ for index = 1:numel(snapshot.candidates)
             snapshot.target_states);
         return;
     end
-    if ~isempty(writeResult.temporary_path) && ...
-            isfile(writeResult.temporary_path)
-        result.temporary_files_remaining{end + 1} = ...
-            writeResult.temporary_path;
-    end
     if ~writeResult.success
         [result, issues] = record_failure(result, issues, index, ...
-            writeResult.code, stable_writer_message(writeResult.code), ...
-            snapshot.target_states);
+            writeResult.code, writeResult.message, snapshot.target_states, ...
+            writeResult.cleanup_code, writeResult.cleanup_message, ...
+            writeResult.temporary_path);
         return;
     end
     [finalBytes, finalCode] = read_bytes(targetPath);
@@ -202,13 +195,24 @@ result.sfun_root = snapshot.output_paths.sfun_root;
 end
 
 function [result, issues] = record_failure(result, issues, index, ...
-        code, message, targetStates)
+        code, message, targetStates, cleanupCode, cleanupMessage, temporaryPath)
+if nargin < 7
+    cleanupCode = '';
+    cleanupMessage = '';
+    temporaryPath = '';
+end
 result.files(index).outcome = 'failed';
 result.files(index).code = code;
 result.files(index).message = message;
 issues(end + 1) = make_issue(code, message, ...
     sprintf('snapshot.candidates(%u)', index), ...
     result.files(index).instance_index, result.files(index).target_path);
+if ~isempty(cleanupCode)
+    result.temporary_files_remaining{end + 1} = temporaryPath;
+    issues(end + 1) = make_issue(cleanupCode, cleanupMessage, ...
+        'result.temporary_files_remaining', ...
+        result.files(index).instance_index, temporaryPath);
+end
 result = failed_result(result, targetStates);
 end
 
@@ -353,7 +357,8 @@ end
 end
 
 function tf = valid_write_result(value)
-required = {'success', 'code', 'message', 'temporary_path'};
+required = {'success', 'code', 'message', 'cleanup_code', ...
+    'cleanup_message', 'temporary_path'};
 tf = isstruct(value) && isscalar(value) && ...
     isequal(sort(fieldnames(value)), sort(required(:)));
 if ~tf
@@ -361,44 +366,23 @@ if ~tf
 end
 [codeValid, code] = text_value(value.code, true);
 [messageValid, message] = text_value(value.message, true);
+[cleanupCodeValid, cleanupCode] = text_value(value.cleanup_code, true);
+[cleanupMessageValid, cleanupMessage] = ...
+    text_value(value.cleanup_message, true);
 [pathValid, temporaryPath] = text_value(value.temporary_path, true);
 tf = islogical(value.success) && isscalar(value.success) && ...
-    codeValid && messageValid && pathValid;
+    codeValid && messageValid && cleanupCodeValid && ...
+    cleanupMessageValid && pathValid;
 if tf && value.success
-    tf = isempty(code) && isempty(message) && isempty(temporaryPath);
+    tf = isempty(code) && isempty(message) && isempty(cleanupCode) && ...
+        isempty(cleanupMessage) && isempty(temporaryPath);
 elseif tf
-    tf = ~isempty(code) && ~isempty(message);
-end
-end
-
-function message = stable_writer_message(code)
-switch code
-    case 'COMMIT_TARGET_CHANGED'
-        message = 'The target no longer matches the preview state.';
-    case 'COMMIT_TARGET_UNREADABLE'
-        message = 'The target file could not be opened for reading.';
-    case 'COMMIT_TARGET_READ_FAILED'
-        message = 'The target file could not be read completely.';
-    case 'COMMIT_PARENT_DIRECTORY_MISSING'
-        message = 'The target parent directory does not exist.';
-    case 'COMMIT_TEMP_PATH_FAILED'
-        message = 'A same-directory temporary path could not be created.';
-    case 'COMMIT_TEMP_OPEN_FAILED'
-        message = 'The same-directory temporary file could not be opened.';
-    case 'COMMIT_TEMP_WRITE_FAILED'
-        message = 'The temporary file could not be written completely.';
-    case 'COMMIT_TEMP_VERIFY_FAILED'
-        message = 'The temporary file did not match the candidate bytes.';
-    case 'COMMIT_TARGET_CREATE_FAILED'
-        message = 'The temporary file could not be moved to the new target.';
-    case 'COMMIT_TARGET_REPLACE_FAILED'
-        message = 'The temporary file could not replace the target.';
-    case 'COMMIT_POST_WRITE_VERIFY_FAILED'
-        message = 'The final target did not match the candidate bytes.';
-    case 'COMMIT_TEMP_CLEANUP_FAILED'
-        message = 'The temporary file could not be removed after failure.';
-    otherwise
-        message = 'The file writer reported a commit failure.';
+    cleanupEmpty = isempty(cleanupCode) && isempty(cleanupMessage);
+    cleanupFailed = strcmp(cleanupCode, 'COMMIT_TEMP_CLEANUP_FAILED') && ...
+        ~isempty(cleanupMessage) && ~isempty(temporaryPath);
+    tf = ~isempty(code) && ~isempty(message) && ...
+        (cleanupEmpty || cleanupFailed) && ...
+        ((cleanupEmpty && isempty(temporaryPath)) || cleanupFailed);
 end
 end
 
@@ -418,15 +402,6 @@ for index = 1:numel(additions)
         issues(end + 1) = additions(index); %#ok<AGROW>
     end
 end
-end
-
-function tf = valid_target_models(snapshot, candidates)
-tf = isstruct(snapshot) && isscalar(snapshot) && ...
-    isfield(snapshot, 'target_states') && isstruct(snapshot.target_states) && ...
-    isstruct(candidates) && numel(snapshot.target_states) == numel(candidates) && ...
-    all(isfield(snapshot.target_states, ...
-    {'target_path', 'state', 'content_bytes', 'content_size_octets'})) && ...
-    all(isfield(candidates, 'instance_index'));
 end
 
 function result = finalize_result(result)

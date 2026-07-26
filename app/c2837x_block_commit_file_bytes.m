@@ -1,11 +1,18 @@
 function result = c2837x_block_commit_file_bytes( ...
-        targetPath, contentBytes, action, expectedTargetState)
+        targetPath, contentBytes, action, expectedTargetState, options)
 %C2837X_BLOCK_COMMIT_FILE_BYTES Safely commit one candidate byte vector.
 
 result = write_result(false, 'COMMIT_WRITE_INPUT_INVALID', ...
-    'Commit writer inputs do not use the fixed model.', '');
+    'Commit writer inputs do not use the fixed model.', '', '', '');
 [valid, targetPath, action] = valid_inputs( ...
     targetPath, contentBytes, action, expectedTargetState);
+if ~valid
+    return;
+end
+if nargin < 5
+    options = struct();
+end
+[valid, beforePublish, deleteTemporary] = parse_options(options);
 if ~valid
     return;
 end
@@ -13,7 +20,7 @@ end
 parentPath = fileparts(targetPath);
 if ~isfolder(parentPath)
     result = write_result(false, 'COMMIT_PARENT_DIRECTORY_MISSING', ...
-        'The target parent directory does not exist.', '');
+        'The target parent directory does not exist.', '', '', '');
     return;
 end
 [matches, code] = target_matches(expectedTargetState);
@@ -26,41 +33,57 @@ try
     temporaryPath = tempname(parentPath);
 catch
     result = write_result(false, 'COMMIT_TEMP_PATH_FAILED', ...
-        'A same-directory temporary path could not be created.', '');
+        'A same-directory temporary path could not be created.', '', '', '');
     return;
 end
 if ~strcmp(fileparts(temporaryPath), parentPath)
     result = write_result(false, 'COMMIT_TEMP_PATH_FAILED', ...
-        'A same-directory temporary path could not be created.', '');
+        'A same-directory temporary path could not be created.', '', '', '');
     return;
 end
 
 [written, code] = write_temporary(temporaryPath, contentBytes);
 if ~written
-    result = fail_and_cleanup(code, temporaryPath);
+    result = fail_and_cleanup(code, temporaryPath, deleteTemporary);
     return;
 end
 [temporaryBytes, code] = read_bytes(temporaryPath, ...
     'COMMIT_TEMP_VERIFY_FAILED', 'COMMIT_TEMP_VERIFY_FAILED');
 if ~isempty(code) || ~isequal(temporaryBytes, contentBytes)
-    result = fail_and_cleanup('COMMIT_TEMP_VERIFY_FAILED', temporaryPath);
+    result = fail_and_cleanup( ...
+        'COMMIT_TEMP_VERIFY_FAILED', temporaryPath, deleteTemporary);
     return;
 end
 [matches, code] = target_matches(expectedTargetState);
 if ~matches
-    result = fail_and_cleanup(code, temporaryPath);
+    result = fail_and_cleanup(code, temporaryPath, deleteTemporary);
     return;
 end
 
-try
-    if strcmp(action, 'create')
-        [moved, ~] = movefile(temporaryPath, targetPath);
-        moveCode = 'COMMIT_TARGET_CREATE_FAILED';
-    else
-        [moved, ~] = movefile(temporaryPath, targetPath, 'f');
-        moveCode = 'COMMIT_TARGET_REPLACE_FAILED';
+publishAllowed = true;
+if ~isempty(beforePublish)
+    try
+        beforePublish(targetPath, temporaryPath);
+    catch
+        publishAllowed = false;
     end
-catch
+end
+if strcmp(action, 'create')
+    moveCode = 'COMMIT_TARGET_CREATE_FAILED';
+else
+    moveCode = 'COMMIT_TARGET_REPLACE_FAILED';
+end
+if publishAllowed
+    try
+        if strcmp(action, 'create')
+            moved = publish_create(temporaryPath, targetPath);
+        else
+            [moved, ~] = movefile(temporaryPath, targetPath, 'f');
+        end
+    catch
+        moved = false;
+    end
+else
     moved = false;
 end
 if ~moved
@@ -68,7 +91,7 @@ if ~moved
     if ~stillMatches && strcmp(stateCode, 'COMMIT_TARGET_CHANGED')
         moveCode = stateCode;
     end
-    result = fail_and_cleanup(moveCode, temporaryPath);
+    result = fail_and_cleanup(moveCode, temporaryPath, deleteTemporary);
     return;
 end
 
@@ -76,10 +99,36 @@ end
     'COMMIT_POST_WRITE_VERIFY_FAILED', 'COMMIT_POST_WRITE_VERIFY_FAILED');
 if ~isempty(code) || ~isequal(finalBytes, contentBytes)
     result = write_result(false, 'COMMIT_POST_WRITE_VERIFY_FAILED', ...
-        error_message('COMMIT_POST_WRITE_VERIFY_FAILED'), '');
+        error_message('COMMIT_POST_WRITE_VERIFY_FAILED'), '', '', '');
     return;
 end
-result = write_result(true, '', '', '');
+result = write_result(true, '', '', '', '', '');
+end
+
+function [valid, beforePublish, deleteTemporary] = parse_options(options)
+beforePublish = [];
+deleteTemporary = @delete;
+allowed = {'before_publish', 'delete_temporary'};
+valid = isstruct(options) && isscalar(options) && ...
+    all(ismember(fieldnames(options), allowed));
+if ~valid
+    return;
+end
+if isfield(options, 'before_publish')
+    beforePublish = options.before_publish;
+    valid = valid_hook(beforePublish);
+end
+if valid && isfield(options, 'delete_temporary')
+    deleteTemporary = options.delete_temporary;
+    valid = valid_hook(deleteTemporary);
+    if valid && isempty(deleteTemporary)
+        deleteTemporary = @delete;
+    end
+end
+end
+
+function tf = valid_hook(value)
+tf = isempty(value) || (isa(value, 'function_handle') && isscalar(value));
 end
 
 function [valid, targetPath, action] = valid_inputs( ...
@@ -164,20 +213,35 @@ catch
 end
 end
 
-function result = fail_and_cleanup(code, temporaryPath)
-remaining = temporaryPath;
+function result = fail_and_cleanup(code, temporaryPath, deleteTemporary)
+cleanupCode = '';
+cleanupMessage = '';
+remaining = '';
 if isfile(temporaryPath)
     try
-        delete(temporaryPath);
+        deleteTemporary(temporaryPath);
     catch
     end
 end
-if ~isfile(temporaryPath)
-    remaining = '';
-elseif ~strcmp(code, 'COMMIT_TEMP_CLEANUP_FAILED')
-    code = 'COMMIT_TEMP_CLEANUP_FAILED';
+if isfile(temporaryPath)
+    cleanupCode = 'COMMIT_TEMP_CLEANUP_FAILED';
+    cleanupMessage = error_message(cleanupCode);
+    remaining = temporaryPath;
 end
-result = write_result(false, code, error_message(code), remaining);
+result = write_result(false, code, error_message(code), ...
+    cleanupCode, cleanupMessage, remaining);
+end
+
+function moved = publish_create(temporaryPath, targetPath)
+moved = false;
+try
+    source = java.io.File(temporaryPath).toPath();
+    target = java.io.File(targetPath).toPath();
+    copyOptions = javaArray('java.nio.file.CopyOption', 0);
+    javaMethod('move', 'java.nio.file.Files', source, target, copyOptions);
+    moved = true;
+catch
+end
 end
 
 function [bytes, code] = read_bytes(path, unreadableCode, readCode)
@@ -214,7 +278,7 @@ end
 end
 
 function result = target_failure(code)
-result = write_result(false, code, error_message(code), '');
+result = write_result(false, code, error_message(code), '', '', '');
 end
 
 function message = error_message(code)
@@ -244,8 +308,10 @@ switch code
 end
 end
 
-function result = write_result(success, code, message, temporaryPath)
+function result = write_result(success, code, message, ...
+        cleanupCode, cleanupMessage, temporaryPath)
 result = struct('success', success, 'code', code, 'message', message, ...
+    'cleanup_code', cleanupCode, 'cleanup_message', cleanupMessage, ...
     'temporary_path', temporaryPath);
 end
 

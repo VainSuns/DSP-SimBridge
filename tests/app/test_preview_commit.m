@@ -74,6 +74,21 @@ classdef test_preview_commit < matlab.unittest.TestCase
                 'CANDIDATE_ACTION_INVALID');
         end
 
+        function testInvalidSnapshotModelsBlockWithoutTargetInspection(testCase)
+            verify_invalid_snapshot_model(testCase, testCase.WorkFolder, ...
+                'target_path');
+            verify_invalid_snapshot_model(testCase, testCase.WorkFolder, ...
+                'state');
+            verify_invalid_snapshot_model(testCase, testCase.WorkFolder, ...
+                'content_bytes');
+            verify_invalid_snapshot_model(testCase, testCase.WorkFolder, ...
+                'content_size_octets');
+            verify_invalid_snapshot_model(testCase, testCase.WorkFolder, ...
+                'target_states_number');
+            verify_invalid_snapshot_model(testCase, testCase.WorkFolder, ...
+                'target_states_missing_state');
+        end
+
         function testProjectChangeBlocksBeforeWriter(testCase)
             bundle = commit_bundle(testCase.WorkFolder);
             snapshot = create_snapshot(bundle);
@@ -131,7 +146,7 @@ classdef test_preview_commit < matlab.unittest.TestCase
 
             testCase.verifyEqual(result.status, 'blocked');
             testCase.verifyTrue(any(strcmp({issues.code}, ...
-                'COMMIT_TARGET_CHANGED')));
+                'SNAPSHOT_TARGET_CHANGED')));
             testCase.verifyEqual(read_bytes(bundle.candidates(1).target_path), ...
                 external);
         end
@@ -146,7 +161,7 @@ classdef test_preview_commit < matlab.unittest.TestCase
 
             testCase.verifyEqual(result.status, 'blocked');
             testCase.verifyTrue(any(strcmp({issues.code}, ...
-                'COMMIT_TARGET_CHANGED')));
+                'SNAPSHOT_TARGET_CHANGED')));
             testCase.verifyEqual(read_bytes(bundle.candidates(3).target_path), ...
                 external);
         end
@@ -162,7 +177,7 @@ classdef test_preview_commit < matlab.unittest.TestCase
 
             testCase.verifyEqual(result.status, 'blocked');
             testCase.verifyTrue(any(strcmp({issues.code}, ...
-                'COMMIT_TARGET_CHANGED')));
+                'CANDIDATE_TARGET_IS_DIRECTORY')));
             testCase.verifyTrue(isfolder(path));
         end
 
@@ -258,6 +273,48 @@ classdef test_preview_commit < matlab.unittest.TestCase
             testCase.verifyEqual(read_bytes(target), external);
         end
 
+        function testCreatePublishDoesNotOverwriteRacingTarget(testCase)
+            target = c2837x_block_normalize_absolute_path(fullfile( ...
+                testCase.WorkFolder, 'racing.bin'));
+            options = struct('before_publish', @create_racing_target);
+            external = uint8([90 0 255 91]);
+
+            result = c2837x_block_commit_file_bytes(target, uint8([1 2 3]), ...
+                'create', missing_state(target), options);
+
+            testCase.verifyFalse(result.success);
+            testCase.verifyEqual(result.code, 'COMMIT_TARGET_CHANGED');
+            testCase.verifyEqual(read_bytes(target), external);
+            testCase.verifyEmpty(result.cleanup_code);
+            testCase.verifyEmpty(result.cleanup_message);
+            testCase.verifyEmpty(result.temporary_path);
+            files = dir(fullfile(testCase.WorkFolder, '*'));
+            files = files(~[files.isdir]);
+            testCase.verifyEqual({files.name}, {'racing.bin'});
+        end
+
+        function testCleanupFailurePreservesPrimaryFailure(testCase)
+            target = c2837x_block_normalize_absolute_path(fullfile( ...
+                testCase.WorkFolder, 'cleanup_racing.bin'));
+            options = struct('before_publish', @create_racing_target, ...
+                'delete_temporary', @leave_temporary);
+            external = uint8([90 0 255 91]);
+
+            result = c2837x_block_commit_file_bytes(target, uint8([4 5 6]), ...
+                'create', missing_state(target), options);
+            testCase.addTeardown(@() delete_if_exists(result.temporary_path));
+
+            testCase.verifyFalse(result.success);
+            testCase.verifyEqual(result.code, 'COMMIT_TARGET_CHANGED');
+            testCase.verifyNotEmpty(result.message);
+            testCase.verifyEqual(result.cleanup_code, ...
+                'COMMIT_TEMP_CLEANUP_FAILED');
+            testCase.verifyNotEmpty(result.cleanup_message);
+            testCase.verifyNotEmpty(result.temporary_path);
+            testCase.verifyTrue(isfile(result.temporary_path));
+            testCase.verifyEqual(read_bytes(target), external);
+        end
+
         function testReplaceRejectsChangedTarget(testCase)
             target = c2837x_block_normalize_absolute_path(fullfile( ...
                 testCase.WorkFolder, 'changed.bin'));
@@ -294,6 +351,30 @@ classdef test_preview_commit < matlab.unittest.TestCase
                 bundle.candidates(1).content_bytes);
             testCase.verifyTrue(any(strcmp({issues.code}, ...
                 'TEST_INJECTED_WRITE_FAILED')));
+        end
+
+        function testCoordinatorReportsPrimaryAndCleanupFailures(testCase)
+            bundle = commit_bundle(testCase.WorkFolder);
+            snapshot = create_snapshot(bundle);
+            temporaryPath = c2837x_block_normalize_absolute_path(fullfile( ...
+                testCase.WorkFolder, 'injected_remaining.tmp'));
+            write_bytes(temporaryPath, uint8([7 8 9]));
+            configure_writer('cleanup_fail', temporaryPath);
+            options = struct('file_writer', @injected_writer);
+
+            [result, issues] = c2837x_block_commit_preview_snapshot(snapshot, ...
+                bundle.project, bundle.candidates, bundle.dependencies, options);
+
+            testCase.verifyEqual(result.status, 'partial_failure');
+            testCase.verifyEqual(result.files(1).outcome, 'failed');
+            testCase.verifyEqual(result.files(1).code, ...
+                'TEST_PRIMARY_WRITE_FAILED');
+            testCase.verifyEqual({issues(end - 1:end).code}, ...
+                {'TEST_PRIMARY_WRITE_FAILED', 'COMMIT_TEMP_CLEANUP_FAILED'});
+            testCase.verifyEqual(result.temporary_files_remaining, ...
+                {temporaryPath});
+            testCase.verifyTrue(all(strcmp({result.files(2:end).outcome}, ...
+                'not_attempted')));
         end
 
         function testFirstWriterFailureHasNoSideEffects(testCase)
@@ -365,13 +446,20 @@ classdef test_preview_commit < matlab.unittest.TestCase
         end
 
         function testInvalidWriterInputsReturnFixedFailure(testCase)
-            result = c2837x_block_commit_file_bytes('relative.bin', ...
-                uint8(1), 'create', struct());
-
-            testCase.verifyEqual(result, struct('success', false, ...
+            expected = struct('success', false, ...
                 'code', 'COMMIT_WRITE_INPUT_INVALID', ...
                 'message', 'Commit writer inputs do not use the fixed model.', ...
-                'temporary_path', ''));
+                'cleanup_code', '', 'cleanup_message', '', ...
+                'temporary_path', '');
+            invalidInput = c2837x_block_commit_file_bytes('relative.bin', ...
+                uint8(1), 'create', struct());
+            target = c2837x_block_normalize_absolute_path(fullfile( ...
+                testCase.WorkFolder, 'invalid_options.bin'));
+            invalidOptions = c2837x_block_commit_file_bytes(target, uint8(1), ...
+                'create', missing_state(target), struct('force', true));
+
+            testCase.verifyEqual(invalidInput, expected);
+            testCase.verifyEqual(invalidOptions, expected);
         end
     end
 end
@@ -464,6 +552,39 @@ options = struct('file_writer', @injected_writer);
     bundle.project, bundle.candidates, bundle.dependencies, options);
 testCase.verifyEqual(result.status, 'blocked');
 testCase.verifyTrue(any(strcmp({issues.code}, expectedCode)));
+testCase.verifyEqual(writer_count(), 0);
+testCase.verifyEqual(filesystem_snapshot( ...
+    fileparts(bundle.project.output.dsp_root)), before);
+end
+
+function verify_invalid_snapshot_model(testCase, root, scenario)
+bundle = commit_bundle(fullfile(root, scenario));
+snapshot = create_snapshot(bundle);
+switch scenario
+    case 'target_path'
+        snapshot.target_states(1).target_path = 7;
+    case 'state'
+        snapshot.target_states(1).state = 7;
+    case 'content_bytes'
+        snapshot.target_states(1).content_bytes = 7;
+    case 'content_size_octets'
+        snapshot.target_states(1).content_size_octets = [1 2];
+    case 'target_states_number'
+        snapshot.target_states = 7;
+    otherwise
+        snapshot.target_states = rmfield(snapshot.target_states, 'state');
+end
+before = filesystem_snapshot(fileparts(bundle.project.output.dsp_root));
+configure_writer('fail');
+options = struct('file_writer', @injected_writer);
+
+[result, issues] = c2837x_block_commit_preview_snapshot(snapshot, ...
+    bundle.project, bundle.candidates, bundle.dependencies, options);
+
+testCase.verifyFalse(result.success);
+testCase.verifyEqual(result.status, 'blocked');
+testCase.verifyEqual(result.phase, 'preflight');
+testCase.verifyTrue(any(strcmp({issues.code}, 'SNAPSHOT_INVALID')));
 testCase.verifyEqual(writer_count(), 0);
 testCase.verifyEqual(filesystem_snapshot( ...
     fileparts(bundle.project.output.dsp_root)), before);
@@ -563,20 +684,35 @@ switch state.mode
     case 'throw'
         error('Test:InjectedWriter', 'Injected writer exception.');
     case 'malformed'
-        result = 7;
+        result = struct('success', false, ...
+            'code', 'TEST_OLD_RESULT', 'message', 'Old result model.', ...
+            'temporary_path', '');
+    case 'cleanup_fail'
+        result = struct('success', false, ...
+            'code', 'TEST_PRIMARY_WRITE_FAILED', ...
+            'message', 'Injected primary failure.', ...
+            'cleanup_code', 'COMMIT_TEMP_CLEANUP_FAILED', ...
+            'cleanup_message', 'Injected cleanup failure.', ...
+            'temporary_path', state.temporary_path);
     otherwise
         result = struct('success', true, 'code', '', ...
-            'message', '', 'temporary_path', '');
+            'message', '', 'cleanup_code', '', ...
+            'cleanup_message', '', 'temporary_path', '');
 end
 end
 
 function result = injected_failure()
 result = struct('success', false, 'code', 'TEST_INJECTED_WRITE_FAILED', ...
-    'message', 'Injected write failure.', 'temporary_path', '');
+    'message', 'Injected write failure.', 'cleanup_code', '', ...
+    'cleanup_message', '', 'temporary_path', '');
 end
 
-function configure_writer(mode)
-writer_state('set', mode);
+function configure_writer(mode, temporaryPath)
+if nargin < 2
+    temporaryPath = '';
+end
+writer_state('set', struct('mode', mode, ...
+    'temporary_path', temporaryPath));
 end
 
 function count = writer_count()
@@ -591,15 +727,16 @@ end
 function state = writer_state(action, value)
 persistent stored
 if isempty(stored)
-    stored = struct('mode', '', 'count', 0);
+    stored = struct('mode', '', 'count', 0, 'temporary_path', '');
 end
 switch action
     case 'set'
-        stored = struct('mode', value, 'count', 0);
+        stored = struct('mode', value.mode, 'count', 0, ...
+            'temporary_path', value.temporary_path);
     case 'increment'
         stored.count = stored.count + 1;
     case 'reset'
-        stored = struct('mode', '', 'count', 0);
+        stored = struct('mode', '', 'count', 0, 'temporary_path', '');
 end
 state = stored;
 end
@@ -629,6 +766,19 @@ cleanup = onCleanup(@() fclose(fileID));
 written = fwrite(fileID, bytes, 'uint8');
 assert(written == numel(bytes), 'Test file could not be written.');
 clear cleanup
+end
+
+function create_racing_target(targetPath, ~)
+write_bytes(targetPath, uint8([90 0 255 91]));
+end
+
+function leave_temporary(~)
+end
+
+function delete_if_exists(path)
+if isfile(path)
+    delete(path);
+end
 end
 
 function bytes = read_bytes(path)
