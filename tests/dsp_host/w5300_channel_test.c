@@ -7,12 +7,14 @@ static Uint16 open_calls[8];
 static Uint16 listen_calls[8];
 static Uint16 receive_calls[8];
 static Uint16 send_calls[8];
-static Uint16 close_calls[8];
 static Uint16 disconnect_calls[8];
 static Uint16 opened_port[8];
 static Uint16 connection_clear_calls[8];
 static Uint32 last_send_count;
 static Uint32 last_receive_capacity;
+
+static Uint32 fake_time_us(void) { return 0u; }
+Uint32 c2837x_block_platform_generation(void) { return 0u; }
 
 Uint16 c2837x_w5300_read16(Uint32 address)
 {
@@ -75,11 +77,27 @@ int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket *socket)
     }
     return 1;
 }
-int16 c2837x_w5300_socket_close(C2837xW5300Socket *socket)
-{
-    close_calls[socket->sn]++;
-    return (socket_status[socket->sn] == SOCK_CLOSED) ? 1 : 0;
-}
+int16 c2837x_w5300_socket_take_pending(C2837xW5300Socket *socket)
+{ (void)socket; return 1; }
+int16 c2837x_w5300_socket_check_close_erratum(
+    C2837xW5300Socket *socket, Uint16 *needed)
+{ (void)socket; *needed = 0u; return 1; }
+int16 c2837x_w5300_socket_dummy_tx_ready(C2837xW5300Socket *socket)
+{ (void)socket; return 1; }
+int16 c2837x_w5300_socket_issue_udp_open(
+    C2837xW5300Socket *socket, Uint16 port)
+{ (void)socket; (void)port; return 0; }
+int16 c2837x_w5300_socket_issue_dummy_send(
+    C2837xW5300Socket *socket, Uint32 ip, Uint16 port)
+{ (void)socket; (void)ip; (void)port; return 0; }
+int16 c2837x_w5300_socket_issue_close(C2837xW5300Socket *socket)
+{ (void)socket; return 0; }
+int16 c2837x_w5300_socket_poll_close_command(
+    C2837xW5300Socket *socket, C2837xW5300PendingCommand expected)
+{ (void)socket; (void)expected; return 0; }
+int16 c2837x_w5300_socket_complete_close_command(
+    C2837xW5300Socket *socket, C2837xW5300PendingCommand expected)
+{ (void)socket; (void)expected; return 1; }
 int16 c2837x_w5300_socket_disconnect(C2837xW5300Socket *socket)
 {
     disconnect_calls[socket->sn]++;
@@ -88,25 +106,23 @@ int16 c2837x_w5300_socket_disconnect(C2837xW5300Socket *socket)
 
 int main(void)
 {
-    C2837xW5300Channel first = {
-        C2837X_W5300_SOCKET_INITIALIZER(1u, 8192u, 8192u), 5001u, 0u,
-        C2837X_W5300_SEND_IDLE, 0u, 0u, 0u};
-    C2837xW5300Channel second = {
-        C2837X_W5300_SOCKET_INITIALIZER(6u, 8192u, 8192u), 5006u, 0u,
-        C2837X_W5300_SEND_IDLE, 0u, 0u, 0u};
+    C2837xW5300Channel first = C2837X_W5300_CHANNEL_INITIALIZER(
+        1u, 8192u, 8192u, 5001u, fake_time_us, 100u);
+    C2837xW5300Channel second = C2837X_W5300_CHANNEL_INITIALIZER(
+        6u, 8192u, 8192u, 5006u, fake_time_us, 100u);
     Uint16 words[4] = {0u};
 
     first.send_state = C2837X_W5300_SEND_PENDING;
     first.socket.pending_command = C2837X_W5300_COMMAND_SEND;
     first.socket.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
     first.pending_octets = 8u;
-    first.closing = 1u;
+    first.close_state = C2837X_W5300_CLOSE_CLOSE_WAIT_STATE;
     first.faulted = 1u;
     second.send_state = C2837X_W5300_SEND_PENDING;
     second.socket.pending_command = C2837X_W5300_COMMAND_RECV;
     second.socket.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE;
     second.pending_octets = 12u;
-    second.closing = 1u;
+    second.close_state = C2837X_W5300_CLOSE_CLOSE_WAIT_STATE;
     second.faulted = 1u;
 
     c2837x_w5300_iodevice_ops.channel_init(&first);
@@ -116,13 +132,16 @@ int main(void)
     assert(first.socket.pending_command == C2837X_W5300_COMMAND_NONE);
     assert(first.socket.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
     assert(first.send_state == C2837X_W5300_SEND_IDLE);
-    assert(first.pending_octets == 0u && first.closing == 0u && first.faulted == 0u);
+    assert(first.pending_octets == 0u &&
+           first.close_state == C2837X_W5300_CLOSE_IDLE && first.faulted == 0u);
     assert(second.socket.sn == 6u && second.tcp_port == 5006u);
     assert(second.socket.pending_command == C2837X_W5300_COMMAND_RECV);
     assert(second.socket.command_phase ==
            C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE);
     assert(second.send_state == C2837X_W5300_SEND_PENDING);
-    assert(second.pending_octets == 12u && second.closing == 1u && second.faulted == 1u);
+    assert(second.pending_octets == 12u &&
+           second.close_state == C2837X_W5300_CLOSE_CLOSE_WAIT_STATE &&
+           second.faulted == 1u);
 
     c2837x_w5300_iodevice_ops.channel_init(&second);
     socket_status[1] = SOCK_CLOSED;
@@ -174,8 +193,8 @@ int main(void)
     assert(c2837x_w5300_iodevice_ops.close(&first) > 0);
     socket_status[6] = SOCK_ESTABLISHED;
     assert(c2837x_w5300_iodevice_ops.close(&second) == 0);
-    assert(close_calls[6] == 1u && close_calls[1] == 1u);
     assert(disconnect_calls[1] == 0u && disconnect_calls[6] == 0u);
-    assert(second.closing == 1u && first.closing == 0u);
+    assert(second.close_state != C2837X_W5300_CLOSE_IDLE &&
+           first.close_state == C2837X_W5300_CLOSE_IDLE);
     return 0;
 }

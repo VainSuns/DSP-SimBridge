@@ -334,6 +334,7 @@
 #define Sn_MR_IPRAW  0x03u
 #define Sn_MR_MACRAW 0x04u
 #define Sn_MR_PPPoE  0x05u
+#define C2837X_W5300_SN_MR_PROTOCOL_MASK 0x0Fu
 
 /* ---- Sn_CR command values ---- */
 #define Sn_CR_OPEN      0x01u

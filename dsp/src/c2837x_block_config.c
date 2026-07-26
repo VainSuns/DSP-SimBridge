@@ -4,6 +4,7 @@
 #include "c2837x_block_internal.h"
 #include "c2837x_block_algorithm.h"
 #include "c2837x_block_config.h"
+#include "c2837x_block_platform.h"
 #include "c2837x_w5300_channel.h"
 #include <limits.h>
 #include <string.h>
@@ -19,6 +20,7 @@
 #define SAMPLE_TX_FRAME_WORDS \
     ((C2837X_BLOCK_HEADER_SIZE_BYTES + \
       C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES) / 2u)
+#define SAMPLE_TRANSFER_TIMEOUT_US 1000000u
 
 C2837X_STATIC_ASSERT((sizeof(uint16_t) * CHAR_BIT) == 16u,
                      uint16_bit_size_mismatch);
@@ -42,11 +44,10 @@ static C2837xBlock_InputData sample_input;
 static C2837xBlock_OutputData sample_output;
 static Uint16 sample_rx_frame[SAMPLE_RX_FRAME_WORDS];
 static Uint16 sample_tx_frame[SAMPLE_TX_FRAME_WORDS];
-static C2837xW5300Channel sample_channel = {
-    C2837X_W5300_SOCKET_INITIALIZER(C2837X_BLOCK_SOCKET_NUM, 8192u, 8192u),
-    C2837X_BLOCK_TCP_PORT,
-    0u, C2837X_W5300_SEND_IDLE, 0u, 0u, 0u
-};
+static C2837xW5300Channel sample_channel =
+    C2837X_W5300_CHANNEL_INITIALIZER(
+        C2837X_BLOCK_SOCKET_NUM, 8192u, 8192u, C2837X_BLOCK_TCP_PORT,
+        c2837x_block_time_us, SAMPLE_TRANSFER_TIMEOUT_US);
 
 static void sample_reset_io(void *context, void *input, void *output)
 {
@@ -125,7 +126,7 @@ static const C2837xBlock_Config sample_config = {
     C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES,
     C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES,
     5000000u,
-    1000000u
+    SAMPLE_TRANSFER_TIMEOUT_US
 };
 
 C2837xBlock c2837x_block_instance =

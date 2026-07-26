@@ -5,8 +5,7 @@
  * W5300 socket abstraction for C2837xBlock project.
  * Provides TCP stream send/recv without PIL packet-length semantics.
  * Run-reachable operations do bounded work per call. Platform initialization
- * retains the datasheet reset delays. The complete W5300 close erratum
- * sequence is deferred to S2-06.
+ * retains the datasheet reset delays.
  */
 
 #include "F28x_Project.h"
@@ -19,7 +18,9 @@ typedef enum {
     C2837X_W5300_COMMAND_RECV,
     C2837X_W5300_COMMAND_SEND,
     C2837X_W5300_COMMAND_DISCONNECT,
-    C2837X_W5300_COMMAND_CLOSE
+    C2837X_W5300_COMMAND_CLOSE,
+    C2837X_W5300_COMMAND_UDP_OPEN,
+    C2837X_W5300_COMMAND_DUMMY_SEND
 } C2837xW5300PendingCommand;
 
 typedef enum {
@@ -49,11 +50,20 @@ int16 c2837x_w5300_socket_open(C2837xW5300Socket* sk,
                                 Uint16 port,
                                 Uint16 flags);
 
-/*
- * Close a socket without TX drain, delays, or the S2-06 erratum sequence.
- * Returns >0 when closed, 0 while advancing, negative on error.
- */
-int16 c2837x_w5300_socket_close(C2837xW5300Socket* sk);
+/* Bounded primitives owned by the Channel close state machine. */
+int16 c2837x_w5300_socket_take_pending(C2837xW5300Socket *sk);
+int16 c2837x_w5300_socket_check_close_erratum(
+    C2837xW5300Socket *sk, Uint16 *needed);
+int16 c2837x_w5300_socket_dummy_tx_ready(C2837xW5300Socket *sk);
+int16 c2837x_w5300_socket_issue_udp_open(C2837xW5300Socket *sk,
+                                         Uint16 port);
+int16 c2837x_w5300_socket_issue_dummy_send(C2837xW5300Socket *sk,
+                                           Uint32 ip, Uint16 port);
+int16 c2837x_w5300_socket_issue_close(C2837xW5300Socket *sk);
+int16 c2837x_w5300_socket_poll_close_command(
+    C2837xW5300Socket *sk, C2837xW5300PendingCommand expected);
+int16 c2837x_w5300_socket_complete_close_command(
+    C2837xW5300Socket *sk, C2837xW5300PendingCommand expected);
 
 /*
  * Put socket into TCP LISTEN mode.

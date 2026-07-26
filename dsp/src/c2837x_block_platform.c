@@ -10,6 +10,13 @@
               C2837X_W5300_SOCKET_MEMORY_KB))
 #define C2837X_W5300_MEMORY_TYPE      0x00FFu
 
+static Uint32 platform_generation;
+
+Uint32 c2837x_block_platform_generation(void)
+{
+    return platform_generation;
+}
+
 static int16 c2837x_block_w5300_sockets_are_closed(void)
 {
     Uint16 sn;
@@ -109,6 +116,10 @@ int16 C2837xBlock_PlatformInit(void)
 
     if (c2837x_block_w5300_configure_network() != 0)
         return (int16)C2837X_BLOCK_PLATFORM_ERROR_NETWORK_CONFIG;
+
+    platform_generation++;
+    if (platform_generation == 0u)
+        platform_generation = 1u;
 
     return (int16)C2837X_BLOCK_PLATFORM_OK;
 }

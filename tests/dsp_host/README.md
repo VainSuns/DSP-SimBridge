@@ -8,7 +8,9 @@ W5300 channel coverage. S2-03A adds the internal const Config and algorithm
 adapter contract, static two-instance binding, routing/isolation, and invalid
 configuration boundary coverage. S2-04 adds bounded W5300 HAL command/size
 access and per-channel Socket command progression. S2-05 delays public send
-progress until the corresponding W5300 `SEND_OK` event.
+progress until the corresponding W5300 `SEND_OK` event. S2-06 adds the
+per-Channel bounded close transaction, Erratum 1 workaround, software deadline,
+fault gate, and PlatformInit generation recovery.
 
 ## S2-04 W5300 evidence and call budget
 
@@ -25,9 +27,8 @@ datasheet sequences used here are:
   submitted chunk; the Channel saves it and initially returns zero.
 - RECV: read `Sn_RX_RSR`, read RX FIFO, then issue `RECV`.
 - DISCON: issue `DISCON`, then observe `SOCK_CLOSED` later.
-- CLOSE: clear `Sn_IR`, clear only this socket's common `IR(n)` bit, issue
-  `CLOSE`, then observe `SOCK_CLOSED` later. The Erratum 1 dummy-send sequence
-  is intentionally deferred to S2-06.
+- CLOSE: S2-06 owns the full sequence at Channel level; Socket exposes only
+  bounded issue, poll, and completion primitives.
 - `Sn_IR` is write-one-to-clear. `Sn_CR` is written once and its automatic
   clear is queried by one read on a later operation call. For OPEN, LISTEN,
   DISCON, and CLOSE this only advances the private command phase; a still later
@@ -62,7 +63,7 @@ and never returns an unconfirmed value.
 | LISTEN issue | one status read plus three writes: `Sn_IR`, `IR(n)`, command |
 | SEND issue | status + at most 12 size reads; one `Sn_IR` write, `ceil(chunk/2)` FIFO writes, two WRSR writes, one command write |
 | RECV issue | status + at most 12 size reads; `ceil(chunk/2)` FIFO reads and one command write |
-| CLOSE issue | one status read and at most three writes; DISCON uses one status read and one command write |
+| CLOSE primitive | at most three writes; DISCON uses one command write |
 
 Call chain: `C2837xBlock_Run` -> configured `IoDevice` operation -> private
 `C2837xW5300Channel` -> its embedded `C2837xW5300Socket` -> W5300 HAL -> socket
@@ -86,8 +87,8 @@ Before each real segment submission, the Socket writes only
 During pending polling, changed data/count arguments are ignored. `TIMEOUT`
 has priority over invalid status, which has priority over `SEND_OK`; failure
 clears only Channel send bookkeeping and leaves an unconfirmed Socket command
-for the existing close path. No S2-06 dummy SEND, UDP OPEN, close deadline, or
-faulted terminal state is implemented.
+for the close path. S2-06 clears this bookkeeping on close entry and never
+reports dummy-send progress through the normal SEND path.
 
 | SEND stage | Maximum work in one call |
 | --- | --- |
@@ -113,3 +114,43 @@ Run with:
 ```matlab
 run_all_tests('dsp_host')
 ```
+
+## S2-06 close/Erratum evidence and call budget
+
+The Channel state machine takes over any current-Socket command, then checks
+`(Sn_MR & 0x0f) == TCP && Sn_TX_FSR != socket.tx_mem_size`. The direct path
+issues CLOSE. The workaround path clears this Socket's events, writes UDP mode
+and local port 5000, issues OPEN, confirms `SOCK_UDP`, waits for one TX octet,
+then targets `0.0.0.1:5000`, writes one zero FIFO word with `Sn_TX_WRSR = 1`,
+and issues SEND. Observed `SEND_OK`, hardware `TIMEOUT`, or both advance to the
+same CLOSE path. DONE requires a later `SOCK_CLOSED` observation.
+
+The whole transaction uses unsigned
+`time_us() - close_start_us >= close_timeout_us`; no stage refreshes the start.
+The sample uses `SAMPLE_TRANSFER_TIMEOUT_US` for both the Core transfer timeout
+and Channel close timeout. A deadline faults only that Channel. Its API entries
+then reject with no W5300 access until a successful PlatformInit generation is
+observed.
+
+| close stage | Maximum work in one call |
+| --- | --- |
+| first entry | one Timer2 read and private-state save; an idle Socket may add one `Sn_SSR` read for idempotence |
+| existing command WAIT_CR | one `Sn_CR` read |
+| Erratum check | one `Sn_MR` read plus at most 12 TX_FSR register reads |
+| UDP OPEN issue | `Sn_IR`, current `IR(n)`, MR, port, and one `Sn_CR` write |
+| UDP OPEN WAIT_CR | one `Sn_CR` read |
+| UDP OPEN WAIT_STATE | one `Sn_SSR` read |
+| dummy TX space | at most 12 TX_FSR register reads |
+| dummy SEND issue | two DIPR, one DPORTR, one `Sn_IR`, one FIFO word, two WRSR, and one `Sn_CR` write |
+| dummy WAIT_CR | one `Sn_CR` read |
+| dummy WAIT_RESULT | one `Sn_SSR`, one `Sn_IR`, and at most one `Sn_IR` clear write |
+| CLOSE issue | `Sn_IR`, current `IR(n)`, and one `Sn_CR` write |
+| CLOSE WAIT_CR | one `Sn_CR` read |
+| CLOSE WAIT_STATE | one `Sn_SSR` read |
+| deadline check | one Timer2 read |
+
+There are no internal waiting loops and no Run-reachable fixed delays.
+`w5300_close_erratum_test.c` covers direct/workaround order, one-octet odd FIFO
+handling, SEND_OK/TIMEOUT/both, every no-response wait at 99 us BUSY and 100 us
+ERROR, Timer2 wrap, fault gates with zero register accesses, generation recovery,
+network-register protection, idempotence, command takeover, and Socket isolation.

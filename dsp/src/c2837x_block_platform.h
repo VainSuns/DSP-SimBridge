@@ -10,5 +10,6 @@
 
 int16 c2837x_block_timer2_init(void);
 Uint32 c2837x_block_time_us(void);
+Uint32 c2837x_block_platform_generation(void);
 
 #endif /* C2837X_BLOCK_PLATFORM_H */

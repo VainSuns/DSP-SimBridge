@@ -305,56 +305,30 @@ static void test_send_and_receive(void)
     assert(c2837x_w5300_socket_recv(&sk, data, 4u) == 4);
 }
 
-static void test_close_and_disconnect_state_windows(void)
+static void test_close_primitives_and_disconnect_state_windows(void)
 {
     C2837xW5300Socket sk =
         C2837X_W5300_SOCKET_INITIALIZER(1u, 8192u, 8192u);
-    Uint16 before;
 
     reset_fixture();
-    set_register(Sn_SSR(1u), SOCK_ESTABLISHED);
-    assert(c2837x_w5300_socket_close(&sk) == 0);
+    assert(c2837x_w5300_socket_issue_close(&sk) == 0);
     assert(sk.pending_command == C2837X_W5300_COMMAND_CLOSE);
     assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR);
+    assert(read_count == 0u && write_count == 3u);
+    assert(c2837x_w5300_socket_poll_close_command(
+               &sk, C2837X_W5300_COMMAND_CLOSE) == 0);
     assert(read_count == 1u && write_count == 3u);
-    before = write_count;
-    assert(c2837x_w5300_socket_close(&sk) == 0);
-    assert(write_count == before && read_count == 2u);
     set_register(Sn_CR(1u), 0u);
-    assert(c2837x_w5300_socket_close(&sk) == 0);
-    assert(sk.pending_command == C2837X_W5300_COMMAND_CLOSE);
+    assert(c2837x_w5300_socket_poll_close_command(
+               &sk, C2837X_W5300_COMMAND_CLOSE) > 0);
     assert(sk.command_phase ==
            C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE);
-    assert(reads_of(Sn_SSR(1u)) == 1u && write_count == before);
-    assert(c2837x_w5300_socket_close(&sk) == 0);
-    set_register(Sn_SSR(1u), SOCK_FIN_WAIT);
-    assert(c2837x_w5300_socket_close(&sk) == 0);
-    assert(write_count == before);
-    set_register(Sn_SSR(1u), SOCK_CLOSED);
-    assert(c2837x_w5300_socket_close(&sk) > 0);
+    assert(c2837x_w5300_socket_complete_close_command(
+               &sk, C2837X_W5300_COMMAND_CLOSE) > 0);
     assert(sk.pending_command == C2837X_W5300_COMMAND_NONE);
     assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
     assert(writes_of(Sn_CR(1u)) == 1u);
     assert(writes_of(Sn_IR(1u)) == 1u && writes_of(IR) == 1u);
-
-    reset_fixture();
-    sk.pending_command = C2837X_W5300_COMMAND_NONE;
-    sk.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
-    set_register(Sn_SSR(1u), SOCK_CLOSE_WAIT);
-    assert(c2837x_w5300_socket_close(&sk) == 0);
-    assert(sk.pending_command == C2837X_W5300_COMMAND_DISCONNECT);
-    assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR);
-    assert(writes_of(Sn_CR(1u)) == 1u && write_count == 1u);
-    set_register(Sn_CR(1u), 0u);
-    assert(c2837x_w5300_socket_close(&sk) == 0);
-    assert(sk.command_phase ==
-           C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE);
-    assert(c2837x_w5300_socket_close(&sk) == 0);
-    assert(writes_of(Sn_CR(1u)) == 1u);
-    set_register(Sn_SSR(1u), SOCK_CLOSED);
-    assert(c2837x_w5300_socket_close(&sk) > 0);
-    assert(sk.pending_command == C2837X_W5300_COMMAND_NONE);
-    assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
 
     reset_fixture();
     sk.pending_command = C2837X_W5300_COMMAND_NONE;
@@ -371,12 +345,6 @@ static void test_close_and_disconnect_state_windows(void)
     assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
     assert(writes_of(Sn_CR(1u)) == 1u);
 
-    reset_fixture();
-    sk.pending_command = C2837X_W5300_COMMAND_NONE;
-    sk.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
-    set_register(Sn_SSR(1u), SOCK_CLOSED);
-    assert(c2837x_w5300_socket_close(&sk) > 0);
-    assert(read_count == 1u && write_count == 0u);
 }
 
 static void test_conflicting_operations_do_not_issue(void)
@@ -488,7 +456,7 @@ int main(void)
     test_stable_size_reads();
     test_open_and_listen_state_windows();
     test_send_and_receive();
-    test_close_and_disconnect_state_windows();
+    test_close_primitives_and_disconnect_state_windows();
     test_conflicting_operations_do_not_issue();
     test_two_socket_command_phase_isolation();
     return 0;

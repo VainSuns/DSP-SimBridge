@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <string.h>
 #include "c2837x_block.h"
+#include "c2837x_block_platform.h"
 #include "c2837x_w5300_hal.h"
 
 enum Failure {
@@ -98,7 +99,10 @@ Uint16 c2837x_w5300_read16(Uint32 address)
 
 static void test_success(void)
 {
+    Uint32 before = c2837x_block_platform_generation();
+
     assert(C2837xBlock_PlatformInit() == C2837X_BLOCK_PLATFORM_OK);
+    assert(c2837x_block_platform_generation() == before + 1u);
     assert(timer_calls == 1u);
     assert(w5300_calls == 1u);
     assert(socket_status_reads == 8u);
@@ -125,34 +129,42 @@ static void test_success(void)
 
 static void test_failures_stop(void)
 {
+    Uint32 generation = c2837x_block_platform_generation();
+
     failure = FAILURE_TIMER;
     assert(C2837xBlock_PlatformInit() == C2837X_BLOCK_PLATFORM_ERROR_TIMER_INIT);
+    assert(c2837x_block_platform_generation() == generation);
     assert(w5300_calls == 0u);
 
     reset_fixture();
     failure = FAILURE_W5300;
     assert(C2837xBlock_PlatformInit() == C2837X_BLOCK_PLATFORM_ERROR_W5300_INIT);
+    assert(c2837x_block_platform_generation() == generation);
     assert(registers[register_index(TMS01R)] == 0u);
     assert(registers[register_index(SHAR0)] == 0u);
 
     reset_fixture();
     failure = FAILURE_ID;
     assert(C2837xBlock_PlatformInit() == C2837X_BLOCK_PLATFORM_ERROR_W5300_INIT);
+    assert(c2837x_block_platform_generation() == generation);
     assert(registers[register_index(TMS01R)] == 0u);
 
     reset_fixture();
     failure = FAILURE_SOCKET;
     assert(C2837xBlock_PlatformInit() == C2837X_BLOCK_PLATFORM_ERROR_W5300_INIT);
+    assert(c2837x_block_platform_generation() == generation);
     assert(registers[register_index(TMS01R)] == 0u);
 
     reset_fixture();
     failure = FAILURE_MEMORY;
     assert(C2837xBlock_PlatformInit() == C2837X_BLOCK_PLATFORM_ERROR_W5300_MEMORY);
+    assert(c2837x_block_platform_generation() == generation);
     assert(registers[register_index(SHAR0)] == 0u);
 
     reset_fixture();
     failure = FAILURE_NETWORK;
     assert(C2837xBlock_PlatformInit() == C2837X_BLOCK_PLATFORM_ERROR_NETWORK_CONFIG);
+    assert(c2837x_block_platform_generation() == generation);
     assert(socket_command_writes == 0u);
 }
 

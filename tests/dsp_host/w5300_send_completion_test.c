@@ -15,6 +15,12 @@ static Uint32 reads[1024];
 static Uint16 register_count;
 static Uint16 write_count;
 static Uint16 read_count;
+static Uint32 platform_generation;
+
+Uint32 c2837x_block_platform_generation(void)
+{
+    return platform_generation;
+}
 
 volatile struct TEST_EMIF_CONFIG_REGS *test_emif_config_regs(void)
 {
@@ -98,9 +104,9 @@ static Uint16 writes_of(Uint32 address)
 
 static C2837xW5300Channel make_channel(Uint16 sn)
 {
-    C2837xW5300Channel channel = {
-        C2837X_W5300_SOCKET_INITIALIZER(sn, 8192u, 8192u), 5000u, 0u,
-        C2837X_W5300_SEND_IDLE, 0u, 0u, 0u};
+    C2837xW5300Channel channel =
+        C2837X_W5300_CHANNEL_INITIALIZER(
+            sn, 8192u, 8192u, 5000u, 0, 1u);
     return channel;
 }
 
