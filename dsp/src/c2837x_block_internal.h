@@ -3,8 +3,8 @@
 
 #include "c2837x_block.h"
 #include "c2837x_block_config.h"
+#include "c2837x_block_iodevice.h"
 #include "c2837x_block_protocol.h"
-#include "c2837x_w5300_socket.h"
 
 typedef enum {
     C2837X_STATE_RECV = 0,
@@ -50,7 +50,8 @@ typedef enum {
 struct C2837xBlock {
     C2837xBlock_State state;
     C2837xBlock_RxState rx_state;
-    C2837xW5300Socket socket;
+    const C2837xBlock_IoDeviceOps *iodevice_ops;
+    void *iodevice_channel;
 
     Uint16 rx_header_words[2];
     Uint32 rx_header_received_bytes;
@@ -72,5 +73,9 @@ struct C2837xBlock {
     Uint16 response_error;
     C2837xBlock_Error last_error;
 };
+
+void c2837x_block_bind_iodevice(C2837xBlock *instance,
+                                const C2837xBlock_IoDeviceOps *ops,
+                                void *channel);
 
 #endif /* C2837X_BLOCK_INTERNAL_H */

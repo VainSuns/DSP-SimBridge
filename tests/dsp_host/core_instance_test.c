@@ -1,40 +1,79 @@
 #include <assert.h>
 #include "c2837x_block_internal.h"
 #include "c2837x_block_protocol.h"
-#include "c2837x_w5300_hal.h"
+
+typedef struct
+{
+    Uint16 id;
+    C2837xBlock_IoConnectionState state;
+    Uint16 init_calls;
+    Uint16 open_calls;
+    Uint16 listen_calls;
+    Uint16 receive_calls;
+    Uint16 send_calls;
+    Uint16 close_calls;
+} FakeChannel;
 
 static C2837xBlock first_instance;
 static C2837xBlock second_instance;
-static Uint16 socket_status = SOCK_ESTABLISHED;
-static Uint32 hal_access_count;
+static FakeChannel first_channel = {1u, C2837X_IODEVICE_CONNECTION_CLOSED,
+                                     0u, 0u, 0u, 0u, 0u, 0u};
+static FakeChannel second_channel = {2u, C2837X_IODEVICE_CONNECTION_CLOSED,
+                                      0u, 0u, 0u, 0u, 0u, 0u};
 
-void c2837x_w5300_write16(Uint32 address, Uint16 data)
+static void fake_init(void *ref)
 {
-    (void)address; (void)data; hal_access_count++;
+    FakeChannel *channel = (FakeChannel *)ref;
+    channel->state = C2837X_IODEVICE_CONNECTION_CLOSED;
+    channel->open_calls = 0u;
+    channel->listen_calls = 0u;
+    channel->receive_calls = 0u;
+    channel->send_calls = 0u;
+    channel->close_calls = 0u;
+    channel->init_calls++;
 }
-Uint16 c2837x_w5300_read16(Uint32 address)
+static int16 fake_open(void *ref)
 {
-    (void)address; hal_access_count++; return socket_status;
+    FakeChannel *channel = (FakeChannel *)ref;
+    channel->open_calls++;
+    return 0;
+}
+static int16 fake_listen(void *ref)
+{
+    FakeChannel *channel = (FakeChannel *)ref;
+    channel->listen_calls++;
+    return 0;
+}
+static C2837xBlock_IoConnectionState fake_state(void *ref)
+{
+    return ((FakeChannel *)ref)->state;
+}
+static int32 fake_receive(void *ref, Uint16 *data, Uint32 capacity)
+{
+    FakeChannel *channel = (FakeChannel *)ref;
+    (void)data;
+    (void)capacity;
+    channel->receive_calls++;
+    return 0;
+}
+static int32 fake_send(void *ref, const Uint16 *data, Uint32 count)
+{
+    FakeChannel *channel = (FakeChannel *)ref;
+    (void)data;
+    channel->send_calls++;
+    return (int32)count;
+}
+static int16 fake_close(void *ref)
+{
+    FakeChannel *channel = (FakeChannel *)ref;
+    channel->close_calls++;
+    return 1;
 }
 
-int16 c2837x_w5300_socket_open(C2837xW5300Socket* socket, Uint16 protocol,
-    Uint16 port, Uint16 flags)
-{
-    (void)socket; (void)protocol; (void)port; (void)flags; return 0;
-}
-int16 c2837x_w5300_socket_close(C2837xW5300Socket* socket) {(void)socket; return 0;}
-int16 c2837x_w5300_socket_listen(C2837xW5300Socket* socket) {(void)socket; return 0;}
-int32 c2837x_w5300_socket_send(C2837xW5300Socket* socket,
-    const Uint16* data, Uint32 count)
-{
-    (void)socket; (void)data; (void)count; return 0;
-}
-void c2837x_w5300_socket_disconnect(C2837xW5300Socket* socket) {(void)socket;}
-int32 c2837x_w5300_socket_recv(C2837xW5300Socket* socket,
-    Uint16* data, Uint32 count)
-{
-    (void)socket; (void)data; (void)count; return 0;
-}
+static const C2837xBlock_IoDeviceOps fake_ops = {
+    fake_init, fake_open, fake_listen, fake_state,
+    fake_receive, fake_send, fake_close
+};
 
 int16 c2837x_block_parse_header(const Uint16* words, Uint16* type, Uint16* length)
 {
@@ -68,24 +107,45 @@ int main(void)
     assert(C2837xBlock_GetLastError(NULL) ==
            C2837X_BLOCK_ERROR_INVALID_ARGUMENT);
 
+    c2837x_block_bind_iodevice(&first_instance, &fake_ops, &first_channel);
+    c2837x_block_bind_iodevice(&second_instance, &fake_ops, &second_channel);
     C2837xBlock_Init(&first_instance);
     C2837xBlock_Init(&second_instance);
     C2837xBlock_Init(&first_instance);
-    assert(hal_access_count == 0u);
-    assert(C2837xBlock_GetLastError(&first_instance) == C2837X_BLOCK_ERROR_NONE);
-    assert(C2837xBlock_GetLastError(&second_instance) == C2837X_BLOCK_ERROR_NONE);
-    assert(first_instance.socket.tx_mem_size == 8192u);
-    assert(first_instance.socket.rx_mem_size == 8192u);
 
-    first_instance.expected_step_index = 7u;
-    first_instance.last_error = C2837X_BLOCK_ERROR_PROTOCOL;
-    assert(second_instance.expected_step_index == 0u);
-    assert(C2837xBlock_GetLastError(&second_instance) == C2837X_BLOCK_ERROR_NONE);
+    assert(first_instance.iodevice_channel == &first_channel);
+    assert(second_instance.iodevice_channel == &second_channel);
+    assert(first_channel.id == 1u && second_channel.id == 2u);
+    assert(first_channel.init_calls == 2u && second_channel.init_calls == 1u);
 
+    first_channel.state = C2837X_IODEVICE_CONNECTION_OPEN;
     C2837xBlock_Run(&first_instance);
-    assert(first_instance.first_connected == 1u);
-    assert(first_instance.tick_counter == 1u);
-    assert(second_instance.first_connected == 0u);
-    assert(second_instance.tick_counter == 0u);
+    assert(first_channel.listen_calls == 1u);
+    assert(second_channel.listen_calls == 0u);
+
+    second_channel.state = C2837X_IODEVICE_CONNECTION_CLOSED;
+    C2837xBlock_Run(&second_instance);
+    assert(second_channel.open_calls == 1u);
+    assert(first_channel.open_calls == 0u);
+
+    first_channel.state = C2837X_IODEVICE_CONNECTION_CONNECTED;
+    C2837xBlock_Run(&first_instance);
+    assert(first_channel.receive_calls == 1u);
+    assert(second_channel.receive_calls == 0u);
+
+    first_instance.first_connected = 1u;
+    first_instance.state = C2837X_STATE_SEND;
+    first_instance.tx_total_bytes = 2u;
+    first_instance.tx_sent_bytes = 0u;
+    C2837xBlock_Run(&first_instance);
+    assert(first_channel.send_calls == 1u);
+    assert(first_channel.close_calls == 1u);
+    assert(second_channel.send_calls == 0u && second_channel.close_calls == 0u);
+
+    second_channel.state = C2837X_IODEVICE_CONNECTION_PEER_CLOSED;
+    C2837xBlock_Run(&second_instance);
+    assert(second_channel.close_calls == 1u);
+    assert(C2837xBlock_GetLastError(&second_instance) ==
+           C2837X_BLOCK_ERROR_DISCONNECTED);
     return 0;
 }

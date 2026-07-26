@@ -2,7 +2,7 @@
  * C2837xBlock non-blocking DSP communication state machine.
  *
  * Protocol flow:
- *   LISTEN      -> wait for a TCP client on W5300 socket 0
+ *   LISTEN      -> wait for a client through the bound IoDevice
  *   CONNECTED   -> receive SIM_START, validate version/config, send RESPONSE(0)
  *   SIM_RUNNING -> receive INPUT_DATA/SIM_STOP, send OUTPUT_DATA or RESPONSE(error)
  *   ERROR       -> finish sending RESPONSE(error), then disconnect
@@ -15,8 +15,6 @@
 #include "c2837x_block_algorithm.h"
 #include "c2837x_block_config.h"
 #include "c2837x_block_protocol.h"
-#include "c2837x_w5300_hal.h"
-#include "c2837x_w5300_socket.h"
 #include <string.h>
 
 /*
@@ -130,9 +128,10 @@ static int16 c2837x_block_continue_tx(C2837xBlock* ctx)
     remaining_bytes = ctx->tx_total_bytes - ctx->tx_sent_bytes;
     offset_words = ctx->tx_sent_bytes / 2u;
 
-    sent_bytes = c2837x_w5300_socket_send(&ctx->socket,
-                                           &ctx->tx_frame_words[offset_words],
-                                           remaining_bytes);
+    sent_bytes = ctx->iodevice_ops->send(
+        ctx->iodevice_channel,
+        &ctx->tx_frame_words[offset_words],
+        remaining_bytes);
     if (sent_bytes < 0)
         return -1;
 
@@ -177,8 +176,8 @@ static int16 c2837x_block_continue_rx(C2837xBlock* ctx)
         return 0;
     }
 
-    received_bytes = c2837x_w5300_socket_recv(
-        &ctx->socket,
+    received_bytes = ctx->iodevice_ops->receive(
+        ctx->iodevice_channel,
         data_words,
         needed_bytes);
 
@@ -422,13 +421,13 @@ static inline void c2837x_block_disconnect(C2837xBlock* ctx)
         ctx->sim_started = 0;
     }
 
-    c2837x_w5300_socket_close(&ctx->socket);
+    if (ctx->iodevice_ops->close(ctx->iodevice_channel) < 0)
+        ctx->last_error = C2837X_BLOCK_ERROR_IODEVICE;
     c2837x_block_reset_session(ctx);
 }
 
 static inline void c2837x_block_accept_connection(C2837xBlock* ctx)
 {
-    c2837x_w5300_set_sn_ir(ctx->socket.sn, Sn_IR_CON);
     c2837x_block_reset_session(ctx);
     c2837x_block_start_rx(ctx);
 }
@@ -481,32 +480,47 @@ static void c2837x_block_service_running(C2837xBlock* ctx)
 
 void C2837xBlock_Init(C2837xBlock* instance)
 {
+    const C2837xBlock_IoDeviceOps *ops;
+    void *channel;
+
     if (instance == NULL)
         return;
 
+    ops = instance->iodevice_ops;
+    channel = instance->iodevice_channel;
     memset(instance, 0, sizeof(*instance));
-    instance->socket.sn = C2837X_BLOCK_SOCKET_NUM;
-    instance->socket.tx_mem_size = C2837X_W5300_SOCKET_MEMORY_BYTES;
-    instance->socket.rx_mem_size = C2837X_W5300_SOCKET_MEMORY_BYTES;
+    instance->iodevice_ops = ops;
+    instance->iodevice_channel = channel;
     instance->last_error = C2837X_BLOCK_ERROR_NONE;
     c2837x_block_reset_session(instance);
+    if ((ops != NULL) && (channel != NULL))
+        ops->channel_init(channel);
 }
 
 void C2837xBlock_Run(C2837xBlock* instance)
 {
-    Uint16 sn_ssr;
+    C2837xBlock_IoConnectionState connection_state;
 
     if (instance == NULL)
         return;
 
-    sn_ssr = c2837x_w5300_get_sn_ssr(instance->socket.sn);
-    switch (sn_ssr)
+    if ((instance->iodevice_ops == NULL) ||
+        (instance->iodevice_channel == NULL))
     {
-    case SOCK_INIT:
-        c2837x_w5300_socket_listen(&instance->socket);
+        instance->last_error = C2837X_BLOCK_ERROR_IODEVICE;
+        return;
+    }
+
+    connection_state = instance->iodevice_ops->get_connection_state(
+        instance->iodevice_channel);
+    switch (connection_state)
+    {
+    case C2837X_IODEVICE_CONNECTION_OPEN:
+        if (instance->iodevice_ops->listen(instance->iodevice_channel) < 0)
+            instance->last_error = C2837X_BLOCK_ERROR_IODEVICE;
         instance->first_connected = 0;
         break;
-    case SOCK_ESTABLISHED:
+    case C2837X_IODEVICE_CONNECTION_CONNECTED:
         if (instance->first_connected == 0u)
         {
             instance->first_connected = 1u;
@@ -514,16 +528,19 @@ void C2837xBlock_Run(C2837xBlock* instance)
         }
         c2837x_block_service_running(instance);
         break;
-    case SOCK_CLOSE_WAIT:
+    case C2837X_IODEVICE_CONNECTION_PEER_CLOSED:
         instance->last_error = C2837X_BLOCK_ERROR_DISCONNECTED;
-        c2837x_w5300_socket_disconnect(&instance->socket);
+        if (instance->iodevice_ops->close(instance->iodevice_channel) < 0)
+            instance->last_error = C2837X_BLOCK_ERROR_IODEVICE;
         break;
-    case SOCK_CLOSED:
-        c2837x_w5300_socket_close(&instance->socket);
-        c2837x_w5300_socket_open(&instance->socket,
-                                  Sn_MR_TCP,
-                                  C2837X_BLOCK_TCP_PORT,
-                                  Sn_MR_ALIGN);
+    case C2837X_IODEVICE_CONNECTION_CLOSED:
+        if (instance->iodevice_ops->open(instance->iodevice_channel) < 0)
+            instance->last_error = C2837X_BLOCK_ERROR_IODEVICE;
+        break;
+    case C2837X_IODEVICE_CONNECTION_ERROR:
+        instance->last_error = C2837X_BLOCK_ERROR_IODEVICE;
+        break;
+    case C2837X_IODEVICE_CONNECTION_LISTENING:
         break;
     default:
         break;
@@ -534,4 +551,14 @@ C2837xBlock_Error C2837xBlock_GetLastError(const C2837xBlock* instance)
 {
     return (instance != NULL) ? instance->last_error
                               : C2837X_BLOCK_ERROR_INVALID_ARGUMENT;
+}
+
+void c2837x_block_bind_iodevice(C2837xBlock *instance,
+                                const C2837xBlock_IoDeviceOps *ops,
+                                void *channel)
+{
+    if (instance == NULL)
+        return;
+    instance->iodevice_ops = ops;
+    instance->iodevice_channel = channel;
 }
