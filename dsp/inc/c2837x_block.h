@@ -1,29 +1,42 @@
 #ifndef C2837X_BLOCK_H
 #define C2837X_BLOCK_H
 
-/*
- * C2837xBlock DSP communication library core API.
- * Implements the non-blocking state machine for Simulink-DSP communication.
- */
-
 #include "F28x_Project.h"
 
-/*
- * Initialize the communication library.
- * - Initializes W5300 hardware
- * - Configures network parameters
- * - Opens Socket 0 as TCP server
- * - Enters LISTEN state
- *
- * Returns 0 on success, negative on failure.
- */
-int16 C2837xBlock_Init(void);
+#define C2837X_BLOCK_CORE_API_VERSION  1u
 
-/*
- * Non-blocking state machine tick.
- * Must be called repeatedly from the main loop.
- * Processes at most one event per call, then returns.
- */
-void C2837xBlock_Run(void);
+#if defined(C2837X_BLOCK_EXPECTED_CORE_API_VERSION) && \
+    (C2837X_BLOCK_EXPECTED_CORE_API_VERSION != C2837X_BLOCK_CORE_API_VERSION)
+#error "C2837xBlock Core API version mismatch"
+#endif
+
+typedef struct C2837xBlock C2837xBlock;
+
+typedef enum
+{
+    C2837X_BLOCK_ERROR_NONE = 0,
+    C2837X_BLOCK_ERROR_INVALID_ARGUMENT,
+    C2837X_BLOCK_ERROR_PROTOCOL,
+    C2837X_BLOCK_ERROR_TIMEOUT,
+    C2837X_BLOCK_ERROR_DISCONNECTED,
+    C2837X_BLOCK_ERROR_IODEVICE,
+    C2837X_BLOCK_ERROR_ALGORITHM_START,
+    C2837X_BLOCK_ERROR_ALGORITHM_STEP,
+    C2837X_BLOCK_ERROR_INTERNAL
+} C2837xBlock_Error;
+
+typedef enum
+{
+    C2837X_BLOCK_PLATFORM_OK                    =  0,
+    C2837X_BLOCK_PLATFORM_ERROR_TIMER_INIT      = -1,
+    C2837X_BLOCK_PLATFORM_ERROR_W5300_INIT      = -2,
+    C2837X_BLOCK_PLATFORM_ERROR_W5300_MEMORY    = -3,
+    C2837X_BLOCK_PLATFORM_ERROR_NETWORK_CONFIG  = -4
+} C2837xBlock_PlatformResult;
+
+int16 C2837xBlock_PlatformInit(void);
+void C2837xBlock_Init(C2837xBlock *instance);
+void C2837xBlock_Run(C2837xBlock *instance);
+C2837xBlock_Error C2837xBlock_GetLastError(const C2837xBlock *instance);
 
 #endif /* C2837X_BLOCK_H */

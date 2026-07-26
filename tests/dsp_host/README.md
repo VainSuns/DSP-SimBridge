@@ -1,3 +1,9 @@
 # DSP host tests
 
-This category is intentionally not implemented during stage0. Future tests must be added only by the assigned stage2 plan tasks. The unified runner reports this category as `NOT_IMPLEMENTED`, not passed.
+S2-01 adds the minimal host compile and instance-state tests for the public Core API.
+
+Run with:
+
+```matlab
+run_all_tests('dsp_host')
+```
