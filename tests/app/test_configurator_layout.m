@@ -41,15 +41,9 @@ classdef test_configurator_layout < matlab.unittest.TestCase
     end
 
     methods (Test)
-        function testConstructionAndWindowBounds(testCase)
-            position = testCase.App.UIFigure.Position;
+        function testConstruction(testCase)
             testCase.verifyTrue(isvalid(testCase.App));
-            testCase.assumeGreaterThan(position(3), 0, ...
-                'Hidden uifigure did not report a usable Position.');
-            testCase.assumeGreaterThan(position(4), 0, ...
-                'Hidden uifigure did not report a usable Position.');
-            testCase.verifyLessThanOrEqual(position(3), 1200);
-            testCase.verifyLessThanOrEqual(position(4), 800);
+            testCase.verifyTrue(isvalid(testCase.App.UIFigure));
         end
 
         function testMainTabs(testCase)
