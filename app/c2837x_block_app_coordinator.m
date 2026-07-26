@@ -11,6 +11,12 @@ classdef c2837x_block_app_coordinator < handle
             'field_path', {}, 'instance_index', {}, 'file_path', {})
         PreviewSummary = struct()
         LastCommitResult = struct()
+        EditorLegacyFileRisks = struct('action', {}, 'internal_name', {}, ...
+            'reason', {})
+    end
+
+    properties (Dependent)
+        LegacyFileRisks
     end
 
     properties (Access = private)
@@ -38,6 +44,68 @@ classdef c2837x_block_app_coordinator < handle
 
         function issues = validateProject(coordinator, mode)
             issues = c2837x_block_validate_project(coordinator.Session.Project, mode);
+        end
+
+        function risks = get.LegacyFileRisks(coordinator)
+            risks = [coordinator.Session.LegacyFileRisks, ...
+                coordinator.EditorLegacyFileRisks];
+        end
+
+        function [applied, issues] = updateProjectDraft(coordinator, draftProject)
+            issues = c2837x_block_validate_project(draftProject, 'instant');
+            coordinator.invalidatePreview();
+            if any(strcmp({issues.code}, 'PROJECT_STRUCTURE_INVALID'))
+                applied = false;
+                return;
+            end
+            coordinator.captureEditorRenameRisks(draftProject);
+            if ~has_errors(issues)
+                draftProject = normalize_integer_types(draftProject);
+            end
+            coordinator.Session.updateProject(draftProject);
+            applied = true;
+        end
+
+        function [saved, issues, requiresConfirmation] = ...
+                saveProject(coordinator, filePath, allowValidationIssues)
+            if ~islogical(allowValidationIssues) || ...
+                    ~isscalar(allowValidationIssues)
+                error('C2837xBlock:App:InvalidSaveInput', ...
+                    'allowValidationIssues must be a logical scalar.');
+            end
+            issues = coordinator.validateProject('full');
+            requiresConfirmation = any(ismember({issues.severity}, ...
+                {'Error', 'Warning'}));
+            saved = false;
+            if requiresConfirmation && ~allowValidationIssues
+                return;
+            end
+            try
+                coordinator.Session.saveProject(filePath);
+                saved = true;
+            catch
+                issues(end + 1) = app_issue('APP_PROJECT_SAVE_FAILED', ...
+                    'The project could not be saved.', 'project', 0, char(string(filePath)));
+            end
+        end
+
+        function [loaded, issues] = loadProject(coordinator, filePath)
+            issues = empty_issues();
+            try
+                loaded = coordinator.Session.loadProject( ...
+                    filePath, 'Don''t Save', '');
+            catch
+                loaded = false;
+                issues = app_issue('APP_PROJECT_LOAD_FAILED', ...
+                    'The project could not be loaded.', 'project', 0, char(string(filePath)));
+                return;
+            end
+            if loaded
+                coordinator.invalidatePreview();
+                coordinator.LastCommitResult = struct();
+                coordinator.EditorLegacyFileRisks = ...
+                    struct('action', {}, 'internal_name', {}, 'reason', {});
+            end
         end
 
         function updateProject(coordinator, project)
@@ -201,7 +269,28 @@ classdef c2837x_block_app_coordinator < handle
                 'snapshot', coordinator.PreviewSnapshot, ...
                 'comparisons', comparisons, ...
                 'summary', coordinator.PreviewSummary, ...
-                'legacy_file_risks', coordinator.Session.LegacyFileRisks);
+                'legacy_file_risks', coordinator.LegacyFileRisks);
+        end
+
+        function captureEditorRenameRisks(coordinator, draftProject)
+            current = coordinator.Session.Project.instances;
+            drafts = draftProject.instances;
+            for index = 1:min(numel(current), numel(drafts))
+                oldName = char(current(index).internal_name);
+                newName = char(drafts(index).internal_name);
+                if ~strcmp(oldName, newName) && is_general_identifier(oldName)
+                    risk = struct('action', 'rename', 'internal_name', oldName, ...
+                        'reason', ['Internal name changed; old generated files ' ...
+                        'may remain.']);
+                    existing = coordinator.EditorLegacyFileRisks;
+                    duplicate = ~isempty(existing) && any(strcmp( ...
+                        {existing.action}, risk.action) & strcmp( ...
+                        {existing.internal_name}, risk.internal_name));
+                    if ~duplicate
+                        coordinator.EditorLegacyFileRisks(end + 1) = risk;
+                    end
+                end
+            end
         end
     end
 end
@@ -224,7 +313,51 @@ end
 function valid = valid_issues(issues)
 required = {'severity', 'code', 'message', 'field_path', ...
     'instance_index', 'file_path'};
-valid = isstruct(issues) && all(isfield(issues, required));
+valid = isstruct(issues) && isequal(sort(fieldnames(issues)), sort(required(:)));
+if ~valid || isempty(issues)
+    return;
+end
+for index = 1:numel(issues)
+    issue = issues(index);
+    try
+        valid = valid_text(issue.severity, false) && ...
+            any(strcmp(char(issue.severity), {'Error', 'Warning', 'Information'})) && ...
+            valid_text(issue.code, false) && valid_text(issue.message, true) && ...
+            valid_text(issue.field_path, true) && valid_text(issue.file_path, true) && ...
+            isnumeric(issue.instance_index) && isreal(issue.instance_index) && ...
+            isscalar(issue.instance_index) && isfinite(issue.instance_index) && ...
+            issue.instance_index >= 0 && ...
+            issue.instance_index == fix(issue.instance_index);
+    catch
+        valid = false;
+    end
+    if ~valid
+        return;
+    end
+end
+end
+
+function valid = valid_text(value, allowEmpty)
+valid = (ischar(value) && (isrow(value) || isempty(value))) || ...
+    (isstring(value) && isscalar(value) && ~ismissing(value));
+if valid && ~allowEmpty
+    valid = ~isempty(char(value));
+end
+end
+
+function project = normalize_integer_types(project)
+for index = 1:numel(project.instances)
+    project.instances(index).iodevice.settings.socket_number = ...
+        uint16(project.instances(index).iodevice.settings.socket_number);
+    project.instances(index).iodevice.settings.tcp_port = ...
+        uint16(project.instances(index).iodevice.settings.tcp_port);
+    project.instances(index).max_payload_size_bytes = ...
+        uint32(project.instances(index).max_payload_size_bytes);
+end
+end
+
+function valid = is_general_identifier(value)
+valid = ~isempty(regexp(value, '^[A-Za-z][A-Za-z0-9_]*$', 'once'));
 end
 
 function tf = has_errors(issues)

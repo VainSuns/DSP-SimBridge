@@ -313,11 +313,10 @@ classdef C2837xBlockConfigurator < handle
                     otherwise
                         return;
                 end
-                app.Coordinator.updateProject(project);
-                app.afterEdit();
+                [applied, issues] = app.Coordinator.updateProjectDraft(project);
+                app.finishDraftEdit(applied, issues);
             catch cause
                 app.showOperationError(cause);
-                app.refreshAll();
             end
         end
 
@@ -332,15 +331,19 @@ classdef C2837xBlockConfigurator < handle
             elseif ~isempty(source)
                 source = c2837x_block_normalize_absolute_path(source);
             end
-            changes = struct('display_name', strtrim(app.DetailFields.display_name.Value), ...
-                'internal_name', strtrim(app.DetailFields.internal_name.Value), ...
-                'iodevice', struct('settings', struct( ...
-                'socket_number', uint16(str2double(app.DetailFields.socket.Value)), ...
-                'tcp_port', uint16(app.DetailFields.port.Value))), ...
-                'sample_time_sec', app.DetailFields.sample_time.Value, ...
-                'max_payload_size_bytes', uint32(app.DetailFields.max_payload.Value), ...
-                'algorithm', struct('mode', mode, 'source_path', source));
-            app.applyInstanceChanges(changes);
+            project = app.ProjectSession.Project;
+            instance = project.instances(app.SelectedInstance);
+            instance.display_name = strtrim(app.DetailFields.display_name.Value);
+            instance.internal_name = strtrim(app.DetailFields.internal_name.Value);
+            instance.iodevice.settings.socket_number = ...
+                str2double(app.DetailFields.socket.Value);
+            instance.iodevice.settings.tcp_port = app.DetailFields.port.Value;
+            instance.sample_time_sec = app.DetailFields.sample_time.Value;
+            instance.max_payload_size_bytes = app.DetailFields.max_payload.Value;
+            instance.algorithm = struct('mode', mode, 'source_path', source);
+            project.instances(app.SelectedInstance) = instance;
+            [applied, issues] = app.Coordinator.updateProjectDraft(project);
+            app.finishDraftEdit(applied, issues);
         end
 
         function browseOutput(app, key)
@@ -368,23 +371,28 @@ classdef C2837xBlockConfigurator < handle
             if app.Updating || app.SelectedInstance == 0
                 return;
             end
-            changes = struct('inputs', cell_to_variables(app.InputTable.Data), ...
-                'outputs', cell_to_variables(app.OutputTable.Data));
-            app.applyInstanceChanges(changes);
+            project = app.ProjectSession.Project;
+            project.instances(app.SelectedInstance).inputs = ...
+                cell_to_variables(app.InputTable.Data);
+            project.instances(app.SelectedInstance).outputs = ...
+                cell_to_variables(app.OutputTable.Data);
+            [applied, issues] = app.Coordinator.updateProjectDraft(project);
+            app.finishDraftEdit(applied, issues);
         end
 
-        function applyInstanceChanges(app, changes)
-            try
-                app.Coordinator.updateInstance(app.SelectedInstance, changes);
-                app.afterEdit();
-            catch cause
-                app.showOperationError(cause);
-                app.refreshAll();
+        function finishDraftEdit(app, applied, issues)
+            app.GenerateButton.Enable = 'off';
+            app.clearPreviewDisplay();
+            app.showIssues(issues);
+            if applied
+                app.refreshInstances();
+                app.refreshReport();
             end
         end
 
         function afterEdit(app)
             app.GenerateButton.Enable = 'off';
+            app.clearPreviewDisplay();
             app.refreshInstances();
             app.showIssues(app.Coordinator.validateProject('instant'));
             app.refreshReport();
@@ -413,11 +421,14 @@ classdef C2837xBlockConfigurator < handle
             usedPorts = double(arrayfun(@(x) x.iodevice.settings.tcp_port, ...
                 app.ProjectSession.Project.instances));
             port = first_free(5000:65535, usedPorts);
-            number = numel(app.ProjectSession.Project.instances) + 1;
+            instances = app.ProjectSession.Project.instances;
+            internalName = c2837x_block_suggest_unique_name( ...
+                'instance', {instances.internal_name});
+            displayName = strrep(internalName, 'instance_', 'Instance ');
             variable = struct('name', 'input_value', 'type', 'single', 'dim', 1);
             output = struct('name', 'output_value', 'type', 'single', 'dim', 1);
-            changes = struct('display_name', sprintf('Instance %u', number), ...
-                'internal_name', sprintf('instance_%u', number), ...
+            changes = struct('display_name', displayName, ...
+                'internal_name', internalName, ...
                 'iodevice', struct('settings', struct('socket_number', ...
                 uint16(socket), 'tcp_port', uint16(port))), ...
                 'inputs', variable, 'outputs', output);
@@ -444,12 +455,14 @@ classdef C2837xBlockConfigurator < handle
                     'No W5300 socket is available.', 'project.instances', 0, ''));
                 return;
             end
-            number = numel(instances) + 1;
+            internalName = c2837x_block_suggest_unique_name( ...
+                'instance', {instances.internal_name});
+            displayName = strrep(internalName, 'instance_', 'Instance ');
             try
                 app.Coordinator.copyInstance(app.SelectedInstance, ...
-                    sprintf('Instance %u', number), sprintf('instance_%u', number), ...
+                    displayName, internalName, ...
                     uint16(socket), uint16(port));
-                app.SelectedInstance = number;
+                app.SelectedInstance = numel(app.ProjectSession.Project.instances);
                 app.afterEdit();
             catch cause
                 app.showOperationError(cause);
@@ -489,7 +502,13 @@ classdef C2837xBlockConfigurator < handle
             end
             switch action
                 case 'add'
-                    data(end + 1, :) = {'new_value', 'single', 1};
+                    instance = app.ProjectSession.Project.instances( ...
+                        app.SelectedInstance);
+                    existingNames = [{instance.inputs.name}, ...
+                        {instance.outputs.name}];
+                    name = c2837x_block_suggest_unique_name( ...
+                        [direction '_value'], existingNames);
+                    data(end + 1, :) = {name, 'single', 1};
                 case 'remove'
                     if isempty(row) || size(data, 1) <= 1
                         return;
@@ -526,7 +545,7 @@ classdef C2837xBlockConfigurator < handle
             app.showIssues(issues);
             app.GenerateButton.Enable = 'off';
             app.ResultArea.Value = format_result(result, ...
-                app.ProjectSession.LegacyFileRisks);
+                app.Coordinator.LegacyFileRisks);
             if isfield(result, 'status')
                 app.StatusLabel.Text = sprintf('Generate: %s', result.status);
             end
@@ -665,28 +684,38 @@ classdef C2837xBlockConfigurator < handle
         end
 
         function saveRequested(app)
-            issues = app.Coordinator.validateProject('full');
-            if ~isempty(issues)
-                app.showIssues(issues);
-                choice = uiconfirm(app.UIFigure, ...
-                    'The project has validation issues.', 'Save Project', ...
-                    'Options', {'Save Current Configuration', 'Cancel'}, ...
-                    'DefaultOption', 'Cancel', 'CancelOption', 'Cancel');
-                if ~strcmp(choice, 'Save Current Configuration')
-                    return;
-                end
-            end
+            app.saveCurrentProject();
+        end
+
+        function saved = saveCurrentProject(app)
             path = app.ProjectSession.FilePath;
             if isempty(path)
                 [file, folder] = uiputfile('*.mat', 'Save Project', ...
                     app.ProjectSession.DefaultFileName);
                 if isequal(file, 0)
+                    saved = false;
                     return;
                 end
                 path = fullfile(folder, file);
             end
-            app.ProjectSession.saveProject(path);
-            app.StatusLabel.Text = sprintf('Saved: %s', path);
+            [saved, issues, requiresConfirmation] = ...
+                app.Coordinator.saveProject(path, false);
+            app.showIssues(issues);
+            if requiresConfirmation
+                choice = uiconfirm(app.UIFigure, ...
+                    'The project has validation issues.', 'Save Project', ...
+                    'Options', {'Save Current Configuration', 'Cancel'}, ...
+                    'DefaultOption', 'Cancel', 'CancelOption', 'Cancel');
+                if ~strcmp(choice, 'Save Current Configuration')
+                    saved = false;
+                    return;
+                end
+                [saved, issues] = app.Coordinator.saveProject(path, true);
+                app.showIssues(issues);
+            end
+            if saved
+                app.StatusLabel.Text = sprintf('Saved: %s', path);
+            end
         end
 
         function loadRequested(app)
@@ -694,45 +723,56 @@ classdef C2837xBlockConfigurator < handle
             if isequal(file, 0)
                 return;
             end
-            [choice, savePath] = app.discardDecision();
+            choice = app.discardDecision();
             if strcmp(choice, 'Cancel')
                 return;
             end
-            if app.ProjectSession.loadProject(fullfile(folder, file), choice, savePath)
-                app.SelectedInstance = 1;
+            if strcmp(choice, 'Save') && ~app.saveCurrentProject()
+                return;
+            end
+            [loaded, issues] = app.Coordinator.loadProject(fullfile(folder, file));
+            app.showIssues(issues);
+            if loaded
+                if isempty(app.ProjectSession.Project.instances)
+                    app.SelectedInstance = 0;
+                else
+                    app.SelectedInstance = 1;
+                end
                 app.refreshAll();
+                app.clearPreviewDisplay();
                 app.GenerateButton.Enable = 'off';
             end
         end
 
         function closeRequested(app, source)
-            [choice, savePath] = app.discardDecision();
+            if ~app.ProjectSession.Dirty
+                delete(source);
+                return;
+            end
+            choice = app.discardDecision();
             if strcmp(choice, 'Cancel')
                 return;
             end
-            if app.ProjectSession.canDiscardChanges(choice, savePath)
-                delete(source);
+            if strcmp(choice, 'Save') && ~app.saveCurrentProject()
+                return;
             end
+            delete(source);
         end
 
-        function [choice, savePath] = discardDecision(app)
+        function choice = discardDecision(app)
             choice = 'Don''t Save';
-            savePath = '';
             if ~app.ProjectSession.Dirty
                 return;
             end
             choice = uiconfirm(app.UIFigure, 'The project has unsaved changes.', ...
                 'Unsaved Project', 'Options', {'Save', 'Don''t Save', 'Cancel'}, ...
                 'DefaultOption', 'Cancel', 'CancelOption', 'Cancel');
-            if strcmp(choice, 'Save') && isempty(app.ProjectSession.FilePath)
-                [file, folder] = uiputfile('*.mat', 'Save Project', ...
-                    app.ProjectSession.DefaultFileName);
-                if isequal(file, 0)
-                    choice = 'Cancel';
-                else
-                    savePath = fullfile(folder, file);
-                end
-            end
+        end
+
+        function clearPreviewDisplay(app)
+            app.CandidateTable.Data = cell(0, 9);
+            app.CandidateArea.Value = {''};
+            app.ResultArea.Value = {''};
         end
 
         function showLegacyRisks(app, risks)

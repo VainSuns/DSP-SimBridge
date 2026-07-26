@@ -179,6 +179,221 @@ classdef test_app_coordinator < matlab.unittest.TestCase
             coordinator.createPreview();
             testCase.verifyEqual(coordinator.Session.Project, project);
         end
+
+        function testProviderIssuesRejectExtraField(testCase)
+            issue = valid_issue();
+            issue.extra = true;
+            verify_invalid_provider_issue(testCase, testCase.WorkFolder, issue);
+        end
+
+        function testProviderIssuesRejectMissingField(testCase)
+            issue = rmfield(valid_issue(), 'message');
+            verify_invalid_provider_issue(testCase, testCase.WorkFolder, issue);
+        end
+
+        function testProviderIssuesRejectInvalidSeverity(testCase)
+            issue = valid_issue();
+            issue.severity = 'Fatal';
+            verify_invalid_provider_issue(testCase, testCase.WorkFolder, issue);
+        end
+
+        function testProviderIssuesRejectInvalidInstanceIndex(testCase)
+            issue = valid_issue();
+            issue.instance_index = 0.5;
+            verify_invalid_provider_issue(testCase, testCase.WorkFolder, issue);
+        end
+
+        function testProviderIssuesRejectNontextFields(testCase)
+            fields = {'severity', 'code', 'message', 'field_path', 'file_path'};
+            for index = 1:numel(fields)
+                issue = valid_issue();
+                issue.(fields{index}) = 7;
+                verify_invalid_provider_issue(testCase, testCase.WorkFolder, issue);
+            end
+        end
+
+        function testLoadInvalidatesValidPreview(testCase)
+            coordinator = previewed(testCase.WorkFolder);
+            draft = coordinator.Session.Project;
+            draft.instances(1).internal_name = 'renamed';
+            coordinator.updateProjectDraft(draft);
+            coordinator.createPreview();
+            testCase.verifyNotEmpty(coordinator.LegacyFileRisks);
+            path = fullfile(testCase.WorkFolder, 'other.mat');
+            save_project(path, valid_project(fullfile(testCase.WorkFolder, 'other')));
+            [loaded, issues] = coordinator.loadProject(path);
+            testCase.verifyTrue(loaded);
+            testCase.verifyEmpty(issues);
+            verify_preview_cleared(testCase, coordinator, 'stale');
+            testCase.verifyEmpty(coordinator.LegacyFileRisks);
+            [~, commitIssues] = coordinator.commitPreview();
+            testCase.verifyEqual(commitIssues.code, 'APP_PREVIEW_REQUIRED');
+        end
+
+        function testLoadClearsLastCommitResult(testCase)
+            coordinator = previewed(testCase.WorkFolder);
+            coordinator.commitPreview();
+            path = fullfile(testCase.WorkFolder, 'other.mat');
+            save_project(path, valid_project(fullfile(testCase.WorkFolder, 'other')));
+            coordinator.loadProject(path);
+            testCase.verifyEmpty(fieldnames(coordinator.LastCommitResult));
+        end
+
+        function testLoadFailurePreservesCurrentState(testCase)
+            coordinator = previewed(testCase.WorkFolder);
+            project = coordinator.Session.Project;
+            snapshot = coordinator.PreviewSnapshot;
+            candidates = coordinator.PreviewCandidates;
+            dependencies = coordinator.PreviewDependencies;
+            status = coordinator.PreviewStatus;
+            dirty = coordinator.Session.Dirty;
+            filePath = coordinator.Session.FilePath;
+            previewIssues = coordinator.PreviewIssues;
+            summary = coordinator.PreviewSummary;
+            lastCommit = coordinator.LastCommitResult;
+            [loaded, issues] = coordinator.loadProject( ...
+                fullfile(testCase.WorkFolder, 'missing.mat'));
+            testCase.verifyFalse(loaded);
+            testCase.verifyEqual(issues.code, 'APP_PROJECT_LOAD_FAILED');
+            testCase.verifyEqual(coordinator.Session.Project, project);
+            testCase.verifyEqual(coordinator.Session.Dirty, dirty);
+            testCase.verifyEqual(coordinator.Session.FilePath, filePath);
+            testCase.verifyEqual(coordinator.PreviewStatus, status);
+            testCase.verifyEqual(coordinator.PreviewSnapshot, snapshot);
+            testCase.verifyEqual(coordinator.PreviewCandidates, candidates);
+            testCase.verifyEqual(coordinator.PreviewDependencies, dependencies);
+            testCase.verifyEqual(coordinator.PreviewIssues, previewIssues);
+            testCase.verifyEqual(coordinator.PreviewSummary, summary);
+            testCase.verifyEqual(coordinator.LastCommitResult, lastCommit);
+        end
+
+        function testDraftStructureErrorDoesNotApply(testCase)
+            coordinator = previewed(testCase.WorkFolder);
+            project = coordinator.Session.Project;
+            draft = rmfield(project, 'common');
+            [applied, issues] = coordinator.updateProjectDraft(draft);
+            testCase.verifyFalse(applied);
+            testCase.verifyTrue(any(strcmp({issues.code}, 'PROJECT_STRUCTURE_INVALID')));
+            testCase.verifyEqual(coordinator.Session.Project, project);
+            verify_preview_cleared(testCase, coordinator, 'stale');
+        end
+
+        function testDraftSemanticValidationScenarios(testCase)
+            scenarios = {'internal_name', 'dim_zero', 'dim_fraction', ...
+                'socket_range', 'port_zero', 'port_fraction', ...
+                'socket_duplicate', 'port_duplicate', 'io_duplicate', ...
+                'case_duplicate', 'payload_odd', 'payload_small'};
+            expected = {'INTERNAL_NAME_INVALID', 'VARIABLE_DIM_INVALID', ...
+                'VARIABLE_DIM_INVALID', 'SOCKET_INVALID', 'TCP_PORT_INVALID', ...
+                'TCP_PORT_INVALID', 'SOCKET_DUPLICATE', 'TCP_PORT_DUPLICATE', ...
+                'VARIABLE_NAME_CONFLICT', 'VARIABLE_NAME_CONFLICT', ...
+                'MAX_PAYLOAD_ODD', 'MAX_PAYLOAD_TOO_SMALL'};
+            for index = 1:numel(scenarios)
+                coordinator = previewed(fullfile(testCase.WorkFolder, scenarios{index}));
+                draft = semantic_draft(coordinator.Session.Project, scenarios{index});
+                [applied, issues] = coordinator.updateProjectDraft(draft);
+                testCase.verifyTrue(applied, scenarios{index});
+                testCase.verifyTrue(any(strcmp({issues.code}, expected{index})), ...
+                    scenarios{index});
+                testCase.verifyEqual(coordinator.Session.Project, draft, ...
+                    scenarios{index});
+                testCase.verifyTrue(coordinator.Session.Dirty, scenarios{index});
+                testCase.verifyEqual(coordinator.PreviewStatus, 'stale', ...
+                    scenarios{index});
+            end
+        end
+
+        function testValidDraftNormalizesIntegerTypes(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            draft = coordinator.Session.Project;
+            draft.instances(1).iodevice.settings.socket_number = 2;
+            draft.instances(1).iodevice.settings.tcp_port = 6000;
+            draft.instances(1).max_payload_size_bytes = 2048;
+            [applied, issues] = coordinator.updateProjectDraft(draft);
+            testCase.verifyTrue(applied);
+            testCase.verifyFalse(has_errors(issues));
+            value = coordinator.Session.Project.instances(1);
+            testCase.verifyClass(value.iodevice.settings.socket_number, 'uint16');
+            testCase.verifyClass(value.iodevice.settings.tcp_port, 'uint16');
+            testCase.verifyClass(value.max_payload_size_bytes, 'uint32');
+        end
+
+        function testDraftRenameCreatesDeduplicatedEditorRisk(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            draft = coordinator.Session.Project;
+            draft.instances(1).internal_name = 'renamed';
+            coordinator.updateProjectDraft(draft);
+            draft.instances(1).internal_name = 'instance_1';
+            coordinator.updateProjectDraft(draft);
+            draft.instances(1).internal_name = 'renamed_again';
+            coordinator.updateProjectDraft(draft);
+            risks = coordinator.LegacyFileRisks;
+            testCase.verifyEqual({risks.internal_name}, {'instance_1', 'renamed'});
+        end
+
+        function testValidProjectSavesWithoutConfirmation(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            path = fullfile(testCase.WorkFolder, 'project.mat');
+            [saved, issues, confirmation] = coordinator.saveProject(path, false);
+            testCase.verifyTrue(saved);
+            testCase.verifyFalse(confirmation);
+            testCase.verifyFalse(has_errors(issues));
+            testCase.verifyTrue(isfile(path));
+        end
+
+        function testInvalidProjectRequiresSaveConfirmation(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            draft = semantic_draft(coordinator.Session.Project, 'port_zero');
+            coordinator.updateProjectDraft(draft);
+            path = fullfile(testCase.WorkFolder, 'blocked.mat');
+            [saved, issues, confirmation] = coordinator.saveProject(path, false);
+            testCase.verifyFalse(saved);
+            testCase.verifyTrue(confirmation);
+            testCase.verifyTrue(has_errors(issues));
+            testCase.verifyFalse(isfile(path));
+        end
+
+        function testAllowedInvalidProjectActuallySaves(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            draft = semantic_draft(coordinator.Session.Project, 'port_zero');
+            coordinator.updateProjectDraft(draft);
+            path = fullfile(testCase.WorkFolder, 'allowed.mat');
+            [saved, ~, confirmation] = coordinator.saveProject(path, true);
+            testCase.verifyTrue(saved);
+            testCase.verifyTrue(confirmation);
+            testCase.verifyTrue(isfile(path));
+        end
+
+        function testInformationOnlyDoesNotRequireConfirmation(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            path = fullfile(testCase.WorkFolder, 'information.mat');
+            [saved, issues, confirmation] = coordinator.saveProject(path, false);
+            testCase.verifyTrue(any(strcmp({issues.severity}, 'Information')));
+            testCase.verifyFalse(confirmation);
+            testCase.verifyTrue(saved);
+        end
+
+        function testSaveFailureReturnsStableIssue(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            path = fullfile(testCase.WorkFolder, 'missing', 'project.mat');
+            [saved, issues] = coordinator.saveProject(path, false);
+            testCase.verifyFalse(saved);
+            testCase.verifyEqual(issues(end).code, 'APP_PROJECT_SAVE_FAILED');
+            testCase.verifyNotEqual(issues(end).message, ...
+                'Failed to save project.');
+        end
+
+        function testHighVersionLoadReturnsStableIssue(testCase)
+            coordinator = previewed(testCase.WorkFolder);
+            project = valid_project(testCase.WorkFolder);
+            project.format_version = uint16(3);
+            path = fullfile(testCase.WorkFolder, 'future.mat');
+            save_project(path, project);
+            [loaded, issues] = coordinator.loadProject(path);
+            testCase.verifyFalse(loaded);
+            testCase.verifyEqual(issues.code, 'APP_PROJECT_LOAD_FAILED');
+            testCase.verifyEqual(coordinator.PreviewStatus, 'valid');
+        end
     end
 end
 
@@ -278,4 +493,100 @@ assert(fileID >= 0);
 cleanup = onCleanup(@() fclose(fileID));
 assert(fwrite(fileID, bytes, 'uint8') == numel(bytes));
 clear cleanup
+end
+
+function issue = valid_issue()
+issue = struct('severity', 'Warning', 'code', 'TEST_WARNING', ...
+    'message', 'Test warning.', 'field_path', 'project', ...
+    'instance_index', 0, 'file_path', '');
+end
+
+function verify_invalid_provider_issue(testCase, root, issue)
+provider_issue_state('set', issue);
+coordinator = make_coordinator(root, @configured_issue_provider);
+before = filesystem_snapshot(root);
+[view, issues] = coordinator.createPreview();
+testCase.verifyEqual(view.status, 'blocked');
+testCase.verifyEqual(issues(end).code, ...
+    'APP_PREVIEW_PROVIDER_RESULT_INVALID');
+testCase.verifyEqual(filesystem_snapshot(root), before);
+end
+
+function [candidates, dependencies, issues] = configured_issue_provider(project)
+[candidates, dependencies] = valid_provider(project);
+issues = provider_issue_state('get');
+end
+
+function issue = provider_issue_state(action, value)
+persistent stored
+if strcmp(action, 'set')
+    stored = value;
+end
+issue = stored;
+end
+
+function verify_preview_cleared(testCase, coordinator, status)
+testCase.verifyEqual(coordinator.PreviewStatus, status);
+testCase.verifyEmpty(fieldnames(coordinator.PreviewSnapshot));
+testCase.verifyEmpty(coordinator.PreviewCandidates);
+testCase.verifyEmpty(coordinator.PreviewDependencies);
+testCase.verifyEmpty(coordinator.PreviewIssues);
+testCase.verifyEmpty(fieldnames(coordinator.PreviewSummary));
+end
+
+function draft = semantic_draft(project, scenario)
+draft = project;
+switch scenario
+    case 'internal_name'
+        draft.instances(1).internal_name = '_bad';
+    case 'dim_zero'
+        draft.instances(1).inputs(1).dim = 0;
+    case 'dim_fraction'
+        draft.instances(1).inputs(1).dim = 1.5;
+    case 'socket_range'
+        draft.instances(1).iodevice.settings.socket_number = 8;
+    case 'port_zero'
+        draft.instances(1).iodevice.settings.tcp_port = 0;
+    case 'port_fraction'
+        draft.instances(1).iodevice.settings.tcp_port = 5000.5;
+    case {'socket_duplicate', 'port_duplicate'}
+        second = draft.instances(1);
+        second.display_name = 'Second';
+        second.internal_name = 'second';
+        second.iodevice.settings.socket_number = 1;
+        second.iodevice.settings.tcp_port = 5001;
+        if strcmp(scenario, 'socket_duplicate')
+            second.iodevice.settings.socket_number = ...
+                draft.instances(1).iodevice.settings.socket_number;
+        else
+            second.iodevice.settings.tcp_port = ...
+                draft.instances(1).iodevice.settings.tcp_port;
+        end
+        draft.instances(2) = second;
+    case 'io_duplicate'
+        draft.instances(1).outputs(1).name = ...
+            draft.instances(1).inputs(1).name;
+    case 'case_duplicate'
+        draft.instances(1).outputs(1).name = upper( ...
+            draft.instances(1).inputs(1).name);
+    case 'payload_odd'
+        draft.instances(1).max_payload_size_bytes = 1023;
+    case 'payload_small'
+        draft.instances(1).max_payload_size_bytes = 6;
+end
+end
+
+function save_project(path, project)
+parent = fileparts(path);
+if ~isfolder(parent)
+    mkdir(parent);
+end
+save(path, 'project');
+end
+
+function snapshot = filesystem_snapshot(root)
+entries = dir(fullfile(root, '**', '*'));
+entries = entries(~[entries.isdir]);
+snapshot = struct('folder', {entries.folder}, 'name', {entries.name}, ...
+    'bytes', {entries.bytes});
 end
