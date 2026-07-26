@@ -21,6 +21,17 @@ classdef C2837xBlockConfigurator < handle
         CandidateTable
         CandidateArea
         ResultArea
+        MainTabGroup
+        ProjectTab
+        InstancesTab
+        InputsOutputsTab
+        InputsOutputsTabGroup
+        InputsTab
+        OutputsTab
+        IssuesInterfaceTab
+        IssuesInterfaceTabGroup
+        InterfaceTab
+        GenerationPreviewTab
         SelectedInstance = 0
         Updating = false
     end
@@ -49,27 +60,62 @@ classdef C2837xBlockConfigurator < handle
     methods (Access = private)
         function createComponents(app, visible)
             app.UIFigure = uifigure('Name', 'C2837xBlock Configurator', ...
-                'Visible', visible, 'Position', [50 50 1400 850], ...
+                'Visible', visible, 'Position', [50 50 1100 720], ...
                 'CloseRequestFcn', @(src, ~) app.closeRequested(src));
-            root = uigridlayout(app.UIFigure, [4 1]);
-            root.RowHeight = {36, 190, '1x', 24};
+            root = uigridlayout(app.UIFigure, [3 1]);
+            root.RowHeight = {44, '1x', 26};
+            root.ColumnWidth = {'1x'};
             root.Padding = [8 8 8 8];
+            root.RowSpacing = 8;
+            root.ColumnSpacing = 0;
 
             toolbar = uigridlayout(root, [1 5]);
             toolbar.ColumnWidth = {90, 90, 90, 90, '1x'};
-            uibutton(toolbar, 'Text', 'Save', ...
-                'ButtonPushedFcn', @(~, ~) app.saveRequested());
-            uibutton(toolbar, 'Text', 'Load', ...
-                'ButtonPushedFcn', @(~, ~) app.loadRequested());
-            uibutton(toolbar, 'Text', 'Preview', ...
-                'ButtonPushedFcn', @(~, ~) app.previewRequested());
-            app.GenerateButton = uibutton(toolbar, 'Text', 'Generate', ...
-                'Enable', 'off', ...
-                'ButtonPushedFcn', @(~, ~) app.generateRequested());
+            toolbar.RowHeight = {'1x'};
+            toolbar.Padding = [0 0 0 0];
+            toolbar.RowSpacing = 0;
+            toolbar.ColumnSpacing = 8;
+            app.createButton(toolbar, 'Save', @(~, ~) app.saveRequested());
+            app.createButton(toolbar, 'Load', @(~, ~) app.loadRequested());
+            app.createButton(toolbar, 'Preview', @(~, ~) app.previewRequested());
+            app.GenerateButton = app.createButton(toolbar, 'Generate', ...
+                @(~, ~) app.generateRequested());
+            app.GenerateButton.Enable = 'off';
 
-            commonPanel = uipanel(root, 'Title', 'Project Common Configuration');
+            app.MainTabGroup = uitabgroup(root);
+            app.ProjectTab = uitab(app.MainTabGroup, 'Title', 'Project');
+            app.InstancesTab = uitab(app.MainTabGroup, 'Title', 'Instances');
+            app.InputsOutputsTab = uitab(app.MainTabGroup, ...
+                'Title', 'Inputs / Outputs');
+            app.IssuesInterfaceTab = uitab(app.MainTabGroup, ...
+                'Title', 'Issues / Interface');
+            app.GenerationPreviewTab = uitab(app.MainTabGroup, ...
+                'Title', 'Generation Preview');
+
+            app.createProjectTab(app.ProjectTab);
+            app.createInstancesTab(app.InstancesTab);
+            app.createInputsOutputsTab(app.InputsOutputsTab);
+            app.createIssuesTab(app.IssuesInterfaceTab);
+            app.createCandidatesTab(app.GenerationPreviewTab);
+
+            app.StatusLabel = uilabel(root, 'Text', 'Ready');
+        end
+
+        function createProjectTab(app, tab)
+            projectGrid = uigridlayout(tab, [2 1]);
+            projectGrid.RowHeight = {260, '1x'};
+            projectGrid.ColumnWidth = {'1x'};
+            projectGrid.Padding = [8 8 8 8];
+            projectGrid.RowSpacing = 8;
+            projectGrid.ColumnSpacing = 0;
+            commonPanel = uipanel(projectGrid, ...
+                'Title', 'Project Common Configuration');
             common = uigridlayout(commonPanel, [5 4]);
-            common.ColumnWidth = {130, '1x', 150, '1x'};
+            common.ColumnWidth = {160, '1x', 160, '1x'};
+            common.RowHeight = {36, 36, 36, 36, 36};
+            common.Padding = [10 10 10 10];
+            common.RowSpacing = 8;
+            common.ColumnSpacing = 10;
             labels = {'DSP Model', 'Protocol Version', 'ABI', 'MAC', ...
                 'IP', 'Gateway', 'Subnet', 'DSP Output Root', ...
                 'S-Function Output Root'};
@@ -82,11 +128,14 @@ classdef C2837xBlockConfigurator < handle
                     field = uidropdown(common, 'Items', {'eabi', 'coffabi'});
                 elseif any(strcmp(keys{index}, {'dsp_root', 'sfun_root'}))
                     pathGrid = uigridlayout(common, [1 2]);
-                    pathGrid.ColumnWidth = {'1x', 70};
+                    pathGrid.ColumnWidth = {'1x', 90};
+                    pathGrid.RowHeight = {'1x'};
                     pathGrid.Padding = [0 0 0 0];
+                    pathGrid.RowSpacing = 0;
+                    pathGrid.ColumnSpacing = 8;
                     field = uieditfield(pathGrid, 'text');
-                    uibutton(pathGrid, 'Text', 'Browse', ...
-                        'ButtonPushedFcn', @(~, ~) app.browseOutput(keys{index}));
+                    app.createButton(pathGrid, 'Browse', ...
+                        @(~, ~) app.browseOutput(keys{index}));
                 else
                     field = uieditfield(common, 'text');
                 end
@@ -95,36 +144,43 @@ classdef C2837xBlockConfigurator < handle
             end
             app.CommonFields.dsp_model.Editable = 'off';
             app.CommonFields.protocol_version.Editable = 'off';
-
-            tabs = uitabgroup(root);
-            app.createInstancesTab(uitab(tabs, 'Title', 'Instances'));
-            app.createIssuesTab(uitab(tabs, 'Title', 'Issues / Hash'));
-            app.createCandidatesTab(uitab(tabs, 'Title', 'Candidate Preview'));
-
-            app.StatusLabel = uilabel(root, 'Text', 'Ready');
         end
 
         function createInstancesTab(app, tab)
-            grid = uigridlayout(tab, [1 3]);
-            grid.ColumnWidth = {'2x', '2x', '3x'};
+            grid = uigridlayout(tab, [2 1]);
+            grid.RowHeight = {'1x', 250};
+            grid.ColumnWidth = {'1x'};
+            grid.Padding = [8 8 8 8];
+            grid.RowSpacing = 8;
+            grid.ColumnSpacing = 0;
             listPanel = uipanel(grid, 'Title', 'Instances');
             listGrid = uigridlayout(listPanel, [2 1]);
-            listGrid.RowHeight = {'1x', 30};
+            listGrid.RowHeight = {'1x', 38};
+            listGrid.ColumnWidth = {'1x'};
+            listGrid.Padding = [8 8 8 8];
+            listGrid.RowSpacing = 8;
+            listGrid.ColumnSpacing = 0;
             app.InstanceTable = uitable(listGrid, 'ColumnName', ...
                 {'Display Name', 'Internal Name', 'IoDevice', 'Socket', ...
                 'TCP Port', 'Sample Time'}, 'ColumnEditable', false(1, 6), ...
                 'CellSelectionCallback', @(~, event) app.instanceSelected(event));
-            buttons = uigridlayout(listGrid, [1 3]);
-            uibutton(buttons, 'Text', 'Add', ...
-                'ButtonPushedFcn', @(~, ~) app.addInstance());
-            uibutton(buttons, 'Text', 'Copy', ...
-                'ButtonPushedFcn', @(~, ~) app.copyInstance());
-            uibutton(buttons, 'Text', 'Delete', ...
-                'ButtonPushedFcn', @(~, ~) app.deleteInstance());
+            buttons = uigridlayout(listGrid, [1 4]);
+            buttons.ColumnWidth = {90, 90, 90, '1x'};
+            buttons.RowHeight = {'1x'};
+            buttons.Padding = [0 0 0 0];
+            buttons.RowSpacing = 0;
+            buttons.ColumnSpacing = 8;
+            app.createButton(buttons, 'Add', @(~, ~) app.addInstance());
+            app.createButton(buttons, 'Copy', @(~, ~) app.copyInstance());
+            app.createButton(buttons, 'Delete', @(~, ~) app.deleteInstance());
 
             detailPanel = uipanel(grid, 'Title', 'Instance Detail');
-            detail = uigridlayout(detailPanel, [9 2]);
-            detail.ColumnWidth = {140, '1x'};
+            detail = uigridlayout(detailPanel, [5 4]);
+            detail.ColumnWidth = {140, '1x', 140, '1x'};
+            detail.RowHeight = {'1x', '1x', '1x', '1x', '1x'};
+            detail.Padding = [8 8 8 8];
+            detail.RowSpacing = 8;
+            detail.ColumnSpacing = 8;
             detailKeys = {'display_name', 'internal_name', 'iodevice', ...
                 'socket', 'port', 'sample_time', 'max_payload', ...
                 'algorithm_mode', 'source_path'};
@@ -133,7 +189,11 @@ classdef C2837xBlockConfigurator < handle
                 'Algorithm Mode', 'External Source Path'};
             app.DetailFields = struct();
             for index = 1:numel(detailKeys)
-                uilabel(detail, 'Text', detailLabels{index});
+                row = ceil(index / 2);
+                labelColumn = 1 + 2 * mod(index - 1, 2);
+                label = uilabel(detail, 'Text', detailLabels{index});
+                label.Layout.Row = row;
+                label.Layout.Column = labelColumn;
                 key = detailKeys{index};
                 if strcmp(key, 'socket')
                     field = uidropdown(detail, 'Items', compose('%u', 0:7));
@@ -144,29 +204,54 @@ classdef C2837xBlockConfigurator < handle
                     field = uieditfield(detail, 'numeric');
                 elseif strcmp(key, 'source_path')
                     pathGrid = uigridlayout(detail, [1 2]);
-                    pathGrid.ColumnWidth = {'1x', 70};
+                    pathGrid.ColumnWidth = {'1x', 90};
+                    pathGrid.RowHeight = {'1x'};
                     pathGrid.Padding = [0 0 0 0];
+                    pathGrid.RowSpacing = 0;
+                    pathGrid.ColumnSpacing = 8;
                     app.SourcePathGrid = pathGrid;
                     field = uieditfield(pathGrid, 'text');
-                    uibutton(pathGrid, 'Text', 'Browse', ...
-                        'ButtonPushedFcn', @(~, ~) app.browseSource());
+                    app.createButton(pathGrid, 'Browse', ...
+                        @(~, ~) app.browseSource());
                 else
                     field = uieditfield(detail, 'text');
+                end
+                if strcmp(key, 'source_path')
+                    pathGrid.Layout.Row = row;
+                    pathGrid.Layout.Column = [2 4];
+                else
+                    field.Layout.Row = row;
+                    field.Layout.Column = labelColumn + 1;
                 end
                 field.ValueChangedFcn = @(~, ~) app.detailEdited();
                 app.DetailFields.(key) = field;
             end
             app.DetailFields.iodevice.Editable = 'off';
+        end
 
-            ioPanel = uipanel(grid, 'Title', 'Inputs / Outputs');
-            io = uigridlayout(ioPanel, [6 1]);
-            io.RowHeight = {22, '1x', 30, 22, '1x', 30};
-            uilabel(io, 'Text', 'Inputs', 'FontWeight', 'bold');
-            app.InputTable = app.variableTable(io);
-            app.variableButtons(io, 'input');
-            uilabel(io, 'Text', 'Outputs', 'FontWeight', 'bold');
-            app.OutputTable = app.variableTable(io);
-            app.variableButtons(io, 'output');
+        function createInputsOutputsTab(app, tab)
+            outerGrid = uigridlayout(tab, [1 1]);
+            outerGrid.RowHeight = {'1x'};
+            outerGrid.ColumnWidth = {'1x'};
+            outerGrid.Padding = [8 8 8 8];
+            outerGrid.RowSpacing = 0;
+            outerGrid.ColumnSpacing = 0;
+            app.InputsOutputsTabGroup = uitabgroup(outerGrid);
+            app.InputsTab = uitab(app.InputsOutputsTabGroup, 'Title', 'Inputs');
+            app.OutputsTab = uitab(app.InputsOutputsTabGroup, 'Title', 'Outputs');
+            app.InputTable = app.createVariablePage(app.InputsTab, 'input');
+            app.OutputTable = app.createVariablePage(app.OutputsTab, 'output');
+        end
+
+        function table = createVariablePage(app, tab, direction)
+            grid = uigridlayout(tab, [2 1]);
+            grid.RowHeight = {'1x', 38};
+            grid.ColumnWidth = {'1x'};
+            grid.Padding = [8 8 8 8];
+            grid.RowSpacing = 8;
+            grid.ColumnSpacing = 0;
+            table = app.variableTable(grid);
+            app.variableButtons(grid, direction);
         end
 
         function table = variableTable(app, parent)
@@ -178,31 +263,66 @@ classdef C2837xBlockConfigurator < handle
         end
 
         function variableButtons(app, parent, direction)
-            buttons = uigridlayout(parent, [1 4]);
-            uibutton(buttons, 'Text', 'Add', 'ButtonPushedFcn', ...
+            buttons = uigridlayout(parent, [1 5]);
+            buttons.ColumnWidth = {90, 90, 90, 90, '1x'};
+            buttons.RowHeight = {'1x'};
+            buttons.Padding = [0 0 0 0];
+            buttons.RowSpacing = 0;
+            buttons.ColumnSpacing = 8;
+            app.createButton(buttons, 'Add', ...
                 @(~, ~) app.changeVariable(direction, 'add'));
-            uibutton(buttons, 'Text', 'Remove', 'ButtonPushedFcn', ...
+            app.createButton(buttons, 'Remove', ...
                 @(~, ~) app.changeVariable(direction, 'remove'));
-            uibutton(buttons, 'Text', 'Move Up', 'ButtonPushedFcn', ...
+            app.createButton(buttons, 'Move Up', ...
                 @(~, ~) app.changeVariable(direction, 'up'));
-            uibutton(buttons, 'Text', 'Move Down', 'ButtonPushedFcn', ...
+            app.createButton(buttons, 'Move Down', ...
                 @(~, ~) app.changeVariable(direction, 'down'));
         end
 
+        function button = createButton(~, parent, text, callback)
+            host = uipanel(parent, 'BorderType', 'none');
+            button = uibutton(host, 'Text', text, ...
+                'Position', [1 1 88 30], 'ButtonPushedFcn', callback);
+        end
+
         function createIssuesTab(app, tab)
-            grid = uigridlayout(tab, [1 2]);
-            grid.ColumnWidth = {'3x', '2x'};
-            app.IssueTable = uitable(grid, 'ColumnName', ...
+            outerGrid = uigridlayout(tab, [1 1]);
+            outerGrid.RowHeight = {'1x'};
+            outerGrid.ColumnWidth = {'1x'};
+            outerGrid.Padding = [8 8 8 8];
+            outerGrid.RowSpacing = 0;
+            outerGrid.ColumnSpacing = 0;
+            app.IssuesInterfaceTabGroup = uitabgroup(outerGrid);
+            issuesTab = uitab(app.IssuesInterfaceTabGroup, 'Title', 'Issues');
+            app.InterfaceTab = uitab(app.IssuesInterfaceTabGroup, ...
+                'Title', 'Interface Hash / Memory');
+            issuesGrid = uigridlayout(issuesTab, [1 1]);
+            issuesGrid.RowHeight = {'1x'};
+            issuesGrid.ColumnWidth = {'1x'};
+            issuesGrid.Padding = [8 8 8 8];
+            issuesGrid.RowSpacing = 0;
+            issuesGrid.ColumnSpacing = 0;
+            app.IssueTable = uitable(issuesGrid, 'ColumnName', ...
                 {'Severity', 'Code', 'Instance', 'Field', 'File', 'Message'}, ...
                 'ColumnEditable', false(1, 6), ...
                 'CellSelectionCallback', @(~, event) app.issueSelected(event));
-            app.ReportArea = uitextarea(grid, 'Editable', 'off', ...
+            reportGrid = uigridlayout(app.InterfaceTab, [1 1]);
+            reportGrid.RowHeight = {'1x'};
+            reportGrid.ColumnWidth = {'1x'};
+            reportGrid.Padding = [8 8 8 8];
+            reportGrid.RowSpacing = 0;
+            reportGrid.ColumnSpacing = 0;
+            app.ReportArea = uitextarea(reportGrid, 'Editable', 'off', ...
                 'FontName', 'Consolas');
         end
 
         function createCandidatesTab(app, tab)
-            grid = uigridlayout(tab, [3 1]);
-            grid.RowHeight = {'2x', '1x', '1x'};
+            grid = uigridlayout(tab, [2 1]);
+            grid.RowHeight = {'2x', '1x'};
+            grid.ColumnWidth = {'1x'};
+            grid.Padding = [8 8 8 8];
+            grid.RowSpacing = 8;
+            grid.ColumnSpacing = 0;
             app.CandidateTable = uitable(grid, 'ColumnName', ...
                 {'Target Path', 'Category', 'Owner', 'Instance', 'State', ...
                 'Selected Action', 'Mandatory', 'Existing Octets', ...
@@ -210,9 +330,24 @@ classdef C2837xBlockConfigurator < handle
                 [false false false false false true false false false], ...
                 'CellEditCallback', @(~, event) app.candidateEdited(event), ...
                 'CellSelectionCallback', @(~, event) app.candidateSelected(event));
-            app.CandidateArea = uitextarea(grid, 'Editable', 'off', ...
+            previewTabs = uitabgroup(grid);
+            contentTab = uitab(previewTabs, 'Title', 'Candidate Content');
+            resultTab = uitab(previewTabs, 'Title', 'Generation Result');
+            contentGrid = uigridlayout(contentTab, [1 1]);
+            contentGrid.RowHeight = {'1x'};
+            contentGrid.ColumnWidth = {'1x'};
+            contentGrid.Padding = [8 8 8 8];
+            contentGrid.RowSpacing = 0;
+            contentGrid.ColumnSpacing = 0;
+            resultGrid = uigridlayout(resultTab, [1 1]);
+            resultGrid.RowHeight = {'1x'};
+            resultGrid.ColumnWidth = {'1x'};
+            resultGrid.Padding = [8 8 8 8];
+            resultGrid.RowSpacing = 0;
+            resultGrid.ColumnSpacing = 0;
+            app.CandidateArea = uitextarea(contentGrid, 'Editable', 'off', ...
                 'FontName', 'Consolas');
-            app.ResultArea = uitextarea(grid, 'Editable', 'off', ...
+            app.ResultArea = uitextarea(resultGrid, 'Editable', 'off', ...
                 'FontName', 'Consolas');
         end
 
@@ -618,9 +753,31 @@ classdef C2837xBlockConfigurator < handle
             if ~isempty(data{row, 5})
                 app.StatusLabel.Text = data{row, 5};
             end
+            app.navigateToIssue(data{row, 2}, data{row, 4}, data{row, 5});
             app.focusIssueField(data{row, 4});
         end
 
+        function navigateToIssue(app, code, fieldPath, filePath)
+            issueText = lower(strjoin(string({code, fieldPath, filePath}), ' '));
+            if contains(issueText, '.inputs')
+                app.MainTabGroup.SelectedTab = app.InputsOutputsTab;
+                app.InputsOutputsTabGroup.SelectedTab = app.InputsTab;
+            elseif contains(issueText, '.outputs')
+                app.MainTabGroup.SelectedTab = app.InputsOutputsTab;
+                app.InputsOutputsTabGroup.SelectedTab = app.OutputsTab;
+            elseif any(contains(issueText, ...
+                    ["preview", "candidate", "generation", "generated file"]))
+                app.MainTabGroup.SelectedTab = app.GenerationPreviewTab;
+            elseif any(contains(issueText, ["hash", "memory", "report"]))
+                app.MainTabGroup.SelectedTab = app.IssuesInterfaceTab;
+                app.IssuesInterfaceTabGroup.SelectedTab = app.InterfaceTab;
+            elseif contains(issueText, 'project.common') || ...
+                    contains(issueText, 'project.output')
+                app.MainTabGroup.SelectedTab = app.ProjectTab;
+            elseif contains(issueText, 'project.instances')
+                app.MainTabGroup.SelectedTab = app.InstancesTab;
+            end
+        end
 
         function focusIssueField(app, fieldPath)
             if contains(fieldPath, '.display_name')
