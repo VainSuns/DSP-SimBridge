@@ -250,17 +250,19 @@ static void test_send_and_receive(void)
     assert(c2837x_w5300_socket_send(&sk, data, 4u) == 4);
     assert(sk.pending_command == C2837X_W5300_COMMAND_SEND);
     assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR);
-    assert(write_count == 5u);
-    assert(writes[0].address == Sn_TX_FIFOR(3u));
+    assert(write_count == 6u);
+    assert(writes[0].address == Sn_IR(3u));
+    assert(writes[0].value == (Sn_IR_SENDOK | Sn_IR_TIMEOUT));
     assert(writes[1].address == Sn_TX_FIFOR(3u));
-    assert(writes[2].address == Sn_TX_WRSR(3u));
-    assert(writes[3].address == Sn_TX_WRSR2(3u));
-    assert(writes[4].address == Sn_CR(3u));
+    assert(writes[2].address == Sn_TX_FIFOR(3u));
+    assert(writes[3].address == Sn_TX_WRSR(3u));
+    assert(writes[4].address == Sn_TX_WRSR2(3u));
+    assert(writes[5].address == Sn_CR(3u));
     before = write_count;
-    assert(c2837x_w5300_socket_send(&sk, data, 4u) == 0);
+    assert(c2837x_w5300_socket_advance_send_command(&sk) == 0);
     assert(write_count == before);
     set_register(Sn_CR(3u), 0u);
-    assert(c2837x_w5300_socket_send(&sk, data, 4u) == 0);
+    assert(c2837x_w5300_socket_advance_send_command(&sk) > 0);
     assert(sk.pending_command == C2837X_W5300_COMMAND_NONE);
     assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
     script_size(Sn_TX_FSR(3u), Sn_TX_FSR2(3u), stable_four, 4u);
@@ -404,7 +406,7 @@ static void test_conflicting_operations_do_not_issue(void)
     sk.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
     set_register(Sn_CR(2u), Sn_CR_RECV);
     assert(c2837x_w5300_socket_send(&sk, data, 4u) == 0);
-    assert(read_count == 1u && write_count == 0u);
+    assert(read_count == 0u && write_count == 0u);
 
     reset_fixture();
     sk.pending_command = C2837X_W5300_COMMAND_SEND;
@@ -422,7 +424,7 @@ static void test_conflicting_operations_do_not_issue(void)
     assert(c2837x_w5300_socket_listen(&sk) == 0);
     assert(c2837x_w5300_socket_send(&sk, data, 4u) == 0);
     assert(c2837x_w5300_socket_recv(&sk, data, 4u) == 0);
-    assert(read_count == 4u && write_count == 0u);
+    assert(read_count == 3u && write_count == 0u);
     assert(sk.pending_command == C2837X_W5300_COMMAND_CLOSE);
 
     reset_fixture();
@@ -433,7 +435,7 @@ static void test_conflicting_operations_do_not_issue(void)
     assert(c2837x_w5300_socket_listen(&sk) == 0);
     assert(c2837x_w5300_socket_send(&sk, data, 4u) == 0);
     assert(c2837x_w5300_socket_recv(&sk, data, 4u) == 0);
-    assert(read_count == 4u && write_count == 0u);
+    assert(read_count == 3u && write_count == 0u);
     assert(sk.pending_command == C2837X_W5300_COMMAND_DISCONNECT);
 }
 

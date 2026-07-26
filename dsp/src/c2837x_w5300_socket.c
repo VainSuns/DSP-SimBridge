@@ -199,7 +199,6 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket *sk,
                                Uint32 wire_byte_count)
 {
     Uint16 status;
-    Uint16 ir;
     Uint32 free_size;
     Uint32 chunk;
 
@@ -209,17 +208,11 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket *sk,
     if (!socket_is_valid(sk) || (data_words == 0))
         return -1;
     if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
-        return (advance_pending(sk) < 0) ? -1 : 0;
+        return 0;
 
     status = c2837x_w5300_get_sn_ssr(sk->sn);
     if ((status != SOCK_ESTABLISHED) && (status != SOCK_CLOSE_WAIT))
         return 0;
-    ir = c2837x_w5300_get_sn_ir(sk->sn);
-    if ((ir & Sn_IR_TIMEOUT) != 0u)
-    {
-        c2837x_w5300_set_sn_ir(sk->sn, Sn_IR_TIMEOUT);
-        return -1;
-    }
     if (c2837x_w5300_get_sn_tx_fsr(sk->sn, &free_size) < 0)
         return -1;
 
@@ -230,12 +223,24 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket *sk,
     if (chunk == 0u)
         return 0;
 
+    c2837x_w5300_set_sn_ir(sk->sn, Sn_IR_SENDOK | Sn_IR_TIMEOUT);
     c2837x_w5300_write_stream(sk->sn, data_words, chunk);
     c2837x_w5300_set_sn_tx_wrsr(sk->sn, chunk);
     if (issue(sk, Sn_CR_SEND, C2837X_W5300_COMMAND_SEND) < 0)
         return -1;
-    /* S2-04 transition: SEND_OK completion and delayed progress are S2-05. */
     return (int32)chunk;
+}
+
+int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket *sk)
+{
+    if (!socket_is_valid(sk))
+        return -1;
+    if (sk->pending_command == C2837X_W5300_COMMAND_NONE)
+        return 1;
+    if ((sk->pending_command != C2837X_W5300_COMMAND_SEND) ||
+        (sk->command_phase != C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR))
+        return -1;
+    return advance_pending(sk);
 }
 
 #if __TI_COMPILER_VERSION__ >= 15009000

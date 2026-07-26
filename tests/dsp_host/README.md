@@ -7,7 +7,8 @@ adds the generic IoDevice boundary, Fake IoDevice Core linking, and independent
 W5300 channel coverage. S2-03A adds the internal const Config and algorithm
 adapter contract, static two-instance binding, routing/isolation, and invalid
 configuration boundary coverage. S2-04 adds bounded W5300 HAL command/size
-access and per-channel Socket command progression.
+access and per-channel Socket command progression. S2-05 delays public send
+progress until the corresponding W5300 `SEND_OK` event.
 
 ## S2-04 W5300 evidence and call budget
 
@@ -19,8 +20,9 @@ datasheet sequences used here are:
   options, `Sn_PORTR`, then issue `OPEN`; observe `SOCK_INIT` on a later Run.
 - LISTEN: require one `Sn_SSR == SOCK_INIT` read, clear this socket's interrupt
   indication, then issue `LISTEN`; observe `SOCK_LISTEN` later.
-- SEND: read `Sn_TX_FSR`, write TX FIFO, write `Sn_TX_WRSR` high then low, then
-  issue `SEND`. S2-04 does not wait for or report `SEND_OK` completion.
+- SEND: read `Sn_TX_FSR`, clear stale `SEND_OK|TIMEOUT`, write TX FIFO, write
+  `Sn_TX_WRSR` high then low, then issue `SEND`. The Socket return is only the
+  submitted chunk; the Channel saves it and initially returns zero.
 - RECV: read `Sn_RX_RSR`, read RX FIFO, then issue `RECV`.
 - DISCON: issue `DISCON`, then observe `SOCK_CLOSED` later.
 - CLOSE: clear `Sn_IR`, clear only this socket's common `IR(n)` bit, issue
@@ -58,7 +60,7 @@ and never returns an unconfirmed value.
 | connection state | one `Sn_SSR` read; first ESTABLISHED may add one `Sn_IR` write |
 | OPEN issue | nine writes: `Sn_IR`, `IR(n)`, MR, four TCP options, port, command |
 | LISTEN issue | one status read plus three writes: `Sn_IR`, `IR(n)`, command |
-| SEND issue | status + interrupt + at most 12 size reads; `ceil(chunk/2)` FIFO writes, two WRSR writes, one command write |
+| SEND issue | status + at most 12 size reads; one `Sn_IR` write, `ceil(chunk/2)` FIFO writes, two WRSR writes, one command write |
 | RECV issue | status + at most 12 size reads; `ceil(chunk/2)` FIFO reads and one command write |
 | CLOSE issue | one status read and at most three writes; DISCON uses one status read and one command write |
 
@@ -69,6 +71,42 @@ register/FIFO access. Each embedded Socket owns its own `pending_command` and
 allocation is used.
 PlatformInit reset assert/settle delays are excluded from this Run budget and
 remain unchanged.
+
+## S2-05 SEND completion evidence and call budget
+
+Each Channel has one pending segment: `send_state == SEND_PENDING` means its
+FIFO data, WRSR, and one SEND command were submitted, while `pending_octets`
+is the even positive chunk that has not yet been reported to the Core. The
+Socket owns only command-register progression. The Channel owns SEND result
+handling and returns that saved chunk exactly once, only after `SEND_OK` with
+no `TIMEOUT` and a status of `SOCK_ESTABLISHED` or `SOCK_CLOSE_WAIT`.
+
+Before each real segment submission, the Socket writes only
+`Sn_IR_SENDOK | Sn_IR_TIMEOUT` to that Socket's write-one-to-clear `Sn_IR`.
+During pending polling, changed data/count arguments are ignored. `TIMEOUT`
+has priority over invalid status, which has priority over `SEND_OK`; failure
+clears only Channel send bookkeeping and leaves an unconfirmed Socket command
+for the existing close path. No S2-06 dummy SEND, UDP OPEN, close deadline, or
+faulted terminal state is implemented.
+
+| SEND stage | Maximum work in one call |
+| --- | --- |
+| new segment preparation | fixed state checks plus at most 12 TX_FSR register reads |
+| stale event clear | one current-Socket `Sn_IR` write |
+| FIFO submit | `ceil(chunk/2)` FIFO word writes |
+| WRSR | two register writes |
+| SEND issue | one `Sn_CR` write |
+| WAIT_CR_CLEAR | one `Sn_CR` read |
+| WAIT_SEND_RESULT | one `Sn_SSR` read plus one `Sn_IR` read |
+| SEND_OK completion | at most one current-Socket `Sn_IR` clear write |
+| TIMEOUT failure | at most one current-Socket `Sn_IR` clear write |
+
+There are no internal wait loops. `w5300_send_completion_test.c` covers stale
+event clearing, delayed progress, repeated polling, changed arguments,
+TIMEOUT/status priority, `4 + 4 + 2` segmented progress, conflicting commands,
+Channel initialization isolation, and independent Socket 1/Socket 6 results.
+The MATLAB companion also statically verifies that the Core's zero-send branch
+returns before offset or completion-action updates.
 
 Run with:
 

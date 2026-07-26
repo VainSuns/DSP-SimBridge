@@ -15,8 +15,8 @@ typedef struct
     C2837xW5300Socket socket;
     Uint16 tcp_port;
     Uint16 connected;
-    C2837xW5300SendState send_state;
-    Uint32 pending_octets;
+    C2837xW5300SendState send_state; /* one segment awaiting SEND_OK */
+    Uint32 pending_octets;           /* submitted, not Core-committed */
     Uint16 closing;
     Uint16 faulted;
 } C2837xW5300Channel;

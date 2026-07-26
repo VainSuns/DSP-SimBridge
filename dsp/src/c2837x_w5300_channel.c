@@ -85,13 +85,78 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
                   Uint32 count_octets)
 {
     C2837xW5300Channel *channel = (C2837xW5300Channel *)channel_ref;
+    Uint32 completed_octets;
+    int32 submitted_octets;
+    int16 command_result;
+    Uint16 status;
+    Uint16 ir;
+    Uint16 clear_mask;
+
+    if (channel->send_state == C2837X_W5300_SEND_PENDING)
+    {
+        if ((channel->pending_octets == 0u) ||
+            ((channel->pending_octets & 1u) != 0u))
+            goto send_error;
+
+        if (channel->socket.pending_command == C2837X_W5300_COMMAND_SEND)
+        {
+            command_result = c2837x_w5300_socket_advance_send_command(
+                &channel->socket);
+            if (command_result < 0)
+                goto send_error;
+            return 0;
+        }
+        if (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE)
+            goto send_error;
+        if (c2837x_w5300_socket_advance_send_command(&channel->socket) < 0)
+            goto send_error;
+
+        status = c2837x_w5300_get_sn_ssr(channel->socket.sn);
+        ir = c2837x_w5300_get_sn_ir(channel->socket.sn);
+        clear_mask = ir & (Sn_IR_SENDOK | Sn_IR_TIMEOUT);
+        if ((ir & Sn_IR_TIMEOUT) != 0u)
+        {
+            c2837x_w5300_set_sn_ir(channel->socket.sn, clear_mask);
+            goto send_error;
+        }
+        if ((status != SOCK_ESTABLISHED) && (status != SOCK_CLOSE_WAIT))
+            goto send_error;
+        if ((ir & Sn_IR_SENDOK) == 0u)
+            return 0;
+
+        completed_octets = channel->pending_octets;
+        c2837x_w5300_set_sn_ir(channel->socket.sn, Sn_IR_SENDOK);
+        channel->send_state = C2837X_W5300_SEND_IDLE;
+        channel->pending_octets = 0u;
+        return (int32)completed_octets;
+    }
+
+    if ((channel->send_state != C2837X_W5300_SEND_IDLE) ||
+        (channel->pending_octets != 0u) ||
+        (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE))
+        goto send_error;
 
     count_octets &= ~1u;
     if (count_octets == 0u)
         return 0;
-    /* S2-05 will use send_state/pending_octets to wait for SEND_OK. */
-    return c2837x_w5300_socket_send(&channel->socket, data_words,
-                                     count_octets);
+    submitted_octets = c2837x_w5300_socket_send(&channel->socket, data_words,
+                                                 count_octets);
+    if (submitted_octets < 0)
+        goto send_error;
+    if (submitted_octets == 0)
+        return 0;
+    if ((((Uint32)submitted_octets & 1u) != 0u) ||
+        ((Uint32)submitted_octets > count_octets))
+        goto send_error;
+
+    channel->pending_octets = (Uint32)submitted_octets;
+    channel->send_state = C2837X_W5300_SEND_PENDING;
+    return 0;
+
+send_error:
+    channel->send_state = C2837X_W5300_SEND_IDLE;
+    channel->pending_octets = 0u;
+    return -1;
 }
 
 static int16 close_channel(void *channel_ref)

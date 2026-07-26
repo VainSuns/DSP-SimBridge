@@ -5,8 +5,8 @@
  * W5300 socket abstraction for C2837xBlock project.
  * Provides TCP stream send/recv without PIL packet-length semantics.
  * Run-reachable operations do bounded work per call. Platform initialization
- * retains the datasheet reset delays. SEND_OK is deferred to S2-05 and the
- * complete W5300 close erratum sequence is deferred to S2-06.
+ * retains the datasheet reset delays. The complete W5300 close erratum
+ * sequence is deferred to S2-06.
  */
 
 #include "F28x_Project.h"
@@ -67,12 +67,22 @@ int16 c2837x_w5300_socket_listen(C2837xW5300Socket* sk);
  * This is a raw TCP stream send — no packet-length prefix is added.
  * @param data_words  Pointer to DSP-native Uint16 array.
  * @param wire_byte_count  Number of wire bytes to send.
- * @return Wire bytes actually sent, 0 if TX buffer full or not connected,
- *         -1 on socket error.
+ * @return Bytes submitted to the W5300 FIFO and SEND command, 0 if no segment
+ *         was submitted, negative on error. A positive value is only for the
+ *         owning Channel to save as pending_octets; it is not IoDevice send
+ *         progress and must not be returned directly to the Core.
  */
 int32 c2837x_w5300_socket_send(C2837xW5300Socket* sk,
                                 const Uint16* data_words,
                                 Uint32 wire_byte_count);
+
+/*
+ * Advance only a pending SEND command by one Sn_CR read.
+ * Returns >0 when no SEND command-register phase remains, 0 while Sn_CR is
+ * nonzero, and negative for an invalid or conflicting command state.
+ * This does not inspect SEND_OK/TIMEOUT or submit data.
+ */
+int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket* sk);
 
 /**
  * Disconnect a socket.

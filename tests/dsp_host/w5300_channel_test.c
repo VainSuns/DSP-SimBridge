@@ -2,6 +2,7 @@
 #include "c2837x_w5300_channel.h"
 
 static Uint16 socket_status[8];
+static Uint16 socket_ir[8];
 static Uint16 open_calls[8];
 static Uint16 listen_calls[8];
 static Uint16 receive_calls[8];
@@ -19,14 +20,20 @@ Uint16 c2837x_w5300_read16(Uint32 address)
     for (sn = 0u; sn < 8u; sn++)
         if (address == Sn_SSR(sn))
             return socket_status[sn];
+        else if (address == Sn_IR(sn))
+            return socket_ir[sn];
     return 0u;
 }
 void c2837x_w5300_write16(Uint32 address, Uint16 data)
 {
     Uint16 sn;
     for (sn = 0u; sn < 8u; sn++)
-        if ((address == Sn_IR(sn)) && (data == Sn_IR_CON))
-            connection_clear_calls[sn]++;
+        if (address == Sn_IR(sn))
+        {
+            if (data == Sn_IR_CON)
+                connection_clear_calls[sn]++;
+            socket_ir[sn] &= (Uint16)~data;
+        }
 }
 int16 c2837x_w5300_socket_open(C2837xW5300Socket *socket, Uint16 protocol,
                                Uint16 port, Uint16 flags)
@@ -55,7 +62,18 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket *socket,
     (void)data;
     send_calls[socket->sn]++;
     last_send_count = count;
+    socket->pending_command = C2837X_W5300_COMMAND_SEND;
+    socket->command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
     return (int32)count;
+}
+int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket *socket)
+{
+    if (socket->pending_command == C2837X_W5300_COMMAND_SEND)
+    {
+        socket->pending_command = C2837X_W5300_COMMAND_NONE;
+        socket->command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
+    }
+    return 1;
 }
 int16 c2837x_w5300_socket_close(C2837xW5300Socket *socket)
 {
@@ -140,7 +158,15 @@ int main(void)
     assert(open_calls[6] == 0u && listen_calls[1] == 0u);
 
     assert(c2837x_w5300_iodevice_ops.receive(&first, words, 7u) == 6);
-    assert(c2837x_w5300_iodevice_ops.send(&second, words, 7u) == 6);
+    socket_status[6] = SOCK_ESTABLISHED;
+    assert(c2837x_w5300_iodevice_ops.send(&second, words, 7u) == 0);
+    assert(second.send_state == C2837X_W5300_SEND_PENDING);
+    assert(second.pending_octets == 6u);
+    assert(c2837x_w5300_iodevice_ops.send(&second, words, 2u) == 0);
+    socket_ir[6] = Sn_IR_SENDOK;
+    assert(c2837x_w5300_iodevice_ops.send(&second, 0, 0u) == 6);
+    assert(second.send_state == C2837X_W5300_SEND_IDLE);
+    assert(second.pending_octets == 0u);
     assert(last_receive_capacity == 6u && last_send_count == 6u);
     assert(receive_calls[1] == 1u && receive_calls[6] == 0u);
     assert(send_calls[6] == 1u && send_calls[1] == 0u);
