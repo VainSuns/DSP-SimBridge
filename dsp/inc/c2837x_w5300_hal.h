@@ -11,12 +11,19 @@
 
 /* ---- Reset pin ---- */
 #define C2837X_W5300_RESET_PIN 99
+#define C2837X_W5300_RESET_ASSERT_US  2u
+#define C2837X_W5300_RESET_SETTLE_US  10000u
+
+/* Fixed first-version allocation for every W5300 socket. */
+#define C2837X_W5300_SOCKET_MEMORY_KB     8u
+#define C2837X_W5300_SOCKET_MEMORY_BYTES  \
+    (C2837X_W5300_SOCKET_MEMORY_KB * 1024u)
 
 /* ---- FIFO byte-swap flag ---- */
 extern Uint16 c2837x_w5300_fifo_swap;
 
 /* ---- Low-level init / reset ---- */
-void c2837x_w5300_init(void);
+int16 c2837x_w5300_init(void);
 void c2837x_w5300_reset(void);
 
 /* ---- 16-bit register access ---- */
@@ -119,28 +126,6 @@ static inline void c2837x_w5300_set_shar(Uint16 mac01, Uint16 mac23, Uint16 mac4
 /* ---- Multi-read register helpers ---- */
 Uint32 c2837x_w5300_get_sn_tx_fsr(Uint16 sn);
 Uint32 c2837x_w5300_get_sn_rx_rsr(Uint16 sn);
-
-/*
- * Configure W5300 socket TX/RX memory allocation.
- * Must be called after c2837x_w5300_init() and before socket open.
- *
- * @param sn          Socket number to configure.
- * @param tx_kb       TX buffer size in KB for this socket (0, 1, 2, 4, 8, 16, 32, 64).
- * @param rx_kb       RX buffer size in KB for this socket (0, 1, 2, 4, 8, 16, 32, 64).
- * @param out_tx_bytes  Receives actual TX buffer size in bytes.
- * @param out_rx_bytes  Receives actual RX buffer size in bytes.
- * @return 0 on success, -1 on validation failure.
- *
- * Constraints (per W5300 datasheet):
- *   - Each socket TX/RX <= 64 KB.
- *   - Total TX across all sockets must be multiple of 8 KB.
- *   - Total TX + RX across all sockets <= 128 KB.
- */
-int16 c2837x_w5300_configure_socket_memory(Uint16 sn,
-                                            Uint16 tx_kb,
-                                            Uint16 rx_kb,
-                                            Uint32* out_tx_bytes,
-                                            Uint32* out_rx_bytes);
 
 /* ---- FIFO stream I/O ----
  *

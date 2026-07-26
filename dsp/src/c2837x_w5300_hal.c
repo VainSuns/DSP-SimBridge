@@ -6,7 +6,7 @@
 
 Uint16 c2837x_w5300_fifo_swap = 0;
 
-static void c2837x_w5300_init_emif1(void)
+static int16 c2837x_w5300_init_emif1(void)
 {
     Uint16 ErrCount = 0, i = 0;
 
@@ -90,106 +90,33 @@ static void c2837x_w5300_init_emif1(void)
     Emif1Regs.ASYNC_CS4_CR.bit.W_SETUP = 2;
     Emif1Regs.ASYNC_CS4_CR.bit.EW = 0;
     Emif1Regs.ASYNC_CS4_CR.bit.SS = 0;
+
+    return (ErrCount == 0u) ? 0 : -1;
 }
 
 void c2837x_w5300_reset(void)
 {
-    GPIO_WritePin(C2837X_W5300_RESET_PIN, 1);
-    DELAY_US(1000);
     GPIO_WritePin(C2837X_W5300_RESET_PIN, 0);
-    DELAY_US(20000);
+    DELAY_US(C2837X_W5300_RESET_ASSERT_US);
     GPIO_WritePin(C2837X_W5300_RESET_PIN, 1);
-    DELAY_US(1000);
+    DELAY_US(C2837X_W5300_RESET_SETTLE_US);
 }
 
-void c2837x_w5300_init(void)
+int16 c2837x_w5300_init(void)
 {
+    int16 emif_result;
+
     GPIO_SetupPinMux(C2837X_W5300_RESET_PIN, GPIO_MUX_CPU1, 0);
     GPIO_SetupPinOptions(C2837X_W5300_RESET_PIN, GPIO_OUTPUT, GPIO_PUSHPULL);
 
-    c2837x_w5300_init_emif1();
+    emif_result = c2837x_w5300_init_emif1();
 
     GPIO_SetupPinMux(30, GPIO_MUX_CPU1, 0);
     GPIO_SetupPinOptions(30, GPIO_OUTPUT, GPIO_PUSHPULL);
     GPIO_WritePin(30, 1);
 
     c2837x_w5300_reset();
-}
-
-int16 c2837x_w5300_configure_socket_memory(Uint16 sn,
-                                            Uint16 tx_kb,
-                                            Uint16 rx_kb,
-                                            Uint32* out_tx_bytes,
-                                            Uint32* out_rx_bytes)
-{
-    /*
-     * W5300 has 128 KB total socket buffer.
-     * TMS01R..TMS67R: TX memory size per socket (in KB), packed as pairs.
-     * RMS01R..RMS67R: RX memory size per socket (in KB), packed as pairs.
-     * MTYPER: bit mask indicating which 8 KB blocks are allocated to TX.
-     *
-     * Constraints:
-     *   - Each socket TX/RX <= 64 KB.
-     *   - Total TX must be multiple of 8 KB.
-     *   - Total TX + RX <= 128 KB.
-     */
-    Uint16 tx_sizes[C2837X_W5300_MAX_SOCK_NUM];
-    Uint16 rx_sizes[C2837X_W5300_MAX_SOCK_NUM];
-    Uint16 i;
-    Uint16 tx_sum = 0;
-    Uint16 rx_sum = 0;
-    Uint16 mem_cfg = 0;
-
-    /* Zero out all socket sizes */
-    for (i = 0; i < C2837X_W5300_MAX_SOCK_NUM; i++)
-    {
-        tx_sizes[i] = 0;
-        rx_sizes[i] = 0;
-    }
-
-    /* Set the target socket */
-    if (sn >= C2837X_W5300_MAX_SOCK_NUM)
-        return -1;
-
-    tx_sizes[sn] = tx_kb;
-    rx_sizes[sn] = rx_kb;
-
-    /* Validate per-socket limit */
-    if (tx_kb > 64U || rx_kb > 64U)
-        return -1;
-
-    /* Validate total constraints */
-    tx_sum = tx_kb;
-    rx_sum = rx_kb;
-    if ((tx_sum % 8U) != 0U)
-        return -1;
-    if ((tx_sum + rx_sum) > 128U)
-        return -1;
-
-    /* Write TX memory size registers (packed pairs) */
-    c2837x_w5300_write16(TMS01R, (Uint16)((tx_sizes[0] << 8) | tx_sizes[1]));
-    c2837x_w5300_write16(TMS23R, (Uint16)((tx_sizes[2] << 8) | tx_sizes[3]));
-    c2837x_w5300_write16(TMS45R, (Uint16)((tx_sizes[4] << 8) | tx_sizes[5]));
-    c2837x_w5300_write16(TMS67R, (Uint16)((tx_sizes[6] << 8) | tx_sizes[7]));
-
-    /* Write RX memory size registers (packed pairs) */
-    c2837x_w5300_write16(RMS01R, (Uint16)((rx_sizes[0] << 8) | rx_sizes[1]));
-    c2837x_w5300_write16(RMS23R, (Uint16)((rx_sizes[2] << 8) | rx_sizes[3]));
-    c2837x_w5300_write16(RMS45R, (Uint16)((rx_sizes[4] << 8) | rx_sizes[5]));
-    c2837x_w5300_write16(RMS67R, (Uint16)((rx_sizes[6] << 8) | rx_sizes[7]));
-
-    /* Write memory type register (TX block allocation bitmask) */
-    for (i = 0; i < (tx_sum / 8U); i++)
-    {
-        mem_cfg = (Uint16)((mem_cfg << 1) | 1U);
-    }
-    c2837x_w5300_write16(MTYPER, mem_cfg);
-
-    /* Return actual buffer sizes in bytes */
-    *out_tx_bytes = ((Uint32)tx_kb) << 10;
-    *out_rx_bytes = ((Uint32)rx_kb) << 10;
-
-    return 0;
+    return emif_result;
 }
 
 static inline Uint16 c2837x_w5300_swap16(Uint16 value)

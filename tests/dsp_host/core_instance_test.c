@@ -6,20 +6,15 @@
 static C2837xBlock first_instance;
 static C2837xBlock second_instance;
 static Uint16 socket_status = SOCK_ESTABLISHED;
-static int16 memory_result;
+static Uint32 hal_access_count;
 
-Uint16 c2837x_w5300_fifo_swap;
-
-void c2837x_w5300_init(void) {}
-void c2837x_w5300_write16(Uint32 address, Uint16 data) {(void)address; (void)data;}
-Uint16 c2837x_w5300_read16(Uint32 address) {(void)address; return socket_status;}
-int16 c2837x_w5300_configure_socket_memory(Uint16 sn, Uint16 tx_kb,
-    Uint16 rx_kb, Uint32* tx_bytes, Uint32* rx_bytes)
+void c2837x_w5300_write16(Uint32 address, Uint16 data)
 {
-    (void)sn;
-    *tx_bytes = (Uint32)tx_kb * 1024u;
-    *rx_bytes = (Uint32)rx_kb * 1024u;
-    return memory_result;
+    (void)address; (void)data; hal_access_count++;
+}
+Uint16 c2837x_w5300_read16(Uint32 address)
+{
+    (void)address; hal_access_count++; return socket_status;
 }
 
 int16 c2837x_w5300_socket_open(C2837xW5300Socket* socket, Uint16 protocol,
@@ -68,11 +63,6 @@ void C2837xBlock_OnSimStop(void) {}
 
 int main(void)
 {
-    assert(C2837xBlock_PlatformInit() == C2837X_BLOCK_PLATFORM_OK);
-    memory_result = -1;
-    assert(C2837xBlock_PlatformInit() ==
-           C2837X_BLOCK_PLATFORM_ERROR_W5300_MEMORY);
-
     C2837xBlock_Init(NULL);
     C2837xBlock_Run(NULL);
     assert(C2837xBlock_GetLastError(NULL) ==
@@ -80,8 +70,12 @@ int main(void)
 
     C2837xBlock_Init(&first_instance);
     C2837xBlock_Init(&second_instance);
+    C2837xBlock_Init(&first_instance);
+    assert(hal_access_count == 0u);
     assert(C2837xBlock_GetLastError(&first_instance) == C2837X_BLOCK_ERROR_NONE);
     assert(C2837xBlock_GetLastError(&second_instance) == C2837X_BLOCK_ERROR_NONE);
+    assert(first_instance.socket.tx_mem_size == 8192u);
+    assert(first_instance.socket.rx_mem_size == 8192u);
 
     first_instance.expected_step_index = 7u;
     first_instance.last_error = C2837X_BLOCK_ERROR_PROTOCOL;

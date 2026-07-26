@@ -45,15 +45,6 @@
 #define C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES       1024u
 #define C2837X_BLOCK_MAX_FRAME_SIZE_BYTES         (4u + C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES)
 
-/* ---- W5300 socket memory allocation (in KB) ----
- * Total W5300 buffer: 128 KB.
- * Socket 0: 64 KB TX + 64 KB RX.
- * Other sockets: 0 KB (unused).
- * TX sum must be multiple of 8. TX + RX <= 128.
- */
-#define C2837X_BLOCK_SOCKET0_TX_KB   64u
-#define C2837X_BLOCK_SOCKET0_RX_KB   64u
-
 /* ---- Data counts ---- */
 #define C2837X_BLOCK_INPUT_COUNT       3u
 #define C2837X_BLOCK_OUTPUT_COUNT      1u

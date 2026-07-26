@@ -479,41 +479,6 @@ static void c2837x_block_service_running(C2837xBlock* ctx)
     }
 }
 
-int16 C2837xBlock_PlatformInit(void)
-{
-    Uint32 tx_mem_size;
-    Uint32 rx_mem_size;
-
-    c2837x_w5300_init();
-
-    c2837x_w5300_write16(MR, 0xB800);
-    c2837x_w5300_fifo_swap =
-        (c2837x_w5300_read16(MR) & MR_FS) ? 1u : 0u;
-
-    c2837x_w5300_write16(RTR, 2000);
-    c2837x_w5300_write16(RCR, 8);
-
-    c2837x_w5300_set_shar(
-        (Uint16)((C2837X_BLOCK_MAC0 << 8) | C2837X_BLOCK_MAC1),
-        (Uint16)((C2837X_BLOCK_MAC2 << 8) | C2837X_BLOCK_MAC3),
-        (Uint16)((C2837X_BLOCK_MAC4 << 8) | C2837X_BLOCK_MAC5));
-    c2837x_w5300_set_gar(C2837X_BLOCK_GATEWAY);
-    c2837x_w5300_set_subr(C2837X_BLOCK_SUBNET);
-    c2837x_w5300_set_sipr(C2837X_BLOCK_IP_ADDR);
-
-    if (c2837x_w5300_configure_socket_memory(
-            C2837X_BLOCK_SOCKET_NUM,
-            C2837X_BLOCK_SOCKET0_TX_KB,
-            C2837X_BLOCK_SOCKET0_RX_KB,
-            &tx_mem_size,
-            &rx_mem_size) != 0)
-    {
-        return (int16)C2837X_BLOCK_PLATFORM_ERROR_W5300_MEMORY;
-    }
-
-    return (int16)C2837X_BLOCK_PLATFORM_OK;
-}
-
 void C2837xBlock_Init(C2837xBlock* instance)
 {
     if (instance == NULL)
@@ -521,10 +486,8 @@ void C2837xBlock_Init(C2837xBlock* instance)
 
     memset(instance, 0, sizeof(*instance));
     instance->socket.sn = C2837X_BLOCK_SOCKET_NUM;
-    instance->socket.tx_mem_size =
-        (Uint32)C2837X_BLOCK_SOCKET0_TX_KB * 1024u;
-    instance->socket.rx_mem_size =
-        (Uint32)C2837X_BLOCK_SOCKET0_RX_KB * 1024u;
+    instance->socket.tx_mem_size = C2837X_W5300_SOCKET_MEMORY_BYTES;
+    instance->socket.rx_mem_size = C2837X_W5300_SOCKET_MEMORY_BYTES;
     instance->last_error = C2837X_BLOCK_ERROR_NONE;
     c2837x_block_reset_session(instance);
 }
