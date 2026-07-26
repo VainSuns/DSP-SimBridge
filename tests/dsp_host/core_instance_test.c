@@ -55,9 +55,9 @@ static AdapterContext adapter_context_a = { 2u, 2u, 10u, 0u, 0u, 0u,
                                              0u, 0u, 0u, 0u };
 static AdapterContext adapter_context_b = { 4u, 4u, 20u, 0u, 0u, 0u,
                                              0u, 0u, 0u, 0u };
-static Uint16 rx_a[6];
+static Uint16 rx_a[5];
 static Uint16 tx_a[5];
-static Uint16 rx_b[7];
+static Uint16 rx_b[6];
 static Uint16 tx_b[6];
 static Uint16 platform_init_calls;
 
@@ -209,14 +209,14 @@ static const C2837xBlock_AlgorithmAdapter adapter_b = {
 
 static const C2837xBlock_Config config_a = {
     &fake_ops_a, &channel_a,
-    rx_a, 12u, tx_a, 10u,
+    rx_a, 10u, tx_a, 10u,
     &input_a, &output_a, &adapter_a, &adapter_context_a,
     0x0001u, 0x11112222u, 6u, 6u, 8u,
     5000000u, 1000000u
 };
 static const C2837xBlock_Config config_b = {
     &fake_ops_b, &channel_b,
-    rx_b, 14u, tx_b, 12u,
+    rx_b, 12u, tx_b, 12u,
     &input_b, &output_b, &adapter_b, &adapter_context_b,
     0x0002u, 0x33334444u, 8u, 8u, 10u,
     7000000u, 2000000u
@@ -313,6 +313,10 @@ static void test_init_and_static_isolation(void)
     assert(config_a.output_object != config_b.output_object);
     assert(config_a.algorithm != config_b.algorithm);
     assert(config_a.algorithm_context != config_b.algorithm_context);
+    assert(config_a.rx_frame_capacity_octets == 10u);
+    assert(config_a.max_payload_octets == 8u);
+    assert(config_b.rx_frame_capacity_octets == 12u);
+    assert(config_b.max_payload_octets == 10u);
 }
 
 static void test_config_driven_adapter_routing(void)
@@ -396,15 +400,19 @@ static void test_step_failure_has_no_normal_output(void)
 static void assert_invalid_config(C2837xBlock_Config config)
 {
     C2837xBlock instance = C2837X_BLOCK_INSTANCE_INITIALIZER(&config);
-    Uint16 init_calls = channel_a.init_calls;
-    Uint16 reset_calls = adapter_context_a.reset_calls;
+    Uint16 init_calls_a = channel_a.init_calls;
+    Uint16 init_calls_b = channel_b.init_calls;
+    Uint16 reset_calls_a = adapter_context_a.reset_calls;
+    Uint16 reset_calls_b = adapter_context_b.reset_calls;
 
     C2837xBlock_Init(&instance);
     assert(C2837xBlock_GetLastError(&instance) ==
            C2837X_BLOCK_ERROR_INVALID_ARGUMENT);
     C2837xBlock_Run(&instance);
-    assert(channel_a.init_calls == init_calls);
-    assert(adapter_context_a.reset_calls == reset_calls);
+    assert(channel_a.init_calls == init_calls_a);
+    assert(channel_b.init_calls == init_calls_b);
+    assert(adapter_context_a.reset_calls == reset_calls_a);
+    assert(adapter_context_b.reset_calls == reset_calls_b);
 }
 
 static void test_invalid_config_boundaries(void)
@@ -412,9 +420,12 @@ static void test_invalid_config_boundaries(void)
     C2837xBlock_Config invalid = config_a;
     C2837xBlock_AlgorithmAdapter invalid_adapter = adapter_a;
 
-    invalid.rx_frame_capacity_octets = 11u;
+    invalid.rx_frame_capacity_octets = 8u;
     assert_invalid_config(invalid);
     invalid = config_a;
+    invalid.rx_frame_capacity_octets = 9u;
+    assert_invalid_config(invalid);
+    invalid = config_b;
     invalid.rx_frame_capacity_octets = 10u;
     assert_invalid_config(invalid);
     invalid = config_a;
@@ -428,9 +439,13 @@ static void test_invalid_config_boundaries(void)
     assert_invalid_config(invalid);
     invalid = config_a;
     invalid.input_payload_octets = 10u;
+    invalid.rx_frame_capacity_octets = 14u;
     assert_invalid_config(invalid);
     invalid = config_a;
     invalid.max_payload_octets = 7u;
+    assert_invalid_config(invalid);
+    invalid = config_a;
+    invalid.max_payload_octets = 4u;
     assert_invalid_config(invalid);
     invalid = config_a;
     invalid.rx_frame_words = NULL;
@@ -444,11 +459,41 @@ static void test_invalid_config_boundaries(void)
     assert_invalid_config(invalid);
 }
 
+static void test_runtime_declared_length_uses_max_payload(void)
+{
+    C2837xBlock_Init(&instance_a);
+    channel_a.state = C2837X_IODEVICE_CONNECTION_CONNECTED;
+    channel_a.rx_words[0] = C2837X_MSG_INPUT_DATA;
+    channel_a.rx_words[1] = 10u;
+    channel_a.rx_octets = C2837X_BLOCK_HEADER_SIZE_BYTES;
+    channel_a.rx_offset_octets = 0u;
+
+    C2837xBlock_Run(&instance_a);
+    assert(instance_a.runtime.state == C2837X_STATE_SEND);
+    assert(instance_a.runtime.response_error == C2837X_ERR_PAYLOAD_LENGTH);
+    assert(channel_a.rx_offset_octets == C2837X_BLOCK_HEADER_SIZE_BYTES);
+    assert(adapter_context_a.decode_calls == 2u);
+
+    C2837xBlock_Init(&instance_a);
+    channel_a.state = C2837X_IODEVICE_CONNECTION_CONNECTED;
+    channel_a.rx_words[0] = C2837X_MSG_INPUT_DATA;
+    channel_a.rx_words[1] = 8u;
+    channel_a.rx_octets = C2837X_BLOCK_HEADER_SIZE_BYTES;
+    channel_a.rx_offset_octets = 0u;
+
+    C2837xBlock_Run(&instance_a);
+    assert(instance_a.runtime.state == C2837X_STATE_SEND);
+    assert(instance_a.runtime.response_error == C2837X_ERR_PAYLOAD_LENGTH);
+    assert(channel_a.rx_offset_octets == C2837X_BLOCK_HEADER_SIZE_BYTES);
+    assert(adapter_context_a.decode_calls == 2u);
+}
+
 int main(void)
 {
     test_init_and_static_isolation();
     test_config_driven_adapter_routing();
     test_step_failure_has_no_normal_output();
     test_invalid_config_boundaries();
+    test_runtime_declared_length_uses_max_payload();
     return 0;
 }

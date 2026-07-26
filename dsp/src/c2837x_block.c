@@ -26,10 +26,21 @@
 
 static void c2837x_block_disconnect(C2837xBlock* ctx);
 
+static Uint32 c2837x_block_maximum_inbound_payload_octets(
+    const C2837xBlock_Config *config)
+{
+    return (config->input_payload_octets >
+            C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES)
+        ? config->input_payload_octets
+        : C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES;
+}
+
 static int16 c2837x_block_config_is_valid(const C2837xBlock_Config *config)
 {
     const C2837xBlock_IoDeviceOps *ops;
     const C2837xBlock_AlgorithmAdapter *algorithm;
+    Uint32 maximum_inbound_payload_octets;
+    Uint32 minimum_rx_octets;
     Uint32 minimum_tx_octets;
 
     if ((config == NULL) || (config->iodevice_ops == NULL) ||
@@ -59,17 +70,19 @@ static int16 c2837x_block_config_is_valid(const C2837xBlock_Config *config)
         (config->output_payload_octets < 4u) ||
         (config->max_payload_octets < C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES) ||
         (config->input_payload_octets > config->max_payload_octets) ||
-        (config->output_payload_octets > config->max_payload_octets) ||
-        (config->rx_frame_capacity_octets <
-            ((Uint32)C2837X_BLOCK_HEADER_SIZE_BYTES +
-             (Uint32)config->max_payload_octets)))
+        (config->output_payload_octets > config->max_payload_octets))
         return 0;
 
+    maximum_inbound_payload_octets =
+        c2837x_block_maximum_inbound_payload_octets(config);
+    minimum_rx_octets = (Uint32)C2837X_BLOCK_HEADER_SIZE_BYTES +
+        maximum_inbound_payload_octets;
     minimum_tx_octets = (Uint32)C2837X_BLOCK_HEADER_SIZE_BYTES +
         ((config->output_payload_octets > C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES)
             ? config->output_payload_octets
             : C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES);
-    if ((config->tx_frame_capacity_octets < minimum_tx_octets) ||
+    if ((config->rx_frame_capacity_octets < minimum_rx_octets) ||
+        (config->tx_frame_capacity_octets < minimum_tx_octets) ||
         (config->interaction_timeout_us == 0u) ||
         (config->interaction_timeout_us >= 0x80000000u) ||
         (config->transfer_timeout_us == 0u) ||
@@ -289,6 +302,14 @@ static int16 c2837x_block_continue_rx(C2837xBlock* ctx)
         }
 
         if (runtime->rx_payload_length_bytes > ctx->config->max_payload_octets)
+        {
+            runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
+            runtime->response_error = C2837X_ERR_PAYLOAD_LENGTH;
+            return -1;
+        }
+
+        if ((Uint32)runtime->rx_payload_length_bytes >
+            c2837x_block_maximum_inbound_payload_octets(ctx->config))
         {
             runtime->last_error = C2837X_BLOCK_ERROR_PROTOCOL;
             runtime->response_error = C2837X_ERR_PAYLOAD_LENGTH;

@@ -8,9 +8,14 @@
 #include <limits.h>
 #include <string.h>
 
+#define SAMPLE_MAX_INBOUND_PAYLOAD_OCTETS \
+    ((C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES > \
+      C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES) ? \
+      C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES : \
+      C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES)
 #define SAMPLE_RX_FRAME_WORDS \
     ((C2837X_BLOCK_HEADER_SIZE_BYTES + \
-      C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES) / 2u)
+      SAMPLE_MAX_INBOUND_PAYLOAD_OCTETS) / 2u)
 #define SAMPLE_TX_FRAME_WORDS \
     ((C2837X_BLOCK_HEADER_SIZE_BYTES + \
       C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES) / 2u)
@@ -25,6 +30,13 @@ C2837X_STATIC_ASSERT((C2837X_BLOCK_INPUT_DATA_SIZE_BYTES % 2u) == 0u,
                      input_data_size_must_be_even);
 C2837X_STATIC_ASSERT((C2837X_BLOCK_OUTPUT_DATA_SIZE_BYTES % 2u) == 0u,
                      output_data_size_must_be_even);
+C2837X_STATIC_ASSERT(
+    SAMPLE_RX_FRAME_WORDS ==
+        ((C2837X_BLOCK_HEADER_SIZE_BYTES +
+          SAMPLE_MAX_INBOUND_PAYLOAD_OCTETS) / 2u),
+    sample_rx_frame_size_mismatch);
+C2837X_STATIC_ASSERT(SAMPLE_RX_FRAME_WORDS == 7u,
+                     sample_rx_frame_must_be_seven_words);
 
 static C2837xBlock_InputData sample_input;
 static C2837xBlock_OutputData sample_output;

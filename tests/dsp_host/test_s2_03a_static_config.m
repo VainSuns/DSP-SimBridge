@@ -79,6 +79,21 @@ verifyEmpty(testCase, regexp([algorithm config], ...
     '\<(malloc|calloc|realloc|free)\s*\(', 'once'));
 end
 
+function testSampleConfigAndAlgorithmCompileStrictly(testCase)
+root = repository_root();
+folder = fileparts(mfilename('fullpath'));
+for source = {'c2837x_block_config.c', 'my_algorithm.c'}
+    object = fullfile(tempdir, [source{1} '.o']);
+    command = sprintf(['gcc -std=c11 -Wall -Wextra -Werror -I"%s" ' ...
+        '-I"%s" -I"%s" -c "%s" -o "%s" 2>&1'], ...
+        fullfile(folder, 'include'), fullfile(root, 'dsp', 'inc'), ...
+        fullfile(root, 'dsp', 'src'), ...
+        fullfile(root, 'dsp', 'src', source{1}), object);
+    [status, output] = system(command);
+    verifyEqual(testCase, status, 0, output);
+end
+end
+
 function [status, output, executable] = compile_binary()
 root = repository_root();
 folder = fileparts(mfilename('fullpath'));
