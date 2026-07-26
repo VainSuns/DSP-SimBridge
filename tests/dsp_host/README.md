@@ -27,7 +27,17 @@ datasheet sequences used here are:
   `CLOSE`, then observe `SOCK_CLOSED` later. The Erratum 1 dummy-send sequence
   is intentionally deferred to S2-06.
 - `Sn_IR` is write-one-to-clear. `Sn_CR` is written once and its automatic
-  clear is queried by one read on each later operation call.
+  clear is queried by one read on a later operation call. For OPEN, LISTEN,
+  DISCON, and CLOSE this only advances the private command phase; a still later
+  call must confirm the target `Sn_SSR` before clearing the pending command.
+
+Each Socket owns `pending_command` plus `command_phase`. Issue enters
+`WAIT_CR_CLEAR`; one call changes it to `WAIT_TARGET_STATE` without reading
+`Sn_SSR`; subsequent calls read `Sn_SSR` once until OPEN reaches `SOCK_INIT`,
+LISTEN reaches `SOCK_LISTEN` (or a later connected state), or DISCON/CLOSE
+reaches `SOCK_CLOSED`. SEND and RECV end their S2-04 command-register pending
+when `Sn_CR` clears. This does not treat SEND as `SEND_OK`; network-send
+completion remains S2-05.
 
 The prior code waited for `Sn_CR`, stable FSR/RSR values, TX drain, and
 `SEND_OK`; close also delayed, opened UDP, performed a synchronous dummy send,
@@ -43,7 +53,8 @@ and never returns an unconfirmed value.
 | Run-reachable operation | Maximum work in one call |
 | --- | --- |
 | command issue | one `Sn_CR` write |
-| pending command poll | one `Sn_CR` read |
+| pending WAIT_CR_CLEAR | one `Sn_CR` read |
+| pending WAIT_TARGET_STATE | one `Sn_SSR` read |
 | connection state | one `Sn_SSR` read; first ESTABLISHED may add one `Sn_IR` write |
 | OPEN issue | nine writes: `Sn_IR`, `IR(n)`, MR, four TCP options, port, command |
 | LISTEN issue | one status read plus three writes: `Sn_IR`, `IR(n)`, command |
@@ -53,8 +64,9 @@ and never returns an unconfirmed value.
 
 Call chain: `C2837xBlock_Run` -> configured `IoDevice` operation -> private
 `C2837xW5300Channel` -> its embedded `C2837xW5300Socket` -> W5300 HAL -> socket
-register/FIFO access. Each embedded Socket owns its own `pending_command`; no
-global current socket, command, registry, or dynamic allocation is used.
+register/FIFO access. Each embedded Socket owns its own `pending_command` and
+`command_phase`; no global current socket, command, registry, or dynamic
+allocation is used.
 PlatformInit reset assert/settle delays are excluded from this Run budget and
 remain unchanged.
 

@@ -43,7 +43,7 @@ static C2837xBlock_OutputData sample_output;
 static Uint16 sample_rx_frame[SAMPLE_RX_FRAME_WORDS];
 static Uint16 sample_tx_frame[SAMPLE_TX_FRAME_WORDS];
 static C2837xW5300Channel sample_channel = {
-    { C2837X_BLOCK_SOCKET_NUM, 8192u, 8192u, C2837X_W5300_COMMAND_NONE },
+    C2837X_W5300_SOCKET_INITIALIZER(C2837X_BLOCK_SOCKET_NUM, 8192u, 8192u),
     C2837X_BLOCK_TCP_PORT,
     0u, C2837X_W5300_SEND_IDLE, 0u, 0u, 0u
 };

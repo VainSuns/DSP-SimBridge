@@ -7,6 +7,7 @@ static void channel_init(void *channel_ref)
 
     channel->connected = 0u;
     channel->socket.pending_command = C2837X_W5300_COMMAND_NONE;
+    channel->socket.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
     channel->send_state = C2837X_W5300_SEND_IDLE;
     channel->pending_octets = 0u;
     channel->closing = 0u;

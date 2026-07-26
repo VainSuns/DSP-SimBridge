@@ -71,20 +71,22 @@ int16 c2837x_w5300_socket_disconnect(C2837xW5300Socket *socket)
 int main(void)
 {
     C2837xW5300Channel first = {
-        {1u, 8192u, 8192u, C2837X_W5300_COMMAND_NONE}, 5001u, 0u,
+        C2837X_W5300_SOCKET_INITIALIZER(1u, 8192u, 8192u), 5001u, 0u,
         C2837X_W5300_SEND_IDLE, 0u, 0u, 0u};
     C2837xW5300Channel second = {
-        {6u, 8192u, 8192u, C2837X_W5300_COMMAND_NONE}, 5006u, 0u,
+        C2837X_W5300_SOCKET_INITIALIZER(6u, 8192u, 8192u), 5006u, 0u,
         C2837X_W5300_SEND_IDLE, 0u, 0u, 0u};
     Uint16 words[4] = {0u};
 
     first.send_state = C2837X_W5300_SEND_PENDING;
     first.socket.pending_command = C2837X_W5300_COMMAND_SEND;
+    first.socket.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
     first.pending_octets = 8u;
     first.closing = 1u;
     first.faulted = 1u;
     second.send_state = C2837X_W5300_SEND_PENDING;
     second.socket.pending_command = C2837X_W5300_COMMAND_RECV;
+    second.socket.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE;
     second.pending_octets = 12u;
     second.closing = 1u;
     second.faulted = 1u;
@@ -94,10 +96,13 @@ int main(void)
     assert(first.socket.tx_mem_size == 8192u && first.socket.rx_mem_size == 8192u);
     assert(first.connected == 0u);
     assert(first.socket.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(first.socket.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
     assert(first.send_state == C2837X_W5300_SEND_IDLE);
     assert(first.pending_octets == 0u && first.closing == 0u && first.faulted == 0u);
     assert(second.socket.sn == 6u && second.tcp_port == 5006u);
     assert(second.socket.pending_command == C2837X_W5300_COMMAND_RECV);
+    assert(second.socket.command_phase ==
+           C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE);
     assert(second.send_state == C2837X_W5300_SEND_PENDING);
     assert(second.pending_octets == 12u && second.closing == 1u && second.faulted == 1u);
 

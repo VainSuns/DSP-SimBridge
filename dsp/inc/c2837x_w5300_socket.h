@@ -22,12 +22,23 @@ typedef enum {
     C2837X_W5300_COMMAND_CLOSE
 } C2837xW5300PendingCommand;
 
+typedef enum {
+    C2837X_W5300_COMMAND_PHASE_IDLE = 0,
+    C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR,
+    C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE
+} C2837xW5300CommandPhase;
+
 typedef struct {
     Uint16 sn;                    /* socket number (0-7) */
     Uint32 tx_mem_size;           /* TX buffer size in bytes */
     Uint32 rx_mem_size;           /* RX buffer size in bytes */
     C2837xW5300PendingCommand pending_command;
+    C2837xW5300CommandPhase command_phase;
 } C2837xW5300Socket;
+
+#define C2837X_W5300_SOCKET_INITIALIZER(sn_, tx_, rx_) \
+    { (sn_), (tx_), (rx_), C2837X_W5300_COMMAND_NONE, \
+      C2837X_W5300_COMMAND_PHASE_IDLE }
 
 /*
  * Open a socket with the given protocol, port, and flags.
@@ -66,6 +77,8 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket* sk,
 /**
  * Disconnect a socket.
  * @param sk  Pointer to the socket structure.
+ * @return >0 when SOCK_CLOSED is confirmed, 0 while advancing,
+ *         negative on error.
  */
 int16 c2837x_w5300_socket_disconnect(C2837xW5300Socket* sk);
 
