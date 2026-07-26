@@ -130,6 +130,10 @@ static inline Uint16 c2837x_w5300_swap16(Uint16 value)
 #endif
 Uint16 c2837x_w5300_read16(Uint32 addr)
 {
+#ifdef C2837X_W5300_HOST_TEST
+    extern Uint16 c2837x_w5300_host_read16(Uint32 address);
+    return c2837x_w5300_host_read16(addr);
+#else
 #if (C2837X_W5300_ADDRESS_MODE == C2837X_W5300_DIRECT_MODE)
     return (*((volatile Uint16*)(addr)));
 #else
@@ -137,6 +141,7 @@ Uint16 c2837x_w5300_read16(Uint32 addr)
     *((volatile Uint16*)IDM_AR) = (Uint16)addr;
     data = *((volatile Uint16*)IDM_DR);
     return data;
+#endif
 #endif
 }
 
@@ -147,30 +152,37 @@ Uint16 c2837x_w5300_read16(Uint32 addr)
 #endif
 void c2837x_w5300_write16(Uint32 addr, Uint16 data)
 {
+#ifdef C2837X_W5300_HOST_TEST
+    extern void c2837x_w5300_host_write16(Uint32 address, Uint16 value);
+    c2837x_w5300_host_write16(addr, data);
+#else
 #if (C2837X_W5300_ADDRESS_MODE == C2837X_W5300_DIRECT_MODE)
     (*((volatile Uint16*)(addr))) = data;
 #else
     *((volatile Uint16*)IDM_AR) = addr;
     *((volatile Uint16*)IDM_DR) = data;
 #endif
+#endif
 }
 
 #if __TI_COMPILER_VERSION__ >= 15009000
-    #pragma CODE_SECTION(c2837x_w5300_set_sn_cr, ".TI.ramfunc");
+    #pragma CODE_SECTION(c2837x_w5300_issue_sn_cr, ".TI.ramfunc");
 #else
-    #pragma CODE_SECTION(c2837x_w5300_set_sn_cr, "ramfuncs");
+    #pragma CODE_SECTION(c2837x_w5300_issue_sn_cr, "ramfuncs");
 #endif
-int16 c2837x_w5300_set_sn_cr(Uint16 sn, Uint16 data)
+int16 c2837x_w5300_issue_sn_cr(Uint16 sn, Uint16 command)
 {
-    const Uint32 SN_CR_TIMEOUT = 1000000U;
-    Uint32 t = SN_CR_TIMEOUT;
-
-    c2837x_w5300_write8(Sn_CR(sn), data);
-    while (c2837x_w5300_read8(Sn_CR(sn)))
-    {
-        if (--t == 0) return -1;
-    }
+    if ((sn >= C2837X_W5300_MAX_SOCK_NUM) || (command == 0u))
+        return -1;
+    c2837x_w5300_write8(Sn_CR(sn), command);
     return 0;
+}
+
+int16 c2837x_w5300_poll_sn_cr(Uint16 sn)
+{
+    if (sn >= C2837X_W5300_MAX_SOCK_NUM)
+        return -1;
+    return (c2837x_w5300_read8(Sn_CR(sn)) == 0u) ? 1 : 0;
 }
 
 #if __TI_COMPILER_VERSION__ >= 15009000
@@ -178,14 +190,25 @@ int16 c2837x_w5300_set_sn_cr(Uint16 sn, Uint16 data)
 #else
     #pragma CODE_SECTION(c2837x_w5300_get_sn_tx_fsr, "ramfuncs");
 #endif
-Uint32 c2837x_w5300_get_sn_tx_fsr(Uint16 sn)
+int16 c2837x_w5300_get_sn_tx_fsr(Uint16 sn, Uint32 *value)
 {
-    Uint32 v1, v2;
-    do {
+    Uint16 attempt;
+    Uint32 v1;
+    Uint32 v2;
+
+    if ((sn >= C2837X_W5300_MAX_SOCK_NUM) || (value == 0))
+        return -1;
+    for (attempt = 0u; attempt < C2837X_W5300_STABLE_READ_ATTEMPTS; attempt++)
+    {
         v1 = ((Uint32)c2837x_w5300_read16(Sn_TX_FSR(sn)) << 16) | c2837x_w5300_read16(Sn_TX_FSR2(sn));
         v2 = ((Uint32)c2837x_w5300_read16(Sn_TX_FSR(sn)) << 16) | c2837x_w5300_read16(Sn_TX_FSR2(sn));
-    } while (v1 != v2);
-    return v1;
+        if (v1 == v2)
+        {
+            *value = v1;
+            return 0;
+        }
+    }
+    return -1;
 }
 
 #if __TI_COMPILER_VERSION__ >= 15009000
@@ -193,14 +216,25 @@ Uint32 c2837x_w5300_get_sn_tx_fsr(Uint16 sn)
 #else
     #pragma CODE_SECTION(c2837x_w5300_get_sn_rx_rsr, "ramfuncs");
 #endif
-Uint32 c2837x_w5300_get_sn_rx_rsr(Uint16 sn)
+int16 c2837x_w5300_get_sn_rx_rsr(Uint16 sn, Uint32 *value)
 {
-    Uint32 v1, v2;
-    do {
+    Uint16 attempt;
+    Uint32 v1;
+    Uint32 v2;
+
+    if ((sn >= C2837X_W5300_MAX_SOCK_NUM) || (value == 0))
+        return -1;
+    for (attempt = 0u; attempt < C2837X_W5300_STABLE_READ_ATTEMPTS; attempt++)
+    {
         v1 = ((Uint32)c2837x_w5300_read16(Sn_RX_RSR(sn)) << 16) | c2837x_w5300_read16(Sn_RX_RSR2(sn));
         v2 = ((Uint32)c2837x_w5300_read16(Sn_RX_RSR(sn)) << 16) | c2837x_w5300_read16(Sn_RX_RSR2(sn));
-    } while (v1 != v2);
-    return v1;
+        if (v1 == v2)
+        {
+            *value = v1;
+            return 0;
+        }
+    }
+    return -1;
 }
 
 #if __TI_COMPILER_VERSION__ >= 15009000

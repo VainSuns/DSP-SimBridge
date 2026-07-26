@@ -4,21 +4,34 @@
 /*
  * W5300 socket abstraction for C2837xBlock project.
  * Provides TCP stream send/recv without PIL packet-length semantics.
- * All functions are non-blocking or short-timeout.
+ * Run-reachable operations do bounded work per call. Platform initialization
+ * retains the datasheet reset delays. SEND_OK is deferred to S2-05 and the
+ * complete W5300 close erratum sequence is deferred to S2-06.
  */
 
 #include "F28x_Project.h"
 #include "c2837x_w5300_hal.h"
 
+typedef enum {
+    C2837X_W5300_COMMAND_NONE = 0,
+    C2837X_W5300_COMMAND_OPEN,
+    C2837X_W5300_COMMAND_LISTEN,
+    C2837X_W5300_COMMAND_RECV,
+    C2837X_W5300_COMMAND_SEND,
+    C2837X_W5300_COMMAND_DISCONNECT,
+    C2837X_W5300_COMMAND_CLOSE
+} C2837xW5300PendingCommand;
+
 typedef struct {
     Uint16 sn;                    /* socket number (0-7) */
     Uint32 tx_mem_size;           /* TX buffer size in bytes */
     Uint32 rx_mem_size;           /* RX buffer size in bytes */
+    C2837xW5300PendingCommand pending_command;
 } C2837xW5300Socket;
 
 /*
  * Open a socket with the given protocol, port, and flags.
- * Returns 0 on success, negative on error.
+ * Returns >0 when complete, 0 while advancing, negative on error.
  */
 int16 c2837x_w5300_socket_open(C2837xW5300Socket* sk,
                                 Uint16 protocol,
@@ -26,15 +39,15 @@ int16 c2837x_w5300_socket_open(C2837xW5300Socket* sk,
                                 Uint16 flags);
 
 /*
- * Close a socket. Non-blocking: does not wait for TX buffer to drain.
- * Returns 0 on success, negative on error.
+ * Close a socket without TX drain, delays, or the S2-06 erratum sequence.
+ * Returns >0 when closed, 0 while advancing, negative on error.
  */
 int16 c2837x_w5300_socket_close(C2837xW5300Socket* sk);
 
 /*
  * Put socket into TCP LISTEN mode.
  * Socket must be in SOCK_INIT state.
- * Returns 0 on success, negative on error.
+ * Returns >0 when complete, 0 while advancing, negative on error.
  */
 int16 c2837x_w5300_socket_listen(C2837xW5300Socket* sk);
 
@@ -54,7 +67,7 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket* sk,
  * Disconnect a socket.
  * @param sk  Pointer to the socket structure.
  */
-void c2837x_w5300_socket_disconnect(C2837xW5300Socket* sk);
+int16 c2837x_w5300_socket_disconnect(C2837xW5300Socket* sk);
 
 /*
  * Receive TCP data. Reads whatever is available in the RX FIFO,
@@ -76,15 +89,5 @@ static inline Uint16 c2837x_w5300_socket_get_status(const C2837xW5300Socket* sk)
 {
     return c2837x_w5300_read8(Sn_SSR(sk->sn));
 }
-
-/*
- * Get TX free size in bytes.
- */
-Uint32 c2837x_w5300_socket_get_tx_free(const C2837xW5300Socket* sk);
-
-/*
- * Get RX received size in bytes.
- */
-Uint32 c2837x_w5300_socket_get_rx_size(const C2837xW5300Socket* sk);
 
 #endif /* C2837X_W5300_SOCKET_H */

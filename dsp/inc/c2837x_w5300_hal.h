@@ -19,6 +19,9 @@
 #define C2837X_W5300_SOCKET_MEMORY_BYTES  \
     (C2837X_W5300_SOCKET_MEMORY_KB * 1024u)
 
+/* Project bound for volatile 32-bit size-register snapshots. */
+#define C2837X_W5300_STABLE_READ_ATTEMPTS 3u
+
 /* ---- FIFO byte-swap flag ---- */
 extern Uint16 c2837x_w5300_fifo_swap;
 
@@ -41,8 +44,12 @@ static inline void c2837x_w5300_write8(Uint32 addr, Uint16 data)
     c2837x_w5300_write16(addr, data & 0x00FFu);
 }
 
-/* ---- Socket command helper ---- */
-int16 c2837x_w5300_set_sn_cr(Uint16 sn, Uint16 data);
+/* ---- Bounded socket command helpers ----
+ * issue: one Sn_CR write, 0 on success, negative on local error.
+ * poll:  one Sn_CR read, >0 when clear, 0 while busy, negative on error.
+ */
+int16 c2837x_w5300_issue_sn_cr(Uint16 sn, Uint16 command);
+int16 c2837x_w5300_poll_sn_cr(Uint16 sn);
 
 /* ---- Socket register inline helpers ---- */
 static inline Uint16 c2837x_w5300_is_socket_status(Uint16 status)
@@ -124,8 +131,8 @@ static inline void c2837x_w5300_set_shar(Uint16 mac01, Uint16 mac23, Uint16 mac4
 }
 
 /* ---- Multi-read register helpers ---- */
-Uint32 c2837x_w5300_get_sn_tx_fsr(Uint16 sn);
-Uint32 c2837x_w5300_get_sn_rx_rsr(Uint16 sn);
+int16 c2837x_w5300_get_sn_tx_fsr(Uint16 sn, Uint32 *value);
+int16 c2837x_w5300_get_sn_rx_rsr(Uint16 sn, Uint32 *value);
 
 /* ---- FIFO stream I/O ----
  *

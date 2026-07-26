@@ -6,6 +6,7 @@ static void channel_init(void *channel_ref)
     C2837xW5300Channel *channel = (C2837xW5300Channel *)channel_ref;
 
     channel->connected = 0u;
+    channel->socket.pending_command = C2837X_W5300_COMMAND_NONE;
     channel->send_state = C2837X_W5300_SEND_IDLE;
     channel->pending_octets = 0u;
     channel->closing = 0u;
@@ -95,25 +96,16 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
 static int16 close_channel(void *channel_ref)
 {
     C2837xW5300Channel *channel = (C2837xW5300Channel *)channel_ref;
-    Uint16 status;
+    int16 result;
 
-    status = c2837x_w5300_get_sn_ssr(channel->socket.sn);
-    if (status == SOCK_CLOSED)
+    result = c2837x_w5300_socket_close(&channel->socket);
+    if (result > 0)
     {
         channel->closing = 0u;
         return 1;
     }
-
     channel->closing = 1u;
-    if (status == SOCK_CLOSE_WAIT)
-    {
-        c2837x_w5300_socket_disconnect(&channel->socket);
-        return 0;
-    }
-
-    if (c2837x_w5300_socket_close(&channel->socket) < 0)
-        return -1;
-    return 0;
+    return result;
 }
 
 const C2837xBlock_IoDeviceOps c2837x_w5300_iodevice_ops = {

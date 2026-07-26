@@ -60,28 +60,31 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket *socket,
 int16 c2837x_w5300_socket_close(C2837xW5300Socket *socket)
 {
     close_calls[socket->sn]++;
-    return 0;
+    return (socket_status[socket->sn] == SOCK_CLOSED) ? 1 : 0;
 }
-void c2837x_w5300_socket_disconnect(C2837xW5300Socket *socket)
+int16 c2837x_w5300_socket_disconnect(C2837xW5300Socket *socket)
 {
     disconnect_calls[socket->sn]++;
+    return 0;
 }
 
 int main(void)
 {
     C2837xW5300Channel first = {
-        {1u, 8192u, 8192u}, 5001u, 0u,
+        {1u, 8192u, 8192u, C2837X_W5300_COMMAND_NONE}, 5001u, 0u,
         C2837X_W5300_SEND_IDLE, 0u, 0u, 0u};
     C2837xW5300Channel second = {
-        {6u, 8192u, 8192u}, 5006u, 0u,
+        {6u, 8192u, 8192u, C2837X_W5300_COMMAND_NONE}, 5006u, 0u,
         C2837X_W5300_SEND_IDLE, 0u, 0u, 0u};
     Uint16 words[4] = {0u};
 
     first.send_state = C2837X_W5300_SEND_PENDING;
+    first.socket.pending_command = C2837X_W5300_COMMAND_SEND;
     first.pending_octets = 8u;
     first.closing = 1u;
     first.faulted = 1u;
     second.send_state = C2837X_W5300_SEND_PENDING;
+    second.socket.pending_command = C2837X_W5300_COMMAND_RECV;
     second.pending_octets = 12u;
     second.closing = 1u;
     second.faulted = 1u;
@@ -90,9 +93,11 @@ int main(void)
     assert(first.socket.sn == 1u && first.tcp_port == 5001u);
     assert(first.socket.tx_mem_size == 8192u && first.socket.rx_mem_size == 8192u);
     assert(first.connected == 0u);
+    assert(first.socket.pending_command == C2837X_W5300_COMMAND_NONE);
     assert(first.send_state == C2837X_W5300_SEND_IDLE);
     assert(first.pending_octets == 0u && first.closing == 0u && first.faulted == 0u);
     assert(second.socket.sn == 6u && second.tcp_port == 5006u);
+    assert(second.socket.pending_command == C2837X_W5300_COMMAND_RECV);
     assert(second.send_state == C2837X_W5300_SEND_PENDING);
     assert(second.pending_octets == 12u && second.closing == 1u && second.faulted == 1u);
 
@@ -138,7 +143,7 @@ int main(void)
     assert(c2837x_w5300_iodevice_ops.close(&first) > 0);
     socket_status[6] = SOCK_ESTABLISHED;
     assert(c2837x_w5300_iodevice_ops.close(&second) == 0);
-    assert(close_calls[6] == 1u && close_calls[1] == 0u);
+    assert(close_calls[6] == 1u && close_calls[1] == 1u);
     assert(disconnect_calls[1] == 0u && disconnect_calls[6] == 0u);
     assert(second.closing == 1u && first.closing == 0u);
     return 0;
