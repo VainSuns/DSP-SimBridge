@@ -1,1042 +1,838 @@
 classdef C2837xBlockConfigurator < handle
-%C2837XBLOCKCONFIGURATOR  MATLAB App for C2837xBlock configuration and code generation.
-%
-%   Usage:
-%     app = C2837xBlockConfigurator;
-%
-%   Generates DSP-side and PC-side configuration files from a GUI.
+%C2837XBLOCKCONFIGURATOR Multi-instance DSP-SimBridge configurator.
 
-    properties (Access = private)
-        UIFigure           matlab.ui.Figure
-        MainGrid           matlab.ui.container.GridLayout
-
-        % Left panel
-        InputLabel          matlab.ui.control.Label
-        InputTable          matlab.ui.control.Table
-        AddInputBtn         matlab.ui.control.Button
-        RemoveInputBtn      matlab.ui.control.Button
-        RemoveAllInputBtn   matlab.ui.control.Button
-        OutputLabel         matlab.ui.control.Label
-        OutputTable         matlab.ui.control.Table
-        AddOutputBtn        matlab.ui.control.Button
-        RemoveOutputBtn     matlab.ui.control.Button
-        RemoveAllOutputBtn  matlab.ui.control.Button
-        ReportLabel         matlab.ui.control.Label
-        ReportArea          matlab.ui.control.TextArea
-
-        % Right panel - Network
-        NetPanel            matlab.ui.container.Panel
-        IpField             matlab.ui.control.EditField
-        GatewayField        matlab.ui.control.EditField
-        SubnetField         matlab.ui.control.EditField
-        PortField           matlab.ui.control.NumericEditField
-        SocketField         matlab.ui.control.DropDown
-        MacField            matlab.ui.control.EditField
-
-        % Right panel - Settings
-        SettingsPanel       matlab.ui.container.Panel
-        SampleTimeField     matlab.ui.control.NumericEditField
-        AbiDropDown         matlab.ui.control.DropDown
-        DoubleDropDown      matlab.ui.control.DropDown
-        MaxPayloadField     matlab.ui.control.NumericEditField
-        SocketTxField       matlab.ui.control.NumericEditField
-        SocketRxField       matlab.ui.control.NumericEditField
-
-        % Right panel - Paths
-        PathPanel           matlab.ui.container.Panel
-        DspPathField        matlab.ui.control.EditField
-        DspPathBtn          matlab.ui.control.Button
-        PcPathField         matlab.ui.control.EditField
-        PcPathBtn           matlab.ui.control.Button
-
-        % Actions
-        GenerateBtn         matlab.ui.control.Button
-        SaveBtn             matlab.ui.control.Button
-        LoadBtn             matlab.ui.control.Button
-        PreviewBtn          matlab.ui.control.Button
-
-        % Output
-        HashArea            matlab.ui.control.TextArea
-        StatusLabel         matlab.ui.control.Label
+    properties (SetAccess = private)
+        UIFigure
         ProjectSession
+        Coordinator
     end
 
-    methods (Access = public)
-        function app = C2837xBlockConfigurator()
+    properties (Access = private)
+        GenerateButton
+        StatusLabel
+        CommonFields
+        InstanceTable
+        DetailFields
+        SourcePathGrid
+        InputTable
+        OutputTable
+        IssueTable
+        ReportArea
+        CandidateTable
+        CandidateArea
+        ResultArea
+        SelectedInstance = 0
+        Updating = false
+    end
+
+    methods
+        function app = C2837xBlockConfigurator(options)
+            if nargin < 1
+                options = struct('visible', 'on', 'preview_provider', []);
+            else
+                options = validate_options(options);
+            end
             app.ProjectSession = c2837x_block_project_session();
-            createComponents(app);
-            loadDefaultConfig(app);
-            updateReport(app);
+            app.Coordinator = c2837x_block_app_coordinator( ...
+                app.ProjectSession, options.preview_provider);
+            app.createComponents(options.visible);
+            app.refreshAll();
         end
 
         function delete(app)
-            if isvalid(app.UIFigure)
+            if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
                 delete(app.UIFigure);
             end
         end
     end
 
     methods (Access = private)
+        function createComponents(app, visible)
+            app.UIFigure = uifigure('Name', 'C2837xBlock Configurator', ...
+                'Visible', visible, 'Position', [50 50 1400 850], ...
+                'CloseRequestFcn', @(src, ~) app.closeRequested(src));
+            root = uigridlayout(app.UIFigure, [4 1]);
+            root.RowHeight = {36, 190, '1x', 24};
+            root.Padding = [8 8 8 8];
 
-        %% ---- Close callback ----
-        function closeApp(app, src)
-            if confirmDiscardChanges(app)
-                delete(src);
+            toolbar = uigridlayout(root, [1 5]);
+            toolbar.ColumnWidth = {90, 90, 90, 90, '1x'};
+            uibutton(toolbar, 'Text', 'Save', ...
+                'ButtonPushedFcn', @(~, ~) app.saveRequested());
+            uibutton(toolbar, 'Text', 'Load', ...
+                'ButtonPushedFcn', @(~, ~) app.loadRequested());
+            uibutton(toolbar, 'Text', 'Preview', ...
+                'ButtonPushedFcn', @(~, ~) app.previewRequested());
+            app.GenerateButton = uibutton(toolbar, 'Text', 'Generate', ...
+                'Enable', 'off', ...
+                'ButtonPushedFcn', @(~, ~) app.generateRequested());
+
+            commonPanel = uipanel(root, 'Title', 'Project Common Configuration');
+            common = uigridlayout(commonPanel, [5 4]);
+            common.ColumnWidth = {130, '1x', 150, '1x'};
+            labels = {'DSP Model', 'Protocol Version', 'ABI', 'MAC', ...
+                'IP', 'Gateway', 'Subnet', 'DSP Output Root', ...
+                'S-Function Output Root'};
+            keys = {'dsp_model', 'protocol_version', 'abi', 'mac', 'ip', ...
+                'gateway', 'subnet', 'dsp_root', 'sfun_root'};
+            app.CommonFields = struct();
+            for index = 1:numel(keys)
+                uilabel(common, 'Text', labels{index});
+                if strcmp(keys{index}, 'abi')
+                    field = uidropdown(common, 'Items', {'eabi', 'coffabi'});
+                elseif any(strcmp(keys{index}, {'dsp_root', 'sfun_root'}))
+                    pathGrid = uigridlayout(common, [1 2]);
+                    pathGrid.ColumnWidth = {'1x', 70};
+                    pathGrid.Padding = [0 0 0 0];
+                    field = uieditfield(pathGrid, 'text');
+                    uibutton(pathGrid, 'Text', 'Browse', ...
+                        'ButtonPushedFcn', @(~, ~) app.browseOutput(keys{index}));
+                else
+                    field = uieditfield(common, 'text');
+                end
+                field.ValueChangedFcn = @(~, ~) app.commonEdited(keys{index});
+                app.CommonFields.(keys{index}) = field;
             end
+            app.CommonFields.dsp_model.Editable = 'off';
+            app.CommonFields.protocol_version.Editable = 'off';
+
+            tabs = uitabgroup(root);
+            app.createInstancesTab(uitab(tabs, 'Title', 'Instances'));
+            app.createIssuesTab(uitab(tabs, 'Title', 'Issues / Hash'));
+            app.createCandidatesTab(uitab(tabs, 'Title', 'Candidate Preview'));
+
+            app.StatusLabel = uilabel(root, 'Text', 'Ready');
         end
 
-        %% ---- Collect config from UI ----
-        function config = collectConfig(app)
-            config.protocol_version = uint16(1);
-            config.abi = app.AbiDropDown.Value;
-            config.dsp_ip = strtrim(app.IpField.Value);
-            config.gateway = strtrim(app.GatewayField.Value);
-            config.subnet = strtrim(app.SubnetField.Value);
-            config.tcp_port = round(app.PortField.Value);
-            config.socket_num = str2double(app.SocketField.Value);
-            config.sample_time_sec = app.SampleTimeField.Value;
-            config.max_payload_size_bytes = round(app.MaxPayloadField.Value);
-            config.socket0_tx_kb = round(app.SocketTxField.Value);
-            config.socket0_rx_kb = round(app.SocketRxField.Value);
-            config.double_mode = app.DoubleDropDown.Value;
+        function createInstancesTab(app, tab)
+            grid = uigridlayout(tab, [1 3]);
+            grid.ColumnWidth = {'2x', '2x', '3x'};
+            listPanel = uipanel(grid, 'Title', 'Instances');
+            listGrid = uigridlayout(listPanel, [2 1]);
+            listGrid.RowHeight = {'1x', 30};
+            app.InstanceTable = uitable(listGrid, 'ColumnName', ...
+                {'Display Name', 'Internal Name', 'IoDevice', 'Socket', ...
+                'TCP Port', 'Sample Time'}, 'ColumnEditable', false(1, 6), ...
+                'CellSelectionCallback', @(~, event) app.instanceSelected(event));
+            buttons = uigridlayout(listGrid, [1 3]);
+            uibutton(buttons, 'Text', 'Add', ...
+                'ButtonPushedFcn', @(~, ~) app.addInstance());
+            uibutton(buttons, 'Text', 'Copy', ...
+                'ButtonPushedFcn', @(~, ~) app.copyInstance());
+            uibutton(buttons, 'Text', 'Delete', ...
+                'ButtonPushedFcn', @(~, ~) app.deleteInstance());
 
-            % MAC
-            mac_str = strrep(strtrim(app.MacField.Value), ':', '');
-            mac_bytes = uint8(hex2dec(reshape(mac_str, 2, [])'));
-            config.mac = mac_bytes(:)';
-
-            % Inputs
-            in_data = app.InputTable.Data;
-            config.inputs = struct('name', {}, 'type', {}, 'dim', {});
-            for i = 1:size(in_data, 1)
-                config.inputs(i).name = strtrim(in_data{i, 1});
-                config.inputs(i).type = strtrim(in_data{i, 2});
-                config.inputs(i).dim  = round(in_data{i, 3});
+            detailPanel = uipanel(grid, 'Title', 'Instance Detail');
+            detail = uigridlayout(detailPanel, [9 2]);
+            detail.ColumnWidth = {140, '1x'};
+            detailKeys = {'display_name', 'internal_name', 'iodevice', ...
+                'socket', 'port', 'sample_time', 'max_payload', ...
+                'algorithm_mode', 'source_path'};
+            detailLabels = {'Display Name', 'Internal Name', 'IoDevice', ...
+                'Socket', 'TCP Port', 'Sample Time', 'Max Payload', ...
+                'Algorithm Mode', 'External Source Path'};
+            app.DetailFields = struct();
+            for index = 1:numel(detailKeys)
+                uilabel(detail, 'Text', detailLabels{index});
+                key = detailKeys{index};
+                if strcmp(key, 'socket')
+                    field = uidropdown(detail, 'Items', compose('%u', 0:7));
+                elseif strcmp(key, 'algorithm_mode')
+                    field = uidropdown(detail, 'Items', ...
+                        {'generated_example', 'external_copy', 'external_reference'});
+                elseif any(strcmp(key, {'port', 'sample_time', 'max_payload'}))
+                    field = uieditfield(detail, 'numeric');
+                elseif strcmp(key, 'source_path')
+                    pathGrid = uigridlayout(detail, [1 2]);
+                    pathGrid.ColumnWidth = {'1x', 70};
+                    pathGrid.Padding = [0 0 0 0];
+                    app.SourcePathGrid = pathGrid;
+                    field = uieditfield(pathGrid, 'text');
+                    uibutton(pathGrid, 'Text', 'Browse', ...
+                        'ButtonPushedFcn', @(~, ~) app.browseSource());
+                else
+                    field = uieditfield(detail, 'text');
+                end
+                field.ValueChangedFcn = @(~, ~) app.detailEdited();
+                app.DetailFields.(key) = field;
             end
+            app.DetailFields.iodevice.Editable = 'off';
 
-            % Outputs
-            out_data = app.OutputTable.Data;
-            config.outputs = struct('name', {}, 'type', {}, 'dim', {});
-            for i = 1:size(out_data, 1)
-                config.outputs(i).name = strtrim(out_data{i, 1});
-                config.outputs(i).type = strtrim(out_data{i, 2});
-                config.outputs(i).dim  = round(out_data{i, 3});
-            end
-
-            config.dsp_output_path = strtrim(app.DspPathField.Value);
-            config.pc_output_path  = strtrim(app.PcPathField.Value);
+            ioPanel = uipanel(grid, 'Title', 'Inputs / Outputs');
+            io = uigridlayout(ioPanel, [6 1]);
+            io.RowHeight = {22, '1x', 30, 22, '1x', 30};
+            uilabel(io, 'Text', 'Inputs', 'FontWeight', 'bold');
+            app.InputTable = app.variableTable(io);
+            app.variableButtons(io, 'input');
+            uilabel(io, 'Text', 'Outputs', 'FontWeight', 'bold');
+            app.OutputTable = app.variableTable(io);
+            app.variableButtons(io, 'output');
         end
 
-        %% ---- Validate config (shared by generate and preview) ----
-        function errMsg = validateConfig(~, config)
-            errMsg = '';
-
-            % Double type requires double_mode = eabi64
-            if strcmp(config.double_mode, 'disabled')
-                has_double = any(strcmp({config.inputs.type}, 'double')) || ...
-                             any(strcmp({config.outputs.type}, 'double'));
-                if has_double
-                    errMsg = 'Variable type "double" requires Double Mode = eabi64.';
-                    return;
-                end
-            end
-
-            % Numeric range checks
-            if config.tcp_port < 1 || config.tcp_port > 65535 || isnan(config.tcp_port)
-                errMsg = 'TCP Port must be 1..65535.';
-                return;
-            end
-            if config.sample_time_sec <= 0 || isnan(config.sample_time_sec)
-                errMsg = 'Sample Time must be positive.';
-                return;
-            end
-            if config.max_payload_size_bytes < 1 || config.max_payload_size_bytes > 65535 || isnan(config.max_payload_size_bytes)
-                errMsg = 'Max Payload must be 1..65535.';
-                return;
-            end
-            if mod(config.max_payload_size_bytes, 2) ~= 0
-                errMsg = 'Max Payload must be even.';
-                return;
-            end
-
-            % Variable dim checks
-            for i = 1:numel(config.inputs)
-                d = config.inputs(i).dim;
-                if d < 1 || isnan(d) || d ~= floor(d)
-                    errMsg = sprintf('Input "%s" dim must be a positive integer.', config.inputs(i).name);
-                    return;
-                end
-            end
-            for i = 1:numel(config.outputs)
-                d = config.outputs(i).dim;
-                if d < 1 || isnan(d) || d ~= floor(d)
-                    errMsg = sprintf('Output "%s" dim must be a positive integer.', config.outputs(i).name);
-                    return;
-                end
-            end
-
-            % Port count validation
-            if numel(config.inputs) < 1
-                errMsg = 'At least 1 input variable is required.';
-                return;
-            end
-            if numel(config.outputs) < 1
-                errMsg = 'At least 1 output variable is required.';
-                return;
-            end
-
-            % IP address validation
-            [ok, msg] = validate_ip(config.dsp_ip, 'DSP IP');
-            if ~ok, errMsg = msg; return; end
-            [ok, msg] = validate_ip(config.gateway, 'Gateway');
-            if ~ok, errMsg = msg; return; end
-            [ok, msg] = validate_ip(config.subnet, 'Subnet');
-            if ~ok, errMsg = msg; return; end
-
-            % Payload size validation
-            in_data_bytes = 0;
-            for i = 1:numel(config.inputs)
-                in_data_bytes = in_data_bytes + type_wire_bytes(config.inputs(i).type) * config.inputs(i).dim;
-            end
-            out_data_bytes = 0;
-            for i = 1:numel(config.outputs)
-                out_data_bytes = out_data_bytes + type_wire_bytes(config.outputs(i).type) * config.outputs(i).dim;
-            end
-            in_payload = 4 + in_data_bytes;
-            out_payload = 4 + out_data_bytes;
-
-            if in_payload > config.max_payload_size_bytes
-                errMsg = sprintf('Input payload (%d bytes) exceeds max payload (%d).', ...
-                          in_payload, config.max_payload_size_bytes);
-                return;
-            end
-            if out_payload > config.max_payload_size_bytes
-                errMsg = sprintf('Output payload (%d bytes) exceeds max payload (%d).', ...
-                          out_payload, config.max_payload_size_bytes);
-                return;
-            end
-            if mod(in_payload, 2) ~= 0
-                errMsg = 'Input payload size must be even.';
-                return;
-            end
-            if mod(out_payload, 2) ~= 0
-                errMsg = 'Output payload size must be even.';
-                return;
-            end
-
-            % Output path validation
-            errMsg = validate_output_path(config.dsp_output_path, 'DSP Output');
-            if ~isempty(errMsg), return; end
-            errMsg = validate_output_path(config.pc_output_path, 'PC Output');
-            if ~isempty(errMsg), return; end
+        function table = variableTable(app, parent)
+            table = uitable(parent, 'ColumnName', {'Name', 'Type', 'Dim'}, ...
+                'ColumnFormat', {'char', {'int16', 'uint16', 'int32', ...
+                'uint32', 'single', 'double'}, 'numeric'}, ...
+                'ColumnEditable', true(1, 3), ...
+                'CellEditCallback', @(~, ~) app.variablesEdited());
         end
 
-        %% ---- Load default Phase 1 config ----
-        function loadDefaultConfig(app)
-            app.IpField.Value       = '192.168.1.100';
-            app.GatewayField.Value  = '192.168.1.1';
-            app.SubnetField.Value   = '255.255.255.0';
-            app.PortField.Value     = 5000;
-            app.SocketField.Value   = '0';
-            app.MacField.Value      = '00:08:DC:01:02:03';
-            app.SampleTimeField.Value = 1e-4;
-            app.AbiDropDown.Value   = 'eabi';
-            app.DoubleDropDown.Value = 'disabled';
-            app.MaxPayloadField.Value = 1024;
-            app.SocketTxField.Value = 64;
-            app.SocketRxField.Value = 64;
-            app.DspPathField.Value  = '';
-            app.PcPathField.Value   = '';
-
-            app.InputTable.Data = {
-                'a', 'int16', 1;
-                'b', 'int16', 1;
-                'c', 'int16', 1;
-            };
-            app.OutputTable.Data = {
-                'sum', 'int16', 1;
-            };
+        function variableButtons(app, parent, direction)
+            buttons = uigridlayout(parent, [1 4]);
+            uibutton(buttons, 'Text', 'Add', 'ButtonPushedFcn', ...
+                @(~, ~) app.changeVariable(direction, 'add'));
+            uibutton(buttons, 'Text', 'Remove', 'ButtonPushedFcn', ...
+                @(~, ~) app.changeVariable(direction, 'remove'));
+            uibutton(buttons, 'Text', 'Move Up', 'ButtonPushedFcn', ...
+                @(~, ~) app.changeVariable(direction, 'up'));
+            uibutton(buttons, 'Text', 'Move Down', 'ButtonPushedFcn', ...
+                @(~, ~) app.changeVariable(direction, 'down'));
         end
 
-        %% ---- Update offset report ----
-        function updateReport(app)
-            config = collectConfig(app);
-            L = {};
+        function createIssuesTab(app, tab)
+            grid = uigridlayout(tab, [1 2]);
+            grid.ColumnWidth = {'3x', '2x'};
+            app.IssueTable = uitable(grid, 'ColumnName', ...
+                {'Severity', 'Code', 'Instance', 'Field', 'File', 'Message'}, ...
+                'ColumnEditable', false(1, 6), ...
+                'CellSelectionCallback', @(~, event) app.issueSelected(event));
+            app.ReportArea = uitextarea(grid, 'Editable', 'off', ...
+                'FontName', 'Consolas');
+        end
 
-            % Validate names first
-            all_names = {};
-            for i = 1:numel(config.inputs)
-                all_names{end+1} = config.inputs(i).name; %#ok<AGROW>
-            end
-            for i = 1:numel(config.outputs)
-                all_names{end+1} = config.outputs(i).name; %#ok<AGROW>
-            end
+        function createCandidatesTab(app, tab)
+            grid = uigridlayout(tab, [3 1]);
+            grid.RowHeight = {'2x', '1x', '1x'};
+            app.CandidateTable = uitable(grid, 'ColumnName', ...
+                {'Target Path', 'Category', 'Owner', 'Instance', 'State', ...
+                'Selected Action', 'Mandatory', 'Existing Octets', ...
+                'Candidate Octets'}, 'ColumnEditable', ...
+                [false false false false false true false false false], ...
+                'CellEditCallback', @(~, event) app.candidateEdited(event), ...
+                'CellSelectionCallback', @(~, event) app.candidateSelected(event));
+            app.CandidateArea = uitextarea(grid, 'Editable', 'off', ...
+                'FontName', 'Consolas');
+            app.ResultArea = uitextarea(grid, 'Editable', 'off', ...
+                'FontName', 'Consolas');
+        end
 
-            has_error = false;
-            checked = {};
-            for i = 1:numel(all_names)
-                [valid, msg] = c2837x_block_validate_name(all_names{i}, checked);
-                if ~valid
-                    L{end+1} = sprintf('ERROR: %s', msg); %#ok<AGROW>
-                    has_error = true;
-                end
-                checked{end+1} = all_names{i}; %#ok<AGROW>
-            end
+        function refreshAll(app)
+            app.Updating = true;
+            cleaner = onCleanup(@() app.finishRefresh());
+            project = app.ProjectSession.Project;
+            app.CommonFields.dsp_model.Value = project.common.dsp_model;
+            app.CommonFields.protocol_version.Value = ...
+                sprintf('%u', project.common.protocol_version);
+            app.CommonFields.abi.Value = project.common.abi;
+            app.CommonFields.mac.Value = format_mac(project.common.network.mac);
+            app.CommonFields.ip.Value = project.common.network.ip;
+            app.CommonFields.gateway.Value = project.common.network.gateway;
+            app.CommonFields.subnet.Value = project.common.network.subnet;
+            app.CommonFields.dsp_root.Value = project.output.dsp_root;
+            app.CommonFields.sfun_root.Value = project.output.sfun_root;
+            app.refreshInstances();
+            app.showIssues(app.Coordinator.validateProject('instant'));
+            app.refreshReport();
+            clear cleaner
+        end
 
-            % Build name lists and compute max width
-            in_names = cell(1, 1 + numel(config.inputs));
-            in_names{1} = 'step_index';
-            for i = 1:numel(config.inputs)
-                v = config.inputs(i);
-                if v.dim == 1
-                    in_names{i+1} = sprintf('input.%s', v.name);
-                else
-                    in_names{i+1} = sprintf('input.%s[%d]', v.name, v.dim);
-                end
-            end
-            max_in = max(cellfun(@length, in_names));
+        function finishRefresh(app)
+            app.Updating = false;
+        end
 
-            out_names = cell(1, 1 + numel(config.outputs));
-            out_names{1} = 'step_index';
-            for i = 1:numel(config.outputs)
-                v = config.outputs(i);
-                if v.dim == 1
-                    out_names{i+1} = sprintf('output.%s', v.name);
-                else
-                    out_names{i+1} = sprintf('output.%s[%d]', v.name, v.dim);
-                end
+        function refreshInstances(app)
+            instances = app.ProjectSession.Project.instances;
+            data = cell(numel(instances), 6);
+            for index = 1:numel(instances)
+                value = instances(index);
+                data(index, :) = {value.display_name, value.internal_name, ...
+                    value.iodevice.type, double(value.iodevice.settings.socket_number), ...
+                    double(value.iodevice.settings.tcp_port), value.sample_time_sec};
             end
-            max_out = max(cellfun(@length, out_names));
-
-            % INPUT_DATA payload (compact: name | byte range | word range)
-            L{end+1} = 'INPUT_DATA payload:';
-            L{end+1} = sprintf('  %-*s  %-10s  %s', max_in, 'Name', 'Bytes', 'Words');
-            L{end+1} = sprintf('  %s', repmat('-', 1, max_in + 16));
-            off_b = 0;
-            off_w = 0;
-            for idx = 1:numel(in_names)
-                nm = in_names{idx};
-                if idx == 1
-                    sz = 4; ws = 2;
-                else
-                    v = config.inputs(idx - 1);
-                    sz = type_wire_bytes(v.type) * v.dim;
-                    ws = sz / 2;
-                end
-                if sz == 2
-                    byte_str = sprintf('%d', off_b);
-                else
-                    byte_str = sprintf('%d..%d', off_b, off_b + sz - 1);
-                end
-                if ws == 1
-                    word_str = sprintf('%d', off_w);
-                else
-                    word_str = sprintf('%d..%d', off_w, off_w + ws - 1);
-                end
-                L{end+1} = sprintf('  %-*s  %-10s  %s', max_in, nm, byte_str, word_str);
-                off_b = off_b + sz;
-                off_w = off_w + ws;
-            end
-            in_data_bytes = off_b - 4;
-            L{end+1} = sprintf('  %s', repmat('-', 1, max_in + 16));
-            L{end+1} = sprintf('  %-*s  %-10d  %d', max_in, 'Total', off_b, off_w);
-            L{end+1} = '';
-
-            % OUTPUT_DATA payload
-            L{end+1} = 'OUTPUT_DATA payload:';
-            L{end+1} = sprintf('  %-*s  %-10s  %s', max_out, 'Name', 'Bytes', 'Words');
-            L{end+1} = sprintf('  %s', repmat('-', 1, max_out + 16));
-            off_b = 0;
-            off_w = 0;
-            for idx = 1:numel(out_names)
-                nm = out_names{idx};
-                if idx == 1
-                    sz = 4; ws = 2;
-                else
-                    v = config.outputs(idx - 1);
-                    sz = type_wire_bytes(v.type) * v.dim;
-                    ws = sz / 2;
-                end
-                if sz == 2
-                    byte_str = sprintf('%d', off_b);
-                else
-                    byte_str = sprintf('%d..%d', off_b, off_b + sz - 1);
-                end
-                if ws == 1
-                    word_str = sprintf('%d', off_w);
-                else
-                    word_str = sprintf('%d..%d', off_w, off_w + ws - 1);
-                end
-                L{end+1} = sprintf('  %-*s  %-10s  %s', max_out, nm, byte_str, word_str);
-                off_b = off_b + sz;
-                off_w = off_w + ws;
-            end
-            out_data_bytes = off_b - 4;
-            L{end+1} = sprintf('  %s', repmat('-', 1, max_out + 16));
-            L{end+1} = sprintf('  %-*s  %-10d  %d', max_out, 'Total', off_b, off_w);
-            L{end+1} = '';
-
-            % Size checks
-            max_payload = config.max_payload_size_bytes;
-            in_payload = 4 + in_data_bytes;
-            out_payload = 4 + out_data_bytes;
-            if in_payload > max_payload
-                L{end+1} = sprintf('WARNING: input_payload_size_bytes (%d) > max_payload (%d)', ...
-                                   in_payload, max_payload);
-                has_error = true;
-            end
-            if out_payload > max_payload
-                L{end+1} = sprintf('WARNING: output_payload_size_bytes (%d) > max_payload (%d)', ...
-                                   out_payload, max_payload);
-                has_error = true;
-            end
-            if mod(in_payload, 2) ~= 0
-                L{end+1} = 'WARNING: input_payload_size_bytes is odd';
-                has_error = true;
-            end
-            if mod(out_payload, 2) ~= 0
-                L{end+1} = 'WARNING: output_payload_size_bytes is odd';
-                has_error = true;
-            end
-            if mod(max_payload, 2) ~= 0
-                L{end+1} = 'WARNING: max_payload_size_bytes is odd';
-                has_error = true;
-            end
-            if max_payload > 65535
-                L{end+1} = 'WARNING: max_payload_size_bytes > 65535';
-                has_error = true;
-            end
-
-            app.ReportArea.Value = L;
-
-            if has_error
-                app.StatusLabel.Text = 'Status: Validation errors found';
-                app.StatusLabel.FontColor = [1 0 0];
+            app.InstanceTable.Data = data;
+            if isempty(instances)
+                app.SelectedInstance = 0;
+                app.clearDetail();
             else
-                app.StatusLabel.Text = 'Status: Ready';
-                app.StatusLabel.FontColor = [0 0.5 0];
+                app.SelectedInstance = min(max(app.SelectedInstance, 1), numel(instances));
+                app.showInstance();
             end
         end
 
-        %% ---- Generate button callback ----
-        function generateButtonPushed(app, ~, ~)
-            config = collectConfig(app);
+        function showInstance(app)
+            value = app.ProjectSession.Project.instances(app.SelectedInstance);
+            app.DetailFields.display_name.Value = value.display_name;
+            app.DetailFields.internal_name.Value = value.internal_name;
+            app.DetailFields.iodevice.Value = value.iodevice.type;
+            app.DetailFields.socket.Value = sprintf('%u', value.iodevice.settings.socket_number);
+            app.DetailFields.port.Value = double(value.iodevice.settings.tcp_port);
+            app.DetailFields.sample_time.Value = value.sample_time_sec;
+            app.DetailFields.max_payload.Value = double(value.max_payload_size_bytes);
+            app.DetailFields.algorithm_mode.Value = value.algorithm.mode;
+            app.DetailFields.source_path.Value = value.algorithm.source_path;
+            app.SourcePathGrid.Visible = ...
+                matlab.lang.OnOffSwitchState(~strcmp(value.algorithm.mode, 'generated_example'));
+            app.InputTable.Data = variables_to_cell(value.inputs);
+            app.OutputTable.Data = variables_to_cell(value.outputs);
+        end
 
-            % Validate
-            all_names = {};
-            for i = 1:numel(config.inputs)
-                all_names{end+1} = config.inputs(i).name; %#ok<AGROW>
-            end
-            for i = 1:numel(config.outputs)
-                all_names{end+1} = config.outputs(i).name; %#ok<AGROW>
-            end
-            checked = {};
-            for i = 1:numel(all_names)
-                [valid, msg] = c2837x_block_validate_name(all_names{i}, checked);
-                if ~valid
-                    uialert(app.UIFigure, msg, 'Validation Error');
-                    return;
-                end
-                checked{end+1} = all_names{i}; %#ok<AGROW>
-            end
+        function clearDetail(app)
+            app.DetailFields.display_name.Value = '';
+            app.DetailFields.internal_name.Value = '';
+            app.DetailFields.iodevice.Value = '';
+            app.DetailFields.socket.Value = '0';
+            app.DetailFields.port.Value = 0;
+            app.DetailFields.sample_time.Value = 0;
+            app.DetailFields.max_payload.Value = 0;
+            app.DetailFields.algorithm_mode.Value = 'generated_example';
+            app.DetailFields.source_path.Value = '';
+            app.SourcePathGrid.Visible = 'off';
+            app.InputTable.Data = cell(0, 3);
+            app.OutputTable.Data = cell(0, 3);
+        end
 
-            % Validate configuration
-            errMsg = validateConfig(app, config);
-            if ~isempty(errMsg)
-                uialert(app.UIFigure, errMsg, 'Config Error');
+        function commonEdited(app, key)
+            if app.Updating
                 return;
             end
-
-            % Double check: eabi64 requires eabi ABI
-            if strcmp(config.double_mode, 'eabi64') && ~strcmp(config.abi, 'eabi')
-                uialert(app.UIFigure, 'Double eabi64 requires EABI.', 'Config Error');
-                return;
-            end
-
+            project = app.ProjectSession.Project;
             try
-                generate_dsp = ~isempty(strtrim(config.dsp_output_path));
-                generate_pc  = ~isempty(strtrim(config.pc_output_path));
-
-                if generate_dsp
-                    dsp_path = resolve_output_path(config.dsp_output_path);
-                end
-                if generate_pc
-                    pc_path = resolve_output_path(config.pc_output_path);
-                end
-
-                % Check if files already exist
-                existing = {};
-                if generate_dsp
-                    dsp_inc_files = {'c2837x_block_algorithm.h', 'c2837x_block_config.h', ...
-                                     'c2837x_block.h', 'c2837x_block_protocol.h', ...
-                                     'c2837x_w5300_regs.h', 'c2837x_w5300_hal.h', ...
-                                     'c2837x_w5300_socket.h'};
-                    dsp_src_files = {'c2837x_block_config.c', 'c2837x_block_global_variable.c', ...
-                                     'c2837x_block.c', 'c2837x_block_protocol.c', ...
-                                     'c2837x_w5300_hal.c', 'c2837x_w5300_socket.c'};
-                    for i = 1:numel(dsp_inc_files)
-                        p = fullfile(dsp_path, 'inc', dsp_inc_files{i});
-                        if isfile(p), existing{end+1} = p; end %#ok<AGROW>
-                    end
-                    for i = 1:numel(dsp_src_files)
-                        p = fullfile(dsp_path, 'src', dsp_src_files{i});
-                        if isfile(p), existing{end+1} = p; end %#ok<AGROW>
-                    end
-                end
-                if generate_pc
-                    pc_files = {'c2837x_block_pc_config.h', 'c2837x_block_sfun_io.c', ...
-                                'c2837x_block_sfun.c', 'c2837x_block_sfun.h', ...
-                                'c2837x_block_pc_socket.c', 'c2837x_block_pc_socket.h', ...
-                                'c2837x_block_protocol.c', 'c2837x_block_protocol.h', ...
-                                'build_c2837x_block_sfun.m'};
-                    for i = 1:numel(pc_files)
-                        p = fullfile(pc_path, pc_files{i});
-                        if isfile(p), existing{end+1} = p; end %#ok<AGROW>
-                    end
-                end
-
-                if ~isempty(existing)
-                    % Separate DSP and PC files
-                    dsp_existing = {};
-                    pc_existing = {};
-                    for i = 1:numel(existing)
-                        [~, name, ext] = fileparts(existing{i});
-                        fname = [name ext];
-                        if generate_dsp && contains(existing{i}, dsp_path)
-                            dsp_existing{end+1} = fname; %#ok<AGROW>
-                        else
-                            pc_existing{end+1} = fname; %#ok<AGROW>
+                switch key
+                    case 'abi'
+                        project.common.abi = app.CommonFields.abi.Value;
+                    case 'mac'
+                        project.common.network.mac = parse_mac(app.CommonFields.mac.Value);
+                    case {'ip', 'gateway', 'subnet'}
+                        project.common.network.(key) = strtrim(app.CommonFields.(key).Value);
+                    case {'dsp_root', 'sfun_root'}
+                        value = strtrim(app.CommonFields.(key).Value);
+                        if ~isempty(value)
+                            value = c2837x_block_normalize_absolute_path(value);
                         end
-                    end
+                        project.output.(key) = value;
+                    otherwise
+                        return;
+                end
+                app.Coordinator.updateProject(project);
+                app.afterEdit();
+            catch cause
+                app.showOperationError(cause);
+                app.refreshAll();
+            end
+        end
 
-                    % Build message with file names
-                    msg = 'Files already exist:\n';
-                    if ~isempty(dsp_existing)
-                        msg = sprintf('%s\nDSP (%s):', msg, dsp_path);
-                        for i = 1:numel(dsp_existing)
-                            msg = sprintf('%s\n  - %s', msg, dsp_existing{i});
-                        end
-                    end
-                    if ~isempty(pc_existing)
-                        msg = sprintf('%s\n\nPC (%s):', msg, pc_path);
-                        for i = 1:numel(pc_existing)
-                            msg = sprintf('%s\n  - %s', msg, pc_existing{i});
-                        end
-                    end
-                    msg = sprintf('%s\n\nReplace all?', msg);
+        function detailEdited(app)
+            if app.Updating || app.SelectedInstance == 0
+                return;
+            end
+            source = strtrim(app.DetailFields.source_path.Value);
+            mode = app.DetailFields.algorithm_mode.Value;
+            if strcmp(mode, 'generated_example')
+                source = '';
+            elseif ~isempty(source)
+                source = c2837x_block_normalize_absolute_path(source);
+            end
+            changes = struct('display_name', strtrim(app.DetailFields.display_name.Value), ...
+                'internal_name', strtrim(app.DetailFields.internal_name.Value), ...
+                'iodevice', struct('settings', struct( ...
+                'socket_number', uint16(str2double(app.DetailFields.socket.Value)), ...
+                'tcp_port', uint16(app.DetailFields.port.Value))), ...
+                'sample_time_sec', app.DetailFields.sample_time.Value, ...
+                'max_payload_size_bytes', uint32(app.DetailFields.max_payload.Value), ...
+                'algorithm', struct('mode', mode, 'source_path', source));
+            app.applyInstanceChanges(changes);
+        end
 
-                    choice = uiconfirm(app.UIFigure, msg, 'Confirm Replace', ...
-                        'Options', {'Replace', 'Cancel'}, 'DefaultOption', 'Cancel');
-                    if strcmp(choice, 'Cancel')
-                        app.StatusLabel.Text = 'Status: Cancelled';
+        function browseOutput(app, key)
+            folder = uigetdir(app.CommonFields.(key).Value, ...
+                'Select Output Root');
+            if isequal(folder, 0)
+                return;
+            end
+            app.CommonFields.(key).Value = ...
+                c2837x_block_normalize_absolute_path(folder);
+            app.commonEdited(key);
+        end
+
+        function browseSource(app)
+            [file, folder] = uigetfile('*.c', 'Select External C Source');
+            if isequal(file, 0)
+                return;
+            end
+            app.DetailFields.source_path.Value = ...
+                c2837x_block_normalize_absolute_path(fullfile(folder, file));
+            app.detailEdited();
+        end
+
+        function variablesEdited(app)
+            if app.Updating || app.SelectedInstance == 0
+                return;
+            end
+            changes = struct('inputs', cell_to_variables(app.InputTable.Data), ...
+                'outputs', cell_to_variables(app.OutputTable.Data));
+            app.applyInstanceChanges(changes);
+        end
+
+        function applyInstanceChanges(app, changes)
+            try
+                app.Coordinator.updateInstance(app.SelectedInstance, changes);
+                app.afterEdit();
+            catch cause
+                app.showOperationError(cause);
+                app.refreshAll();
+            end
+        end
+
+        function afterEdit(app)
+            app.GenerateButton.Enable = 'off';
+            app.refreshInstances();
+            app.showIssues(app.Coordinator.validateProject('instant'));
+            app.refreshReport();
+        end
+
+        function instanceSelected(app, event)
+            if isempty(event.Indices)
+                return;
+            end
+            app.SelectedInstance = event.Indices(1);
+            app.Updating = true;
+            app.showInstance();
+            app.Updating = false;
+            app.refreshReport();
+        end
+
+        function addInstance(app)
+            usedSockets = double(arrayfun(@(x) x.iodevice.settings.socket_number, ...
+                app.ProjectSession.Project.instances));
+            socket = first_free(0:7, usedSockets);
+            if isempty(socket)
+                app.showIssues(app_issue('APP_NO_SOCKET_AVAILABLE', ...
+                    'No W5300 socket is available.', 'project.instances', 0, ''));
+                return;
+            end
+            usedPorts = double(arrayfun(@(x) x.iodevice.settings.tcp_port, ...
+                app.ProjectSession.Project.instances));
+            port = first_free(5000:65535, usedPorts);
+            number = numel(app.ProjectSession.Project.instances) + 1;
+            variable = struct('name', 'input_value', 'type', 'single', 'dim', 1);
+            output = struct('name', 'output_value', 'type', 'single', 'dim', 1);
+            changes = struct('display_name', sprintf('Instance %u', number), ...
+                'internal_name', sprintf('instance_%u', number), ...
+                'iodevice', struct('settings', struct('socket_number', ...
+                uint16(socket), 'tcp_port', uint16(port))), ...
+                'inputs', variable, 'outputs', output);
+            try
+                app.Coordinator.addInstance(changes);
+                app.SelectedInstance = numel(app.ProjectSession.Project.instances);
+                app.afterEdit();
+            catch cause
+                app.showOperationError(cause);
+            end
+        end
+
+        function copyInstance(app)
+            if app.SelectedInstance == 0
+                return;
+            end
+            instances = app.ProjectSession.Project.instances;
+            socket = first_free(0:7, double(arrayfun( ...
+                @(x) x.iodevice.settings.socket_number, instances)));
+            port = first_free(5000:65535, double(arrayfun( ...
+                @(x) x.iodevice.settings.tcp_port, instances)));
+            if isempty(socket)
+                app.showIssues(app_issue('APP_NO_SOCKET_AVAILABLE', ...
+                    'No W5300 socket is available.', 'project.instances', 0, ''));
+                return;
+            end
+            number = numel(instances) + 1;
+            try
+                app.Coordinator.copyInstance(app.SelectedInstance, ...
+                    sprintf('Instance %u', number), sprintf('instance_%u', number), ...
+                    uint16(socket), uint16(port));
+                app.SelectedInstance = number;
+                app.afterEdit();
+            catch cause
+                app.showOperationError(cause);
+            end
+        end
+
+        function deleteInstance(app)
+            if app.SelectedInstance == 0
+                return;
+            end
+            choice = uiconfirm(app.UIFigure, ...
+                'Delete the selected instance? Disk files will not be removed.', ...
+                'Delete Instance', 'Options', {'Delete', 'Cancel'}, ...
+                'DefaultOption', 'Cancel', 'CancelOption', 'Cancel');
+            if ~strcmp(choice, 'Delete')
+                return;
+            end
+            app.Coordinator.deleteInstance(app.SelectedInstance);
+            app.SelectedInstance = min(app.SelectedInstance, ...
+                numel(app.ProjectSession.Project.instances));
+            app.afterEdit();
+        end
+
+        function changeVariable(app, direction, action)
+            if app.SelectedInstance == 0
+                return;
+            end
+            if strcmp(direction, 'input')
+                table = app.InputTable;
+            else
+                table = app.OutputTable;
+            end
+            data = table.Data;
+            row = [];
+            if ~isempty(table.Selection)
+                row = table.Selection(1);
+            end
+            switch action
+                case 'add'
+                    data(end + 1, :) = {'new_value', 'single', 1};
+                case 'remove'
+                    if isempty(row) || size(data, 1) <= 1
                         return;
                     end
-                end
+                    data(row, :) = [];
+                case 'up'
+                    if isempty(row) || row <= 1
+                        return;
+                    end
+                    data([row - 1 row], :) = data([row row - 1], :);
+                case 'down'
+                    if isempty(row) || row >= size(data, 1)
+                        return;
+                    end
+                    data([row row + 1], :) = data([row + 1 row], :);
+            end
+            table.Data = data;
+            app.variablesEdited();
+        end
 
-                app.StatusLabel.Text = 'Status: Generating...';
-                app.StatusLabel.FontColor = [0 0 0];
-                pause(0.01);  % Allow UI to update (avoid drawnow deadlock in App Designer)
+        function previewRequested(app)
+            [view, issues] = app.Coordinator.createPreview();
+            app.showIssues(issues);
+            app.showCandidates(view.comparisons);
+            app.refreshReport();
+            app.GenerateButton.Enable = ...
+                matlab.lang.OnOffSwitchState(strcmp(view.status, 'valid'));
+            app.StatusLabel.Text = sprintf('Preview: %s', view.status);
+            app.showLegacyRisks(view.legacy_file_risks);
+        end
 
-                % Generate files
-                status_parts = {};
-                if generate_dsp
-                    c2837x_block_generate_dsp_files(config, dsp_path);
-                    status_parts{end+1} = 'DSP OK';
-                else
-                    status_parts{end+1} = 'DSP skipped';
-                end
-                if generate_pc
-                    c2837x_block_generate_pc_files(config, pc_path);
-                    status_parts{end+1} = 'PC OK';
-                else
-                    status_parts{end+1} = 'PC skipped';
-                end
-
-                [hash_str, hash_val] = c2837x_block_build_hash_string(config);
-                app.HashArea.Value = strsplit(hash_str, '\n');
-                app.StatusLabel.Text = sprintf('Status: %s. config_hash = 0x%08X', ...
-                                               strjoin(status_parts, ', '), hash_val);
-                app.StatusLabel.FontColor = [0 0.5 0];
-            catch e
-                uialert(app.UIFigure, e.message, 'Generation Error');
-                app.StatusLabel.Text = 'Status: Error';
-                app.StatusLabel.FontColor = [1 0 0];
+        function generateRequested(app)
+            [result, issues] = app.Coordinator.commitPreview();
+            app.showIssues(issues);
+            app.GenerateButton.Enable = 'off';
+            app.ResultArea.Value = format_result(result, ...
+                app.ProjectSession.LegacyFileRisks);
+            if isfield(result, 'status')
+                app.StatusLabel.Text = sprintf('Generate: %s', result.status);
             end
         end
 
-        %% ---- Save button callback ----
-        function saveButtonPushed(app, ~, ~)
-            try
-                [saved, filepath] = saveProject(app);
-                if ~saved, return; end
-                [~, file, ext] = fileparts(filepath);
-                app.StatusLabel.Text = sprintf('Status: Saved to %s%s', file, ext);
-                app.StatusLabel.FontColor = [0 0.5 0];
-            catch e
-                uialert(app.UIFigure, e.message, 'Save Error');
+        function candidateEdited(app, event)
+            issues = app.Coordinator.setCandidateAction( ...
+                event.Indices(1), event.NewData);
+            if ~isempty(issues)
+                app.showIssues(issues);
             end
+            app.showCandidates(app.Coordinator.PreviewSnapshot.comparison_baseline);
         end
 
-        %% ---- Load button callback ----
-        function loadButtonPushed(app, ~, ~)
-            [file, path] = uigetfile('*.mat', 'Load Project');
-            if isequal(file, 0), return; end
-            filepath = fullfile(path, file);
-            choice = '';
-            savePath = '';
-            if app.ProjectSession.Dirty
-                choice = unsavedChoice(app);
-                if strcmp(choice, 'Save') && isempty(app.ProjectSession.FilePath)
-                    [savePath, selected] = chooseSavePath(app);
-                    if ~selected, return; end
-                end
-            end
-            try
-                loaded = app.ProjectSession.loadProject(filepath, choice, savePath);
-                if ~loaded, return; end
-                app.StatusLabel.Text = sprintf('Status: Loaded from %s', file);
-                app.StatusLabel.FontColor = [0 0.5 0];
-            catch e
-                uialert(app.UIFigure, e.message, 'Load Error');
-            end
-        end
-
-        function proceed = confirmDiscardChanges(app)
-            if ~app.ProjectSession.Dirty
-                proceed = true;
+        function candidateSelected(app, event)
+            if isempty(event.Indices) || isempty(app.Coordinator.PreviewCandidates)
                 return;
             end
-            choice = unsavedChoice(app);
-            savePath = '';
-            if strcmp(choice, 'Save') && isempty(app.ProjectSession.FilePath)
-                [savePath, selected] = chooseSavePath(app);
-                if ~selected
-                    proceed = false;
+            bytes = app.Coordinator.PreviewCandidates(event.Indices(1)).content_bytes;
+            try
+                text = native2unicode(bytes, 'UTF-8');
+                if ~isequal(unicode2native(text, 'UTF-8'), bytes)
+                    error('C2837xBlock:App:NonUtf8', 'Non-UTF-8 content.');
+                end
+                app.CandidateArea.Value = splitlines(string(text));
+            catch
+                limit = min(numel(bytes), 128);
+                app.CandidateArea.Value = {sprintf('Hex (%u/%u octets):', ...
+                    limit, numel(bytes)), sprintf('%02X ', bytes(1:limit))};
+            end
+        end
+
+        function showCandidates(app, comparisons)
+            data = cell(numel(comparisons), 9);
+            for index = 1:numel(comparisons)
+                value = comparisons(index);
+                data(index, :) = {value.target_path, value.category, value.owner, ...
+                    value.instance_index, value.target_state, value.selected_action, ...
+                    value.action_mandatory, value.existing_size_octets, ...
+                    value.content_size_octets};
+            end
+            app.CandidateTable.Data = data;
+        end
+
+        function showIssues(app, issues)
+            data = cell(numel(issues), 6);
+            for index = 1:numel(issues)
+                value = issues(index);
+                data(index, :) = {value.severity, value.code, ...
+                    value.instance_index, value.field_path, value.file_path, ...
+                    value.message};
+            end
+            app.IssueTable.Data = data;
+        end
+
+        function issueSelected(app, event)
+            if isempty(event.Indices)
+                return;
+            end
+            row = event.Indices(1);
+            data = app.IssueTable.Data;
+            instanceIndex = data{row, 3};
+            if instanceIndex >= 1 && ...
+                    instanceIndex <= numel(app.ProjectSession.Project.instances)
+                app.SelectedInstance = instanceIndex;
+                app.Updating = true;
+                app.showInstance();
+                app.Updating = false;
+            end
+            if ~isempty(data{row, 5})
+                app.StatusLabel.Text = data{row, 5};
+            end
+            app.focusIssueField(data{row, 4});
+        end
+
+
+        function focusIssueField(app, fieldPath)
+            if contains(fieldPath, '.display_name')
+                focus(app.DetailFields.display_name);
+            elseif contains(fieldPath, '.internal_name')
+                focus(app.DetailFields.internal_name);
+            elseif contains(fieldPath, '.socket_number')
+                focus(app.DetailFields.socket);
+            elseif contains(fieldPath, '.tcp_port')
+                focus(app.DetailFields.port);
+            elseif contains(fieldPath, '.sample_time_sec')
+                focus(app.DetailFields.sample_time);
+            elseif contains(fieldPath, '.max_payload_size_bytes')
+                focus(app.DetailFields.max_payload);
+            elseif contains(fieldPath, '.algorithm.mode')
+                focus(app.DetailFields.algorithm_mode);
+            elseif contains(fieldPath, '.algorithm.source_path')
+                focus(app.DetailFields.source_path);
+            elseif contains(fieldPath, '.inputs')
+                focus(app.InputTable);
+            elseif contains(fieldPath, '.outputs')
+                focus(app.OutputTable);
+            elseif contains(fieldPath, 'project.common.network.mac')
+                focus(app.CommonFields.mac);
+            elseif contains(fieldPath, 'project.common.network.ip')
+                focus(app.CommonFields.ip);
+            elseif contains(fieldPath, 'project.common.network.gateway')
+                focus(app.CommonFields.gateway);
+            elseif contains(fieldPath, 'project.common.network.subnet')
+                focus(app.CommonFields.subnet);
+            elseif contains(fieldPath, 'project.output.dsp_root')
+                focus(app.CommonFields.dsp_root);
+            elseif contains(fieldPath, 'project.output.sfun_root')
+                focus(app.CommonFields.sfun_root);
+            end
+        end
+
+        function refreshReport(app)
+            [report, issues] = c2837x_block_build_project_report( ...
+                app.ProjectSession.Project);
+            if ~isempty(issues)
+                app.ReportArea.Value = {issues.message};
+                return;
+            end
+            lines = {sprintf('Project Total Protocol Buffer Words: %u', ...
+                report.total_protocol_buffer_words)};
+            if app.SelectedInstance >= 1 && ...
+                    app.SelectedInstance <= numel(report.instances)
+                value = report.instances(app.SelectedInstance);
+                lines = [lines, {sprintf('Interface Hash: 0x%08X', value.interface_hash), ...
+                    sprintf('Input Data Octets: %u', value.input_data_octets), ...
+                    sprintf('Output Data Octets: %u', value.output_data_octets), ...
+                    sprintf('Input Payload Octets: %u', value.input_payload_octets), ...
+                    sprintf('Output Payload Octets: %u', value.output_payload_octets), ...
+                    sprintf('RX Frame Words: %u', value.rx_frame_words), ...
+                    sprintf('TX Frame Words: %u', value.tx_frame_words), ...
+                    sprintf('Canonical UTF-8 Octets: %u', value.canonical_utf8_octets), ...
+                    'Canonical Hash Text:', value.canonical_text}];
+            end
+            app.ReportArea.Value = lines;
+        end
+
+        function saveRequested(app)
+            issues = app.Coordinator.validateProject('full');
+            if ~isempty(issues)
+                app.showIssues(issues);
+                choice = uiconfirm(app.UIFigure, ...
+                    'The project has validation issues.', 'Save Project', ...
+                    'Options', {'Save Current Configuration', 'Cancel'}, ...
+                    'DefaultOption', 'Cancel', 'CancelOption', 'Cancel');
+                if ~strcmp(choice, 'Save Current Configuration')
                     return;
                 end
             end
-            try
-                proceed = app.ProjectSession.canDiscardChanges(choice, savePath);
-            catch e
-                uialert(app.UIFigure, e.message, 'Save Error');
-                proceed = false;
+            path = app.ProjectSession.FilePath;
+            if isempty(path)
+                [file, folder] = uiputfile('*.mat', 'Save Project', ...
+                    app.ProjectSession.DefaultFileName);
+                if isequal(file, 0)
+                    return;
+                end
+                path = fullfile(folder, file);
             end
+            app.ProjectSession.saveProject(path);
+            app.StatusLabel.Text = sprintf('Saved: %s', path);
         end
 
-        function choice = unsavedChoice(app)
-            choice = uiconfirm(app.UIFigure, ...
-                'The current project has unsaved changes.', 'Unsaved Project', ...
-                'Options', {'Save', 'Don''t Save', 'Cancel'}, ...
-                'DefaultOption', 'Save', 'CancelOption', 'Cancel');
-        end
-
-        function [saved, filepath] = saveProject(app)
-            filepath = app.ProjectSession.FilePath;
-            if isempty(filepath)
-                [filepath, saved] = chooseSavePath(app);
-                if ~saved, return; end
-            else
-                saved = true;
-            end
-            app.ProjectSession.saveProject(filepath);
-        end
-
-        function [filepath, selected] = chooseSavePath(app)
-            [file, path] = uiputfile('*.mat', 'Save Project', ...
-                app.ProjectSession.DefaultFileName);
-            selected = ~isequal(file, 0);
-            if ~selected
-                filepath = '';
+        function loadRequested(app)
+            [file, folder] = uigetfile('*.mat', 'Load Project');
+            if isequal(file, 0)
                 return;
             end
-            filepath = fullfile(path, file);
-            if isfile(filepath)
-                choice = uiconfirm(app.UIFigure, ...
-                    sprintf('File already exists:\n%s\n\nReplace?', filepath), ...
-                    'Confirm Replace', ...
-                    'Options', {'Replace', 'Cancel'}, 'DefaultOption', 'Cancel');
-                selected = strcmp(choice, 'Replace');
-            end
-        end
-
-        %% ---- Preview hash button callback ----
-        function previewButtonPushed(app, ~, ~)
-            config = collectConfig(app);
-
-            % Validate before computing hash
-            errMsg = validateConfig(app, config);
-            if ~isempty(errMsg)
-                uialert(app.UIFigure, errMsg, 'Validation Error');
+            [choice, savePath] = app.discardDecision();
+            if strcmp(choice, 'Cancel')
                 return;
             end
-
-            [hash_str, hash_val] = c2837x_block_build_hash_string(config);
-            app.HashArea.Value = strsplit(hash_str, '\n');
-            app.StatusLabel.Text = sprintf('Status: config_hash = 0x%08X', hash_val);
-            app.StatusLabel.FontColor = [0 0.5 0];
+            if app.ProjectSession.loadProject(fullfile(folder, file), choice, savePath)
+                app.SelectedInstance = 1;
+                app.refreshAll();
+                app.GenerateButton.Enable = 'off';
+            end
         end
 
-        %% ---- Add/Remove input ----
-        function addInputPushed(app, ~, ~)
-            data = app.InputTable.Data;
-            data{end+1, 1} = 'new_var';
-            data{end,   2} = 'int16';
-            data{end,   3} = 1;
-            app.InputTable.Data = data;
-            updateReport(app);
+        function closeRequested(app, source)
+            [choice, savePath] = app.discardDecision();
+            if strcmp(choice, 'Cancel')
+                return;
+            end
+            if app.ProjectSession.canDiscardChanges(choice, savePath)
+                delete(source);
+            end
         end
 
-        function removeInputPushed(app, ~, ~)
-            sel = app.InputTable.Selection;
-            if isempty(sel), return; end
-            data = app.InputTable.Data;
-            if size(data, 1) <= 1, return; end
-            data(sel(1), :) = [];
-            app.InputTable.Data = data;
-            updateReport(app);
+        function [choice, savePath] = discardDecision(app)
+            choice = 'Don''t Save';
+            savePath = '';
+            if ~app.ProjectSession.Dirty
+                return;
+            end
+            choice = uiconfirm(app.UIFigure, 'The project has unsaved changes.', ...
+                'Unsaved Project', 'Options', {'Save', 'Don''t Save', 'Cancel'}, ...
+                'DefaultOption', 'Cancel', 'CancelOption', 'Cancel');
+            if strcmp(choice, 'Save') && isempty(app.ProjectSession.FilePath)
+                [file, folder] = uiputfile('*.mat', 'Save Project', ...
+                    app.ProjectSession.DefaultFileName);
+                if isequal(file, 0)
+                    choice = 'Cancel';
+                else
+                    savePath = fullfile(folder, file);
+                end
+            end
         end
 
-        function removeAllInputPushed(app, ~, ~)
-            app.InputTable.Data = cell(0, 3);
-            updateReport(app);
+        function showLegacyRisks(app, risks)
+            if isempty(risks)
+                return;
+            end
+            lines = arrayfun(@(risk) sprintf('LegacyFileRisk: %s %s - %s', ...
+                risk.action, risk.internal_name, risk.reason), risks, ...
+                'UniformOutput', false);
+            app.ResultArea.Value = lines;
         end
 
-        %% ---- Add/Remove output ----
-        function addOutputPushed(app, ~, ~)
-            data = app.OutputTable.Data;
-            data{end+1, 1} = 'new_var';
-            data{end,   2} = 'int16';
-            data{end,   3} = 1;
-            app.OutputTable.Data = data;
-            updateReport(app);
-        end
-
-        function removeOutputPushed(app, ~, ~)
-            sel = app.OutputTable.Selection;
-            if isempty(sel), return; end
-            data = app.OutputTable.Data;
-            if size(data, 1) <= 1, return; end
-            data(sel(1), :) = [];
-            app.OutputTable.Data = data;
-            updateReport(app);
-        end
-
-        function removeAllOutputPushed(app, ~, ~)
-            app.OutputTable.Data = cell(0, 3);
-            updateReport(app);
-        end
-
-        %% ---- Browse paths ----
-        function browseDspPath(app, ~, ~)
-            d = uigetdir(app.DspPathField.Value, 'Select DSP Output Directory');
-            if isequal(d, 0), return; end
-            app.DspPathField.Value = d;
-        end
-
-        function browsePcPath(app, ~, ~)
-            d = uigetdir(app.PcPathField.Value, 'Select PC Output Directory');
-            if isequal(d, 0), return; end
-            app.PcPathField.Value = d;
-        end
-
-        %% ---- Table edit callback ----
-        function tableEdited(app, ~, ~)
-            updateReport(app);
-        end
-
-        %% ---- Build UI ----
-        function createComponents(app)
-            app.UIFigure = uifigure('Name', 'C2837xBlock Configurator', ...
-                'Position', [100 100 980 720], ...
-                'CloseRequestFcn', @(src,~) closeApp(app, src));
-
-            main = uigridlayout(app.UIFigure, [2 2]);
-            main.ColumnWidth = {'2x', '3x'};
-            main.RowHeight = {'1x', 22};
-            main.Padding = [6 6 6 6];
-            main.ColumnSpacing = 6;
-            main.RowSpacing = 6;
-            app.MainGrid = main;
-
-            % ============ LEFT PANEL ============
-            left = uigridlayout(main, [8 3]);
-            left.Layout.Row = 1;
-            left.Layout.Column = 1;
-            left.RowHeight = {20, '1x', 20, 20, '1x', 20, 20, '1x'};
-            left.ColumnWidth = {'1x', '1x', '1x'};
-
-            % Input label
-            app.InputLabel = uilabel(left, 'Text', 'Input Variables', 'FontWeight', 'bold');
-            app.InputLabel.Layout.Row = 1;
-            app.InputLabel.Layout.Column = [1 3];
-
-            % Input table
-            app.InputTable = uitable(left, ...
-                'ColumnName', {'Name', 'Type', 'Dim'}, ...
-                'ColumnFormat', {'char', {'int16','uint16','int32','uint32','single','double'}, 'numeric'}, ...
-                'ColumnEditable', [true true true], ...
-                'Data', {'a','int16',1; 'b','int16',1; 'c','int16',1});
-            app.InputTable.Layout.Row = 2;
-            app.InputTable.Layout.Column = [1 3];
-            app.InputTable.CellEditCallback = @(~,~) tableEdited(app);
-
-            % Add/Remove/RemoveAll input buttons
-            app.AddInputBtn = uibutton(left, 'Text', 'Add', ...
-                'ButtonPushedFcn', @(s,e) addInputPushed(app,s,e));
-            app.AddInputBtn.Layout.Row = 3;
-            app.AddInputBtn.Layout.Column = 1;
-
-            app.RemoveInputBtn = uibutton(left, 'Text', 'Remove', ...
-                'ButtonPushedFcn', @(s,e) removeInputPushed(app,s,e));
-            app.RemoveInputBtn.Layout.Row = 3;
-            app.RemoveInputBtn.Layout.Column = 2;
-
-            app.RemoveAllInputBtn = uibutton(left, 'Text', 'Remove All', ...
-                'ButtonPushedFcn', @(s,e) removeAllInputPushed(app,s,e));
-            app.RemoveAllInputBtn.Layout.Row = 3;
-            app.RemoveAllInputBtn.Layout.Column = 3;
-
-            % Output label
-            app.OutputLabel = uilabel(left, 'Text', 'Output Variables', 'FontWeight', 'bold');
-            app.OutputLabel.Layout.Row = 4;
-            app.OutputLabel.Layout.Column = [1 3];
-
-            % Output table
-            app.OutputTable = uitable(left, ...
-                'ColumnName', {'Name', 'Type', 'Dim'}, ...
-                'ColumnFormat', {'char', {'int16','uint16','int32','uint32','single','double'}, 'numeric'}, ...
-                'ColumnEditable', [true true true], ...
-                'Data', {'sum','int16',1});
-            app.OutputTable.Layout.Row = 5;
-            app.OutputTable.Layout.Column = [1 3];
-            app.OutputTable.CellEditCallback = @(~,~) tableEdited(app);
-
-            % Add/Remove/RemoveAll output buttons
-            app.AddOutputBtn = uibutton(left, 'Text', 'Add', ...
-                'ButtonPushedFcn', @(s,e) addOutputPushed(app,s,e));
-            app.AddOutputBtn.Layout.Row = 6;
-            app.AddOutputBtn.Layout.Column = 1;
-
-            app.RemoveOutputBtn = uibutton(left, 'Text', 'Remove', ...
-                'ButtonPushedFcn', @(s,e) removeOutputPushed(app,s,e));
-            app.RemoveOutputBtn.Layout.Row = 6;
-            app.RemoveOutputBtn.Layout.Column = 2;
-
-            app.RemoveAllOutputBtn = uibutton(left, 'Text', 'Remove All', ...
-                'ButtonPushedFcn', @(s,e) removeAllOutputPushed(app,s,e));
-            app.RemoveAllOutputBtn.Layout.Row = 6;
-            app.RemoveAllOutputBtn.Layout.Column = 3;
-
-            % Report label
-            app.ReportLabel = uilabel(left, 'Text', 'Offset Report', 'FontWeight', 'bold');
-            app.ReportLabel.Layout.Row = 7;
-            app.ReportLabel.Layout.Column = [1 3];
-
-            % Report area
-            app.ReportArea = uitextarea(left, 'Editable', 'off', 'FontName', 'Consolas');
-            app.ReportArea.Layout.Row = 8;
-            app.ReportArea.Layout.Column = [1 3];
-
-            % ============ RIGHT PANEL ============
-            right = uigridlayout(main, [5 1]);
-            right.Layout.Row = 1;
-            right.Layout.Column = 2;
-            right.RowHeight = {40, 190, 190, 90, '1x'};
-            right.RowSpacing = 4;
-
-            % Action buttons
-            btn_grid = uigridlayout(right, [1 4]);
-            btn_grid.RowHeight = {'1x'};
-            btn_grid.ColumnWidth = {'1x','1x','1x','1x'};
-            btn_grid.Layout.Row = 1;
-            btn_grid.RowSpacing = 1;
-            % btn_grid.
-
-            app.GenerateBtn = uibutton(btn_grid, 'Text', 'Generate', ...
-                'BackgroundColor', [0.3 0.7 0.3], 'FontWeight', 'bold', ...
-                'ButtonPushedFcn', @(s,e) generateButtonPushed(app,s,e));
-            app.SaveBtn = uibutton(btn_grid, 'Text', 'Save Project', ...
-                'ButtonPushedFcn', @(s,e) saveButtonPushed(app,s,e));
-            app.LoadBtn = uibutton(btn_grid, 'Text', 'Load Project', ...
-                'ButtonPushedFcn', @(s,e) loadButtonPushed(app,s,e));
-            app.PreviewBtn = uibutton(btn_grid, 'Text', 'Preview Hash', ...
-                'ButtonPushedFcn', @(s,e) previewButtonPushed(app,s,e));
-
-            % Network panel
-            app.NetPanel = uipanel(right, 'Title', 'Network Configuration');
-            app.NetPanel.Layout.Row = 2;
-            net_grid = uigridlayout(app.NetPanel, [6 2], "ColumnSpacing", 1);
-            net_grid.RowHeight = repmat({24}, 1, 6);
-            net_grid.ColumnWidth = {'1x', '2x'};
-            net_grid.Padding = [4 4 4 4];
-            net_grid.RowSpacing = 4;
-
-            uilabel(net_grid, 'Text', 'IP Address:', 'HorizontalAlignment', 'left');
-            app.IpField = uieditfield(net_grid, 'text');
-            uilabel(net_grid, 'Text', 'Gateway:', 'HorizontalAlignment', 'left');
-            app.GatewayField = uieditfield(net_grid, 'text');
-            uilabel(net_grid, 'Text', 'Subnet Mask:', 'HorizontalAlignment', 'left');
-            app.SubnetField = uieditfield(net_grid, 'text');
-            uilabel(net_grid, 'Text', 'TCP Port:', 'HorizontalAlignment', 'left');
-            app.PortField = uieditfield(net_grid, 'numeric');
-            app.PortField.HorizontalAlignment = 'left';
-            uilabel(net_grid, 'Text', 'Socket #:', 'HorizontalAlignment', 'left');
-            app.SocketField = uidropdown(net_grid, 'Items', ...
-                {'0', '1', '2', '3', '4', '5', '6', '7'});
-            uilabel(net_grid, 'Text', 'MAC Address:', 'HorizontalAlignment', 'left');
-            app.MacField = uieditfield(net_grid, 'text');
-            app.MacField.Editable = 'off';
-
-            % Settings panel
-            app.SettingsPanel = uipanel(right, 'Title', 'Settings');
-            app.SettingsPanel.Layout.Row = 3;
-            set_grid = uigridlayout(app.SettingsPanel, [6 2], "ColumnSpacing", 1);
-            set_grid.RowHeight = repmat({24}, 1, 6);
-            set_grid.ColumnWidth = {'1x', '2x'};
-            set_grid.Padding = [4 4 4 4];
-            set_grid.RowSpacing = 4;
-
-            uilabel(set_grid, 'Text', 'Sample Time (s):');
-            app.SampleTimeField = uieditfield(set_grid, 'numeric', 'HorizontalAlignment', 'left');
-            uilabel(set_grid, 'Text', 'Target ABI:');
-            app.AbiDropDown = uidropdown(set_grid, 'Items', {'eabi', 'coff'});
-            uilabel(set_grid, 'Text', 'Double Mode:');
-            app.DoubleDropDown = uidropdown(set_grid, 'Items', {'disabled', 'eabi64'});
-            uilabel(set_grid, 'Text', 'Max Payload (B):');
-            app.MaxPayloadField = uieditfield(set_grid, 'numeric', 'HorizontalAlignment', 'left');
-            uilabel(set_grid, 'Text', 'Socket TX (KB):');
-            app.SocketTxField = uieditfield(set_grid, 'numeric', 'HorizontalAlignment', 'left');
-            app.SocketTxField.Editable = "off";
-            uilabel(set_grid, 'Text', 'Socket RX (KB):');
-            app.SocketRxField = uieditfield(set_grid, 'numeric', 'HorizontalAlignment', 'left');
-            app.SocketRxField.Editable = "off";
-
-            % Paths panel
-            app.PathPanel = uipanel(right, 'Title', 'Output Paths');
-            app.PathPanel.Layout.Row = 4;
-            path_grid = uigridlayout(app.PathPanel, [2 3]);
-            path_grid.RowHeight = repmat({26}, 1, 2);
-            path_grid.ColumnWidth = {60, '1x', 80};
-            path_grid.Padding = [4 4 4 4];
-
-            % Row 1: DSP
-            uilabel(path_grid, 'Text', 'DSP:', 'HorizontalAlignment', 'right');
-            app.DspPathField = uieditfield(path_grid, 'text');
-            app.DspPathBtn = uibutton(path_grid, 'Text', 'Browse...', ...
-                'ButtonPushedFcn', @(s,e) browseDspPath(app,s,e));
-
-            % Row 2: Simulink
-            uilabel(path_grid, 'Text', 'Simulink:', 'HorizontalAlignment', 'right');
-            app.PcPathField = uieditfield(path_grid, 'text');
-            app.PcPathBtn = uibutton(path_grid, 'Text', 'Browse...', ...
-                'ButtonPushedFcn', @(s,e) browsePcPath(app,s,e));
-
-            % Hash preview (no label)
-            app.HashArea = uitextarea(right, 'Editable', 'off', 'FontName', 'Consolas');
-            app.HashArea.Layout.Row = 5;
-
-            % ============ STATUS BAR (bottom, spans both columns) ============
-            app.StatusLabel = uilabel(main, 'Text', 'Status: Ready', ...
-                'FontColor', [0 0.5 0]);
-            app.StatusLabel.Layout.Row = 2;
-            app.StatusLabel.Layout.Column = [1 2];
+        function showOperationError(app, cause)
+            app.StatusLabel.Text = cause.identifier;
         end
     end
 end
 
-%% ---- Local helpers ----
-function [ok, msg] = validate_ip(ip_str, field_name)
-    ok = true;
-    msg = '';
-    parts = strsplit(ip_str, '.');
-    if numel(parts) ~= 4
-        ok = false;
-        msg = sprintf('%s: expected 4 octets, got %d.', field_name, numel(parts));
-        return;
-    end
-    nums = str2double(parts);
-    if any(isnan(nums))
-        ok = false;
-        msg = sprintf('%s: each octet must be a number.', field_name);
-        return;
-    end
-    if any(nums < 0 | nums > 255 | nums ~= floor(nums))
-        ok = false;
-        msg = sprintf('%s: each octet must be 0..255.', field_name);
-        return;
-    end
+function options = validate_options(options)
+expected = {'visible'; 'preview_provider'};
+if ~isstruct(options) || ~isscalar(options) || ...
+        ~isequal(sort(fieldnames(options)), sort(expected)) || ...
+        ~((ischar(options.visible) && isrow(options.visible)) || ...
+        (isstring(options.visible) && isscalar(options.visible))) || ...
+        ~any(strcmp(char(options.visible), {'on', 'off'})) || ...
+        ~(isempty(options.preview_provider) || ...
+        (isa(options.preview_provider, 'function_handle') && ...
+        isscalar(options.preview_provider)))
+    error('C2837xBlock:App:InvalidOptions', ...
+        'Options must contain only visible and preview_provider.');
+end
+options.visible = char(options.visible);
 end
 
-function p = resolve_output_path(raw)
-    if is_absolute_path(raw)
-        p = raw;
-    else
-        p = fullfile(pwd, raw);
-    end
+function values = cell_to_variables(data)
+prototype = struct('name', '', 'type', '', 'dim', 1);
+values = repmat(prototype, 1, size(data, 1));
+for index = 1:size(data, 1)
+    values(index) = struct('name', strtrim(char(string(data{index, 1}))), ...
+        'type', char(string(data{index, 2})), 'dim', data{index, 3});
+end
 end
 
-function tf = is_absolute_path(p)
-    tf = (length(p) >= 2 && p(2) == ':') || ...
-         (length(p) >= 1 && (p(1) == '/' || p(1) == '\'));
+function data = variables_to_cell(values)
+data = cell(numel(values), 3);
+for index = 1:numel(values)
+    data(index, :) = {values(index).name, values(index).type, values(index).dim};
+end
 end
 
-function b = type_wire_bytes(t)
-    switch t
-        case {'int16','uint16'}, b = 2;
-        case {'int32','uint32','single'}, b = 4;
-        case 'double', b = 8;
-    end
+function value = first_free(candidates, used)
+value = candidates(find(~ismember(candidates, used), 1));
 end
 
-function errMsg = validate_output_path(raw_path, field_name)
-%VALIDATE_OUTPUT_PATH  Validate output path is not inside project folder.
-%   Returns empty string if path is empty (skip) or valid.
-    errMsg = '';
-
-    % Empty path means skip this side
-    if isempty(strtrim(raw_path))
-        return;
-    end
-
-    % Resolve to absolute path
-    if is_absolute_path(raw_path)
-        abs_path = raw_path;
-    else
-        abs_path = fullfile(pwd, raw_path);
-    end
-
-    % Normalize path (remove trailing separators, resolve . and ..)
-    abs_path = GetFullPath(abs_path);
-
-    % Get project root (where this App file is located)
-    app_dir = fileparts(mfilename('fullpath'));
-    project_root = fileparts(app_dir);  % Parent of app/ folder
-    project_root = GetFullPath(project_root);
-
-    % Check if output path is inside project folder
-    % Must check with trailing separator to avoid prefix matching
-    % e.g., C2837xBlock_Test should NOT match C2837xBlock
-    root_with_sep = [project_root filesep];
-    is_inside = strcmpi(abs_path, project_root) || ...
-                startsWith(abs_path, root_with_sep, 'IgnoreCase', ispc);
-    if is_inside
-        errMsg = sprintf('%s path cannot be inside the project folder.\nProject: %s\nOutput:  %s', ...
-                  field_name, project_root, abs_path);
-        return;
-    end
+function value = parse_mac(text)
+parts = regexp(strtrim(text), '[:-]', 'split');
+if numel(parts) ~= 6 || any(cellfun(@(part) numel(part) ~= 2, parts))
+    value = zeros(1, 0, 'uint8');
+    return;
+end
+try
+    value = uint8(hex2dec(char(parts))');
+catch
+    value = zeros(1, 0, 'uint8');
+end
 end
 
-function p = GetFullPath(p)
-%GETFULLPATH  Get absolute path, resolving . and ..
-    try
-        javaFile = java.io.File(p);
-        p = char(javaFile.getCanonicalPath());
-    catch
-        % Fallback if Java not available
-        if is_absolute_path(p)
-            % Simple normalization
-            p = strrep(p, '/', filesep);
-            p = strrep(p, '\', filesep);
-        end
-    end
+function text = format_mac(value)
+if numel(value) ~= 6
+    text = '';
+else
+    text = strjoin(compose('%02X', value), ':');
+end
+end
+
+function issue = app_issue(code, message, fieldPath, instanceIndex, filePath)
+issue = struct('severity', 'Error', 'code', code, 'message', message, ...
+    'field_path', fieldPath, 'instance_index', instanceIndex, ...
+    'file_path', filePath);
+end
+
+function lines = format_result(result, risks)
+if isempty(fieldnames(result))
+    lines = {'Generate blocked: valid Preview required.'};
+    return;
+end
+lines = cell(1, 10 + numel(risks));
+lines(1:10) = {sprintf('Created: %u', result.created_count), ...
+    sprintf('Replaced: %u', result.replaced_count), ...
+    sprintf('Skipped: %u', result.skipped_count), ...
+    sprintf('Kept: %u', result.kept_count), ...
+    sprintf('Failed: %u', result.failed_count), ...
+    sprintf('Not Attempted: %u', result.not_attempted_count), ...
+    sprintf('Created Directories: %u', numel(result.created_directories)), ...
+    sprintf('Temporary Files Remaining: %u', ...
+    numel(result.temporary_files_remaining)), ...
+    sprintf('DSP Root: %s', result.dsp_root), ...
+    sprintf('S-Function Root: %s', result.sfun_root)};
+for index = 1:numel(risks)
+    lines{10 + index} = sprintf('LegacyFileRisk: %s %s - %s', ...
+        risks(index).action, risks(index).internal_name, risks(index).reason);
+end
 end
