@@ -62,10 +62,4 @@
 #define C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_WORDS  (C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES / 2u)
 #define C2837X_BLOCK_MAX_PAYLOAD_SIZE_WORDS     (C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES / 2u)
 
-/* ---- Payload pack/unpack functions ---- */
-void c2837x_block_unpack_input_payload(const uint16_t* payload_words,
-                                       uint32_t* step_index);
-void c2837x_block_pack_output_payload(uint16_t* payload_words,
-                                      uint32_t step_index);
-
 #endif /* C2837X_BLOCK_CONFIG_H */

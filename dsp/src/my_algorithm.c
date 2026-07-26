@@ -5,16 +5,17 @@
 
 #include "c2837x_block_algorithm.h"
 
-int C2837xBlock_OnSimStart(void)
+int16_t C2837xBlock_OnSimStart(void)
 {
     return 0;
 }
 
-int C2837xBlock_OnStep(void)
+int16_t C2837xBlock_OnStep(const C2837xBlock_InputData *input,
+                           C2837xBlock_OutputData *output)
 {
-    int32_t tmp = (int32_t)c2837x_block_input.a
-                + (int32_t)c2837x_block_input.b
-                + (int32_t)c2837x_block_input.c;
+    int32_t tmp = (int32_t)input->a
+                + (int32_t)input->b
+                + (int32_t)input->c;
 
     if (tmp > 32767) {
         tmp = 32767;
@@ -22,7 +23,7 @@ int C2837xBlock_OnStep(void)
         tmp = -32768;
     }
 
-    c2837x_block_output.sum = (int16_t)tmp;
+    output->sum = (int16_t)tmp;
     return 0;
 }
 

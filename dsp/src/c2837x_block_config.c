@@ -1,17 +1,20 @@
-/*
- * DSP-side payload serialization for C2837xBlock.
- * Phase 1: 3x int16 input, 1x int16 output.
- *
- * All serialization uses uint16_t word buffer.
- * Wire format: little-endian, low word first.
- */
+/* Hand-written phase-1 sample adapter and static instance binding. */
 
-#include "c2837x_block_config.h"
+#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 1u
+#include "c2837x_block_internal.h"
 #include "c2837x_block_algorithm.h"
+#include "c2837x_block_config.h"
+#include "c2837x_w5300_channel.h"
 #include <limits.h>
 #include <string.h>
 
-/* ---- Static asserts ---- */
+#define SAMPLE_RX_FRAME_WORDS \
+    ((C2837X_BLOCK_HEADER_SIZE_BYTES + \
+      C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES) / 2u)
+#define SAMPLE_TX_FRAME_WORDS \
+    ((C2837X_BLOCK_HEADER_SIZE_BYTES + \
+      C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES) / 2u)
+
 C2837X_STATIC_ASSERT((sizeof(uint16_t) * CHAR_BIT) == 16u,
                      uint16_bit_size_mismatch);
 C2837X_STATIC_ASSERT((sizeof(uint32_t) * CHAR_BIT) == 32u,
@@ -23,71 +26,95 @@ C2837X_STATIC_ASSERT((C2837X_BLOCK_INPUT_DATA_SIZE_BYTES % 2u) == 0u,
 C2837X_STATIC_ASSERT((C2837X_BLOCK_OUTPUT_DATA_SIZE_BYTES % 2u) == 0u,
                      output_data_size_must_be_even);
 
-/* ---- Serialization helpers ---- */
+static C2837xBlock_InputData sample_input;
+static C2837xBlock_OutputData sample_output;
+static Uint16 sample_rx_frame[SAMPLE_RX_FRAME_WORDS];
+static Uint16 sample_tx_frame[SAMPLE_TX_FRAME_WORDS];
+static C2837xW5300Channel sample_channel = {
+    { C2837X_BLOCK_SOCKET_NUM, 8192u, 8192u },
+    C2837X_BLOCK_TCP_PORT,
+    0u, C2837X_W5300_SEND_IDLE, 0u, 0u, 0u
+};
 
-static inline uint16_t read_uint16(const uint16_t* buf, uint32_t* offset)
+static void sample_reset_io(void *context, void *input, void *output)
 {
-    return buf[(*offset)++];
+    (void)context;
+    memset(input, 0, sizeof(C2837xBlock_InputData));
+    memset(output, 0, sizeof(C2837xBlock_OutputData));
 }
 
-static inline void write_uint16(uint16_t* buf, uint32_t* offset, uint16_t val)
+static int16 sample_on_start(void *context)
 {
-    buf[(*offset)++] = val;
+    (void)context;
+    return C2837xBlock_OnSimStart();
 }
 
-static inline int16_t read_int16(const uint16_t* buf, uint32_t* offset)
+static int16 sample_decode_input(void *context, void *input,
+                                 const Uint16 *words, Uint16 octets)
 {
-    return (int16_t)buf[(*offset)++];
+    C2837xBlock_InputData decoded;
+    (void)context;
+
+    if (octets != C2837X_BLOCK_INPUT_DATA_SIZE_BYTES)
+        return -1;
+    decoded.a = (int16_t)words[0];
+    decoded.b = (int16_t)words[1];
+    decoded.c = (int16_t)words[2];
+    *(C2837xBlock_InputData *)input = decoded;
+    return 0;
 }
 
-static inline void write_int16(uint16_t* buf, uint32_t* offset, int16_t val)
+static int16 sample_on_step(void *context, const void *input, void *output)
 {
-    buf[(*offset)++] = (uint16_t)val;
+    (void)context;
+    return C2837xBlock_OnStep((const C2837xBlock_InputData *)input,
+                              (C2837xBlock_OutputData *)output);
 }
 
-static inline uint32_t read_uint32(const uint16_t* buf, uint32_t* offset)
+static int16 sample_encode_output(void *context, const void *output,
+                                  Uint16 *words, Uint16 capacity_octets)
 {
-    uint32_t lo = (uint32_t)buf[(*offset)++];
-    uint32_t hi = (uint32_t)buf[(*offset)++];
-    return lo | (hi << 16);
+    (void)context;
+    if (capacity_octets != C2837X_BLOCK_OUTPUT_DATA_SIZE_BYTES)
+        return -1;
+    words[0] = (Uint16)((const C2837xBlock_OutputData *)output)->sum;
+    return 0;
 }
 
-static inline void write_uint32(uint16_t* buf, uint32_t* offset, uint32_t val)
+static void sample_on_stop(void *context)
 {
-    buf[(*offset)++] = (uint16_t)(val & 0xFFFFu);
-    buf[(*offset)++] = (uint16_t)((val >> 16) & 0xFFFFu);
+    (void)context;
+    C2837xBlock_OnSimStop();
 }
 
-/* ---- Unpack INPUT_DATA payload ----
- * Payload layout (words):
- *   [0..1] step_index (uint32)
- *   [2]    a (int16)
- *   [3]    b (int16)
- *   [4]    c (int16)
- */
-void c2837x_block_unpack_input_payload(const uint16_t* payload_words,
-                                       uint32_t* step_index)
-{
-    uint32_t offset = 0;
+static const C2837xBlock_AlgorithmAdapter sample_algorithm = {
+    sample_reset_io,
+    sample_on_start,
+    sample_decode_input,
+    sample_on_step,
+    sample_encode_output,
+    sample_on_stop
+};
 
-    *step_index = read_uint32(payload_words, &offset);
+static const C2837xBlock_Config sample_config = {
+    &c2837x_w5300_iodevice_ops,
+    &sample_channel,
+    sample_rx_frame,
+    SAMPLE_RX_FRAME_WORDS * 2u,
+    sample_tx_frame,
+    SAMPLE_TX_FRAME_WORDS * 2u,
+    &sample_input,
+    &sample_output,
+    &sample_algorithm,
+    NULL,
+    C2837X_BLOCK_PROTOCOL_VERSION,
+    C2837X_BLOCK_CONFIG_HASH,
+    C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES,
+    C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES,
+    C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES,
+    5000000u,
+    1000000u
+};
 
-    c2837x_block_input.a = read_int16(payload_words, &offset);
-    c2837x_block_input.b = read_int16(payload_words, &offset);
-    c2837x_block_input.c = read_int16(payload_words, &offset);
-}
-
-/* ---- Pack OUTPUT_DATA payload ----
- * Payload layout (words):
- *   [0..1] step_index (uint32)
- *   [2]    sum (int16)
- */
-void c2837x_block_pack_output_payload(uint16_t* payload_words,
-                                      uint32_t step_index)
-{
-    uint32_t offset = 0;
-
-    write_uint32(payload_words, &offset, step_index);
-
-    write_int16(payload_words, &offset, c2837x_block_output.sum);
-}
+C2837xBlock c2837x_block_instance =
+    C2837X_BLOCK_INSTANCE_INITIALIZER(&sample_config);

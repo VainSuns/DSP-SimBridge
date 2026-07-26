@@ -2,8 +2,7 @@
 #define C2837X_BLOCK_INTERNAL_H
 
 #include "c2837x_block.h"
-#include "c2837x_block_config.h"
-#include "c2837x_block_iodevice.h"
+#include "c2837x_block_config_internal.h"
 #include "c2837x_block_protocol.h"
 
 typedef enum {
@@ -25,42 +24,15 @@ typedef enum {
 
 #define C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES  6u
 #define C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES   2u
-#define C2837X_BLOCK_RX_PAYLOAD_SIZE_BYTES         \
-    ((C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES >      \
-      C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES) ? \
-      C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES :      \
-      C2837X_BLOCK_SIM_START_PAYLOAD_SIZE_BYTES)
-#define C2837X_BLOCK_TX_PAYLOAD_SIZE_BYTES         \
-    ((C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES >     \
-      C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES) ?  \
-      C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES :     \
-      C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES)
-#define C2837X_BLOCK_PAYLOAD_WORK_SIZE_BYTES       \
-    ((C2837X_BLOCK_RX_PAYLOAD_SIZE_BYTES >         \
-      C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES) ?    \
-      C2837X_BLOCK_RX_PAYLOAD_SIZE_BYTES :         \
-      C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES)
-#define C2837X_BLOCK_PAYLOAD_WORK_SIZE_WORDS       \
-    ((C2837X_BLOCK_PAYLOAD_WORK_SIZE_BYTES + 1u) / 2u)
-#define C2837X_BLOCK_TX_FRAME_SIZE_BYTES           \
-    (C2837X_BLOCK_HEADER_SIZE_BYTES + C2837X_BLOCK_TX_PAYLOAD_SIZE_BYTES)
-#define C2837X_BLOCK_TX_FRAME_SIZE_WORDS           \
-    ((C2837X_BLOCK_TX_FRAME_SIZE_BYTES + 1u) / 2u)
-
-struct C2837xBlock {
+typedef struct
+{
     C2837xBlock_State state;
     C2837xBlock_RxState rx_state;
-    const C2837xBlock_IoDeviceOps *iodevice_ops;
-    void *iodevice_channel;
-
-    Uint16 rx_header_words[2];
     Uint32 rx_header_received_bytes;
-    Uint16 rx_payload_words[C2837X_BLOCK_PAYLOAD_WORK_SIZE_WORDS];
     Uint16 rx_msg_type;
     Uint16 rx_payload_length_bytes;
     Uint32 rx_payload_received_bytes;
 
-    Uint16 tx_frame_words[C2837X_BLOCK_TX_FRAME_SIZE_WORDS];
     Uint32 tx_total_bytes;
     Uint32 tx_sent_bytes;
 
@@ -72,10 +44,14 @@ struct C2837xBlock {
     Uint16 first_connected;
     Uint16 response_error;
     C2837xBlock_Error last_error;
+} C2837xBlock_Runtime;
+
+struct C2837xBlock {
+    const C2837xBlock_Config *config;
+    C2837xBlock_Runtime runtime;
 };
 
-void c2837x_block_bind_iodevice(C2837xBlock *instance,
-                                const C2837xBlock_IoDeviceOps *ops,
-                                void *channel);
+#define C2837X_BLOCK_INSTANCE_INITIALIZER(config_ptr) \
+    { (config_ptr), { 0 } }
 
 #endif /* C2837X_BLOCK_INTERNAL_H */

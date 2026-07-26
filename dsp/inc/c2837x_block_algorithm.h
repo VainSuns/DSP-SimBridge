@@ -18,22 +18,19 @@ typedef struct {
     int16_t sum;
 } C2837xBlock_OutputData;
 
-extern C2837xBlock_InputData  c2837x_block_input;
-extern C2837xBlock_OutputData c2837x_block_output;
-
 /*
  * Called when SIM_START is received.
  * Return 0 on success, non-zero on failure.
  */
-int C2837xBlock_OnSimStart(void);
+int16_t C2837xBlock_OnSimStart(void);
 
 /*
  * Called when INPUT_DATA is received and validated.
- * Input data is in c2837x_block_input.
- * Must write output to c2837x_block_output.
+ * Input is read-only and output belongs to this sample instance.
  * Return 0 on success, non-zero on failure.
  */
-int C2837xBlock_OnStep(void);
+int16_t C2837xBlock_OnStep(const C2837xBlock_InputData *input,
+                           C2837xBlock_OutputData *output);
 
 /*
  * Called when SIM_STOP is received or connection is lost.
