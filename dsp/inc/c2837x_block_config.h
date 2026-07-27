@@ -33,6 +33,8 @@
 #define C2837X_BLOCK_TCP_PORT          5000u
 #define C2837X_BLOCK_SOCKET_NUM        0u
 #define C2837X_BLOCK_ENABLE_DOUBLE     0u
+#define INTERACTION_TIMEOUT            5000u  /* milliseconds */
+#define TRANSFER_TIMEOUT               1000u  /* milliseconds */
 
 /* ---- MAC address (6 bytes) ---- */
 #define C2837X_BLOCK_MAC0   0x00u

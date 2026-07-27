@@ -14,6 +14,12 @@ typedef enum
     C2837X_BLOCK_HEADER_LENGTH_ERROR
 } C2837xBlock_HeaderResult;
 
+typedef enum
+{
+    C2837X_BLOCK_TERMINATE_ERROR = 0,
+    C2837X_BLOCK_TERMINATE_NORMAL
+} C2837xBlock_TerminationKind;
+
 static Uint32 c2837x_block_maximum_inbound_payload_octets(
     const C2837xBlock_Config *config)
 {
@@ -68,6 +74,7 @@ static int16 c2837x_block_config_is_valid(const C2837xBlock_Config *config)
             : C2837X_BLOCK_RESPONSE_PAYLOAD_SIZE_BYTES);
     if ((config->rx_frame_capacity_octets < minimum_rx_octets) ||
         (config->tx_frame_capacity_octets < minimum_tx_octets) ||
+        (config->time_us == NULL) ||
         (config->interaction_timeout_us == 0u) ||
         (config->interaction_timeout_us >= 0x80000000u) ||
         (config->transfer_timeout_us == 0u) ||
@@ -80,8 +87,21 @@ static int16 c2837x_block_config_is_valid(const C2837xBlock_Config *config)
 static void c2837x_block_latch_error(C2837xBlock *ctx,
                                      C2837xBlock_Error error)
 {
-    if (ctx->runtime.last_error == C2837X_BLOCK_ERROR_NONE)
+    if (ctx->runtime.primary_error_latched == 0u)
+    {
         ctx->runtime.last_error = error;
+        ctx->runtime.primary_error_latched = 1u;
+    }
+}
+
+static int16 c2837x_block_timeout_expired(const C2837xBlock *ctx,
+                                           Uint32 start_us,
+                                           Uint32 timeout_us)
+{
+    Uint32 now_us = ctx->config->time_us();
+    Uint32 elapsed_us = now_us - start_us;
+
+    return (elapsed_us >= timeout_us) ? 1 : 0;
 }
 
 static void c2837x_block_reset_rx(C2837xBlock *ctx)
@@ -102,9 +122,13 @@ static void c2837x_block_reset_tx(C2837xBlock *ctx)
     ctx->runtime.tx_done_action = C2837X_BLOCK_TX_DONE_CLOSE;
 }
 
-static void c2837x_block_start_receiving(C2837xBlock *ctx)
+static void c2837x_block_start_receiving(C2837xBlock *ctx,
+                                          C2837xBlock_WaitKind wait_kind,
+                                          Uint32 start_us)
 {
     c2837x_block_reset_rx(ctx);
+    ctx->runtime.receive_wait_kind = wait_kind;
+    ctx->runtime.progress_start_us = start_us;
     ctx->runtime.state = C2837X_BLOCK_STATE_RECEIVING;
 }
 
@@ -115,10 +139,12 @@ static void c2837x_block_start_sending(C2837xBlock *ctx,
     ctx->runtime.tx_total_octets = total_octets;
     ctx->runtime.tx_sent_octets = 0u;
     ctx->runtime.tx_done_action = action;
+    ctx->runtime.progress_start_us = ctx->config->time_us();
     ctx->runtime.state = C2837X_BLOCK_STATE_SENDING;
 }
 
-static void c2837x_block_terminate_session(C2837xBlock *ctx)
+static void c2837x_block_terminate_session(
+    C2837xBlock *ctx, C2837xBlock_TerminationKind kind)
 {
     C2837xBlock_Runtime *runtime = &ctx->runtime;
 
@@ -135,6 +161,8 @@ static void c2837x_block_terminate_session(C2837xBlock *ctx)
     runtime->protocol_phase = C2837X_BLOCK_PROTOCOL_WAIT_SIM_START;
     runtime->expected_step_index = 0u;
     runtime->close_pending = 1u;
+    runtime->normal_end_pending =
+        (kind == C2837X_BLOCK_TERMINATE_NORMAL) ? 1u : 0u;
     runtime->state = C2837X_BLOCK_STATE_WAIT_CONNECTION;
 }
 
@@ -242,18 +270,34 @@ static void c2837x_block_service_receiving(C2837xBlock *ctx)
     if (received_octets < 0)
     {
         c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
-        c2837x_block_terminate_session(ctx);
+        c2837x_block_terminate_session(ctx, C2837X_BLOCK_TERMINATE_ERROR);
         return;
     }
     if (received_octets == 0)
+    {
+        Uint32 timeout_us =
+            (runtime->receive_wait_kind == C2837X_BLOCK_WAIT_INTERACTION)
+                ? ctx->config->interaction_timeout_us
+                : ctx->config->transfer_timeout_us;
+        if (c2837x_block_timeout_expired(
+                ctx, runtime->progress_start_us, timeout_us) != 0)
+        {
+            c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_TIMEOUT);
+            c2837x_block_terminate_session(
+                ctx, C2837X_BLOCK_TERMINATE_ERROR);
+        }
         return;
+    }
     if ((((Uint32)received_octets & 1u) != 0u) ||
         ((Uint32)received_octets > remaining_octets))
     {
         c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
-        c2837x_block_terminate_session(ctx);
+        c2837x_block_terminate_session(ctx, C2837X_BLOCK_TERMINATE_ERROR);
         return;
     }
+
+    if (runtime->receive_wait_kind == C2837X_BLOCK_WAIT_INTERACTION)
+        runtime->receive_wait_kind = C2837X_BLOCK_WAIT_TRANSFER;
 
     if (runtime->rx_phase == C2837X_BLOCK_RX_HEADER)
     {
@@ -261,7 +305,10 @@ static void c2837x_block_service_receiving(C2837xBlock *ctx)
         runtime->rx_header_received_octets += (Uint32)received_octets;
         if (runtime->rx_header_received_octets <
             C2837X_BLOCK_HEADER_SIZE_BYTES)
+        {
+            runtime->progress_start_us = ctx->config->time_us();
             return;
+        }
 
         result = c2837x_block_validate_header(ctx);
         if (result != C2837X_BLOCK_HEADER_VALID)
@@ -273,6 +320,7 @@ static void c2837x_block_service_receiving(C2837xBlock *ctx)
             runtime->state = C2837X_BLOCK_STATE_FRAME_READY;
         else
             runtime->rx_phase = C2837X_BLOCK_RX_PAYLOAD;
+        runtime->progress_start_us = ctx->config->time_us();
         return;
     }
 
@@ -280,6 +328,7 @@ static void c2837x_block_service_receiving(C2837xBlock *ctx)
     if (runtime->rx_payload_received_octets ==
         (Uint32)runtime->rx_payload_length_octets)
         runtime->state = C2837X_BLOCK_STATE_FRAME_READY;
+    runtime->progress_start_us = ctx->config->time_us();
 }
 
 static void c2837x_block_handle_sim_start(C2837xBlock *ctx)
@@ -381,7 +430,7 @@ static void c2837x_block_service_frame_ready(C2837xBlock *ctx)
         c2837x_block_handle_input_data(ctx);
         break;
     case C2837X_MSG_SIM_STOP:
-        c2837x_block_terminate_session(ctx);
+        c2837x_block_terminate_session(ctx, C2837X_BLOCK_TERMINATE_NORMAL);
         break;
     default:
         c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_PROTOCOL,
@@ -390,7 +439,7 @@ static void c2837x_block_service_frame_ready(C2837xBlock *ctx)
     }
 }
 
-static void c2837x_block_finish_sending(C2837xBlock *ctx)
+static void c2837x_block_finish_sending(C2837xBlock *ctx, Uint32 now_us)
 {
     C2837xBlock_TxDoneAction action = ctx->runtime.tx_done_action;
     ctx->runtime.tx_done_action = C2837X_BLOCK_TX_DONE_CLOSE;
@@ -399,20 +448,23 @@ static void c2837x_block_finish_sending(C2837xBlock *ctx)
     {
         ctx->runtime.protocol_phase = C2837X_BLOCK_PROTOCOL_SIM_RUNNING;
         ctx->runtime.expected_step_index = 0u;
-        c2837x_block_start_receiving(ctx);
+        c2837x_block_start_receiving(
+            ctx, C2837X_BLOCK_WAIT_INTERACTION, now_us);
     }
     else if (action == C2837X_BLOCK_TX_DONE_RECEIVE_NEXT)
     {
-        c2837x_block_start_receiving(ctx);
+        c2837x_block_start_receiving(
+            ctx, C2837X_BLOCK_WAIT_INTERACTION, now_us);
     }
     else if (action == C2837X_BLOCK_TX_DONE_ADVANCE_STEP)
     {
         ctx->runtime.expected_step_index++;
-        c2837x_block_start_receiving(ctx);
+        c2837x_block_start_receiving(
+            ctx, C2837X_BLOCK_WAIT_INTERACTION, now_us);
     }
     else
     {
-        c2837x_block_terminate_session(ctx);
+        c2837x_block_terminate_session(ctx, C2837X_BLOCK_TERMINATE_ERROR);
     }
 }
 
@@ -429,22 +481,33 @@ static void c2837x_block_service_sending(C2837xBlock *ctx)
     if (sent_octets < 0)
     {
         c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
-        c2837x_block_terminate_session(ctx);
+        c2837x_block_terminate_session(ctx, C2837X_BLOCK_TERMINATE_ERROR);
         return;
     }
     if (sent_octets == 0)
+    {
+        if (c2837x_block_timeout_expired(
+                ctx, runtime->progress_start_us,
+                ctx->config->transfer_timeout_us) != 0)
+        {
+            c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_TIMEOUT);
+            c2837x_block_terminate_session(
+                ctx, C2837X_BLOCK_TERMINATE_ERROR);
+        }
         return;
+    }
     if ((((Uint32)sent_octets & 1u) != 0u) ||
         ((Uint32)sent_octets > remaining_octets))
     {
         c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
-        c2837x_block_terminate_session(ctx);
+        c2837x_block_terminate_session(ctx, C2837X_BLOCK_TERMINATE_ERROR);
         return;
     }
 
     runtime->tx_sent_octets += (Uint32)sent_octets;
+    runtime->progress_start_us = ctx->config->time_us();
     if (runtime->tx_sent_octets == runtime->tx_total_octets)
-        c2837x_block_finish_sending(ctx);
+        c2837x_block_finish_sending(ctx, runtime->progress_start_us);
 }
 
 static void c2837x_block_accept_connection(C2837xBlock *ctx)
@@ -459,7 +522,10 @@ static void c2837x_block_accept_connection(C2837xBlock *ctx)
     runtime->expected_step_index = 0u;
     runtime->algorithm_started = 0u;
     runtime->close_pending = 0u;
-    runtime->state = C2837X_BLOCK_STATE_RECEIVING;
+    runtime->normal_end_pending = 0u;
+    runtime->primary_error_latched = 0u;
+    c2837x_block_start_receiving(
+        ctx, C2837X_BLOCK_WAIT_TRANSFER, ctx->config->time_us());
 }
 
 static void c2837x_block_service_wait_connection(C2837xBlock *ctx)
@@ -476,7 +542,17 @@ static void c2837x_block_service_wait_connection(C2837xBlock *ctx)
             return;
         runtime->close_pending = 0u;
         if (result < 0)
+        {
+            runtime->normal_end_pending = 0u;
             c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
+        }
+        else
+        {
+            if (runtime->normal_end_pending != 0u)
+                runtime->last_error = C2837X_BLOCK_ERROR_NONE;
+            runtime->normal_end_pending = 0u;
+            runtime->primary_error_latched = 0u;
+        }
         return;
     }
 
@@ -501,7 +577,7 @@ static void c2837x_block_service_wait_connection(C2837xBlock *ctx)
         return;
     case C2837X_IODEVICE_CONNECTION_PEER_CLOSED:
         c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_DISCONNECTED);
-        c2837x_block_terminate_session(ctx);
+        c2837x_block_terminate_session(ctx, C2837X_BLOCK_TERMINATE_ERROR);
         return;
     case C2837X_IODEVICE_CONNECTION_ERROR:
     default:
@@ -559,7 +635,8 @@ void C2837xBlock_Run(C2837xBlock *instance)
         break;
     default:
         c2837x_block_latch_error(instance, C2837X_BLOCK_ERROR_INTERNAL);
-        c2837x_block_terminate_session(instance);
+        c2837x_block_terminate_session(
+            instance, C2837X_BLOCK_TERMINATE_ERROR);
         break;
     }
 }

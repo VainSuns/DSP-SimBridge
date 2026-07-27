@@ -60,6 +60,7 @@ static Uint16 tx_a[5];
 static Uint16 rx_b[6];
 static Uint16 tx_b[6];
 static Uint16 platform_init_calls;
+static Uint32 shared_now_us;
 
 static void fake_init(void *ref)
 {
@@ -207,19 +208,24 @@ static const C2837xBlock_AlgorithmAdapter adapter_b = {
     adapter_step, adapter_encode, adapter_stop
 };
 
+static Uint32 fake_time_us(void)
+{
+    return shared_now_us;
+}
+
 static const C2837xBlock_Config config_a = {
     &fake_ops_a, &channel_a,
     rx_a, 10u, tx_a, 10u,
     &input_a, &output_a, &adapter_a, &adapter_context_a,
     0x0001u, 0x11112222u, 6u, 6u, 8u,
-    5000000u, 1000000u
+    fake_time_us, 5000000u, 1000000u
 };
 static const C2837xBlock_Config config_b = {
     &fake_ops_b, &channel_b,
     rx_b, 12u, tx_b, 12u,
     &input_b, &output_b, &adapter_b, &adapter_context_b,
     0x0002u, 0x33334444u, 8u, 8u, 10u,
-    7000000u, 2000000u
+    fake_time_us, 7000000u, 2000000u
 };
 
 static C2837xBlock instance_a = C2837X_BLOCK_INSTANCE_INITIALIZER(&config_a);
@@ -464,6 +470,18 @@ static void test_invalid_config_boundaries(void)
     invalid = config_a;
     invalid.interaction_timeout_us = 0u;
     assert_invalid_config(invalid);
+    invalid = config_a;
+    invalid.time_us = NULL;
+    assert_invalid_config(invalid);
+    invalid = config_a;
+    invalid.transfer_timeout_us = 0u;
+    assert_invalid_config(invalid);
+    invalid = config_a;
+    invalid.interaction_timeout_us = 0x80000000u;
+    assert_invalid_config(invalid);
+    invalid = config_a;
+    invalid.transfer_timeout_us = 0x80000000u;
+    assert_invalid_config(invalid);
 }
 
 static void test_runtime_declared_length_uses_max_payload(void)
@@ -497,6 +515,35 @@ static void test_runtime_declared_length_uses_max_payload(void)
     assert(adapter_context_a.decode_calls == 2u);
 }
 
+static void test_shared_clock_timeout_isolation(void)
+{
+    Uint16 stop_calls_b;
+
+    shared_now_us = 0u;
+    C2837xBlock_Init(&instance_a);
+    C2837xBlock_Init(&instance_b);
+    channel_a.state = C2837X_IODEVICE_CONNECTION_CONNECTED;
+    channel_b.state = C2837X_IODEVICE_CONNECTION_CONNECTED;
+    C2837xBlock_Run(&instance_a);
+    C2837xBlock_Run(&instance_b);
+    instance_a.runtime.algorithm_started = 1u;
+    instance_b.runtime.algorithm_started = 1u;
+    stop_calls_b = adapter_context_b.stop_calls;
+
+    shared_now_us = config_a.transfer_timeout_us;
+    C2837xBlock_Run(&instance_a);
+    assert(instance_a.runtime.last_error == C2837X_BLOCK_ERROR_TIMEOUT);
+    assert(instance_a.runtime.state == C2837X_BLOCK_STATE_WAIT_CONNECTION);
+    assert(instance_b.runtime.state == C2837X_BLOCK_STATE_RECEIVING);
+    assert(instance_b.runtime.progress_start_us == 0u);
+    assert(instance_b.runtime.last_error == C2837X_BLOCK_ERROR_NONE);
+    assert(adapter_context_b.stop_calls == stop_calls_b);
+
+    C2837xBlock_Run(&instance_b);
+    assert(instance_b.runtime.state == C2837X_BLOCK_STATE_RECEIVING);
+    assert(instance_b.runtime.last_error == C2837X_BLOCK_ERROR_NONE);
+}
+
 int main(void)
 {
     test_init_and_static_isolation();
@@ -504,5 +551,6 @@ int main(void)
     test_step_failure_has_no_normal_output();
     test_invalid_config_boundaries();
     test_runtime_declared_length_uses_max_payload();
+    test_shared_clock_timeout_isolation();
     return 0;
 }

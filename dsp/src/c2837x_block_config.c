@@ -20,7 +20,7 @@
 #define SAMPLE_TX_FRAME_WORDS \
     ((C2837X_BLOCK_HEADER_SIZE_BYTES + \
       C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES) / 2u)
-#define SAMPLE_TRANSFER_TIMEOUT_US 1000000u
+#define C2837X_BLOCK_TIMEOUT_MS_TO_US(value_) ((Uint32)(value_) * 1000u)
 
 C2837X_STATIC_ASSERT((sizeof(uint16_t) * CHAR_BIT) == 16u,
                      uint16_bit_size_mismatch);
@@ -39,6 +39,14 @@ C2837X_STATIC_ASSERT(
     sample_rx_frame_size_mismatch);
 C2837X_STATIC_ASSERT(SAMPLE_RX_FRAME_WORDS == 7u,
                      sample_rx_frame_must_be_seven_words);
+C2837X_STATIC_ASSERT(INTERACTION_TIMEOUT > 0u,
+                     interaction_timeout_must_be_positive);
+C2837X_STATIC_ASSERT(TRANSFER_TIMEOUT > 0u,
+                     transfer_timeout_must_be_positive);
+C2837X_STATIC_ASSERT(INTERACTION_TIMEOUT <= 2147483u,
+                     interaction_timeout_must_fit_unsigned_delta);
+C2837X_STATIC_ASSERT(TRANSFER_TIMEOUT <= 2147483u,
+                     transfer_timeout_must_fit_unsigned_delta);
 
 static C2837xBlock_InputData sample_input;
 static C2837xBlock_OutputData sample_output;
@@ -47,7 +55,8 @@ static Uint16 sample_tx_frame[SAMPLE_TX_FRAME_WORDS];
 static C2837xW5300Channel sample_channel =
     C2837X_W5300_CHANNEL_INITIALIZER(
         C2837X_BLOCK_SOCKET_NUM, 8192u, 8192u, C2837X_BLOCK_TCP_PORT,
-        c2837x_block_time_us, SAMPLE_TRANSFER_TIMEOUT_US);
+        c2837x_block_time_us,
+        C2837X_BLOCK_TIMEOUT_MS_TO_US(TRANSFER_TIMEOUT));
 
 static void sample_reset_io(void *context, void *input, void *output)
 {
@@ -125,8 +134,9 @@ static const C2837xBlock_Config sample_config = {
     C2837X_BLOCK_INPUT_PAYLOAD_SIZE_BYTES,
     C2837X_BLOCK_OUTPUT_PAYLOAD_SIZE_BYTES,
     C2837X_BLOCK_MAX_PAYLOAD_SIZE_BYTES,
-    5000000u,
-    SAMPLE_TRANSFER_TIMEOUT_US
+    c2837x_block_time_us,
+    C2837X_BLOCK_TIMEOUT_MS_TO_US(INTERACTION_TIMEOUT),
+    C2837X_BLOCK_TIMEOUT_MS_TO_US(TRANSFER_TIMEOUT)
 };
 
 C2837xBlock c2837x_block_instance =

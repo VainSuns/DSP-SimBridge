@@ -27,6 +27,12 @@ typedef enum
 
 typedef enum
 {
+    C2837X_BLOCK_WAIT_TRANSFER = 0,
+    C2837X_BLOCK_WAIT_INTERACTION
+} C2837xBlock_WaitKind;
+
+typedef enum
+{
     C2837X_BLOCK_TX_DONE_CLOSE = 0,
     C2837X_BLOCK_TX_DONE_ENTER_SIM_RUNNING,
     C2837X_BLOCK_TX_DONE_RECEIVE_NEXT,
@@ -48,8 +54,12 @@ typedef struct
     Uint32 tx_total_octets;
     Uint32 tx_sent_octets;
     Uint32 expected_step_index;
+    Uint32 progress_start_us;
+    C2837xBlock_WaitKind receive_wait_kind;
     Uint16 algorithm_started;
     Uint16 close_pending;
+    Uint16 primary_error_latched;
+    Uint16 normal_end_pending;
     C2837xBlock_TxDoneAction tx_done_action;
     Uint16 response_error;
     C2837xBlock_Error last_error;

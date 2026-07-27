@@ -44,6 +44,8 @@ typedef struct
     Uint16 output_payload_octets;
     Uint16 max_payload_octets;
 
+    /* Shared monotonic clock; timeout state remains per instance. */
+    Uint32 (*time_us)(void);
     /* User communication timeouts, converted to microseconds. */
     Uint32 interaction_timeout_us;
     Uint32 transfer_timeout_us;

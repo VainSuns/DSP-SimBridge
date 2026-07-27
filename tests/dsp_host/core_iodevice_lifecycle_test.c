@@ -31,6 +31,11 @@ static Uint16 output_words[2];
 static FakeChannel channel;
 static FakeAlgorithm algorithm_context;
 
+static Uint32 fake_time_us(void)
+{
+    return 0u;
+}
+
 static void fake_init(void *context)
 {
     ((FakeChannel *)context)->init_calls++;
@@ -139,7 +144,8 @@ static const C2837xBlock_AlgorithmAdapter algorithm = {
 static const C2837xBlock_Config config = {
     &ops, &channel, rx_words, 16u, tx_words, 16u,
     input_words, output_words, &algorithm, &algorithm_context,
-    1u, 0x12345678u, 8u, 8u, 12u, 1000u, 1000u
+    1u, 0x12345678u, 8u, 8u, 12u,
+    fake_time_us, 1000u, 1000u
 };
 
 static C2837xBlock instance = C2837X_BLOCK_INSTANCE_INITIALIZER(&config);
@@ -211,6 +217,7 @@ static void test_close_busy_done_error(void)
 
     reset_fixture();
     instance.runtime.last_error = C2837X_BLOCK_ERROR_PROTOCOL;
+    instance.runtime.primary_error_latched = 1u;
     instance.runtime.close_pending = 1u;
     channel.close_result = -1;
     C2837xBlock_Run(&instance);
@@ -261,6 +268,7 @@ static void assert_close_error_preserves(C2837xBlock_Error primary_error)
     channel.close_result = -1;
     instance.runtime.close_pending = 1u;
     instance.runtime.last_error = primary_error;
+    instance.runtime.primary_error_latched = 1u;
     resets = algorithm_context.reset_calls;
     clear_operation_counts();
 

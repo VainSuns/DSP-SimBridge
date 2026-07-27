@@ -44,6 +44,11 @@ static Uint16 tx_frame[16];
 static Uint16 input_object[2];
 static Uint16 output_object[2];
 
+static Uint32 fake_time_us(void)
+{
+    return 0u;
+}
+
 static void fake_init(void *context)
 {
     (void)context;
@@ -185,7 +190,8 @@ static const C2837xBlock_AlgorithmAdapter algorithm = {
 static const C2837xBlock_Config config = {
     &ops, &channel, rx_frame, 12u, tx_frame, 16u,
     input_object, output_object, &algorithm, &algorithm_context,
-    1u, 0x12345678u, 8u, 8u, 12u, 1000u, 1000u
+    1u, 0x12345678u, 8u, 8u, 12u,
+    fake_time_us, 1000u, 1000u
 };
 
 static C2837xBlock instance = C2837X_BLOCK_INSTANCE_INITIALIZER(&config);

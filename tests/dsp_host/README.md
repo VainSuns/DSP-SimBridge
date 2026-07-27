@@ -150,8 +150,9 @@ same CLOSE path. DONE requires a later `SOCK_CLOSED` observation.
 
 The whole transaction uses unsigned
 `time_us() - close_start_us >= close_timeout_us`; no stage refreshes the start.
-The sample uses `SAMPLE_TRANSFER_TIMEOUT_US` for both the Core transfer timeout
-and Channel close timeout. A deadline faults only that Channel. Its API entries
+The sample derives both the Core transfer timeout and Channel close timeout
+from `TRANSFER_TIMEOUT` through `C2837X_BLOCK_TIMEOUT_MS_TO_US`. A deadline
+faults only that Channel. Its API entries
 then reject with no W5300 access until a successful PlatformInit generation is
 observed.
 
@@ -177,3 +178,21 @@ There are no internal waiting loops and no Run-reachable fixed delays.
 handling, SEND_OK/TIMEOUT/both, every no-response wait at 99 us BUSY and 100 us
 ERROR, Timer2 wrap, fault gates with zero register accesses, generation recovery,
 network-register protection, idempotence, command takeover, and Socket isolation.
+
+## S2-08 Core timeout and lifecycle evidence
+
+`core_timeout_lifecycle_test.c` binds a controllable shared microsecond clock
+through `C2837xBlock_Config.time_us`. It covers TRANSFER and INTERACTION exact
+boundaries, positive-progress refresh, zero-progress non-refresh, unsigned
+Timer 2 wrap, callback-time exclusion, recent-error replacement, normal close
+DONE clearing, normal close ERROR, decode atomicity, and the one-time-source-call
+budget. Its table-driven lifecycle matrix covers normal stop, callback and
+codec failures, protocol type/state/length/step failures, receive/send timeout
+and failure, disconnect, error-response failure/timeout, and close ERROR;
+every row asserts OnStop is zero or one.
+
+`core_instance_test.c` additionally binds both existing fake instances to the
+same clock and proves that one instance timing out does not change the other's
+timestamp, state, error, or callback counts. `test_s2_08_timeout_lifecycle.m`
+strictly compiles these fixtures and checks the device-independent bounded Core
+and the unique millisecond-to-microsecond sample binding.
