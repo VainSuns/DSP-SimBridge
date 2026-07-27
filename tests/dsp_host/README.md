@@ -196,3 +196,19 @@ same clock and proves that one instance timing out does not change the other's
 timestamp, state, error, or callback counts. `test_s2_08_timeout_lifecycle.m`
 strictly compiles these fixtures and checks the device-independent bounded Core
 and the unique millisecond-to-microsecond sample binding.
+
+## S2-09 hand-written dual-instance evidence
+
+`fixtures/s2_09_dual_instance` provides two compile-time W5300-bound instances:
+`g_s2_09_current_loop` on Socket 1/TCP 5101 and
+`g_s2_09_voltage_loop` on Socket 6/TCP 5102. The project header exposes only
+those opaque instances; the source keeps both Configs, Channels, buffers,
+input/output objects, and algorithm contexts private. The adjacent manifest
+lists the minimum later TI/CCS source set and excludes the existing
+single-instance sample binding.
+
+`s2_09_dual_instance_runtime_test.c` uses one generic Fake IoDeviceOps table to
+verify explicit A/B and B/A polling order, full Runtime isolation, independent
+algorithms/buffers/steps/timeouts, repeated sessions, and finite protocol,
+receive, send, close, and algorithm failure isolation. It does not claim
+isolation from a non-returning algorithm or memory corruption.

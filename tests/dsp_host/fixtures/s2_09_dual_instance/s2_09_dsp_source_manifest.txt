@@ -1,0 +1,25 @@
+S2-09 hand-written dual-instance DSP fixture: minimum source manifest
+
+Compile:
+  dsp/src/c2837x_block.c
+  dsp/src/c2837x_block_protocol.c
+  dsp/src/c2837x_block_platform.c
+  dsp/src/c2837x_w5300_hal.c
+  dsp/src/c2837x_w5300_socket.c
+  dsp/src/c2837x_w5300_channel.c
+  tests/dsp_host/fixtures/s2_09_dual_instance/s2_09_dual_instance_project.c
+
+Exclude:
+  dsp/src/c2837x_block_config.c
+  dsp/src/my_algorithm.c
+  tests/dsp_host/s2_09_dual_instance_runtime_test.c
+
+The excluded config and algorithm are the existing single-instance sample.
+The Host Fake IoDevice test is evidence only and is not a DSP target source.
+The user's existing startup file and main are outside this manifest. TI
+device-support sources, linker command files, and the CCS project come from
+the user's environment. Call C2837xBlock_PlatformInit once, then explicitly
+initialize both instances and call each instance in the required order.
+
+No TI/CCS compilation was performed by S2-09. This fixture is neither stage-3
+generator output nor a production main template.
