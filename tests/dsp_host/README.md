@@ -31,6 +31,10 @@ one connection-state query plus at most one open/listen; or one receive; or one
 complete local frame dispatch; or one send. Formal Core communication timeout
 handling remains intentionally deferred to S2-08.
 
+After a close ERROR clears `close_pending`, persistent `CONNECTION_ERROR`
+leaves the Core in `WAIT_CONNECTION` without repeating close or session cleanup;
+a later generic `CLOSED` state resumes normal open progression.
+
 ## S2-04 W5300 evidence and call budget
 
 Official references: WIZnet **W5300 Datasheet v1.3.4**, **W5300 Errata Sheet

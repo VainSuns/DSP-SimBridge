@@ -217,6 +217,119 @@ static void test_close_busy_done_error(void)
     assert(instance.runtime.last_error == C2837X_BLOCK_ERROR_PROTOCOL);
 }
 
+static void test_close_error_stays_fault_waiting(void)
+{
+    Uint16 run;
+    Uint16 resets;
+    Uint16 stops;
+
+    reset_fixture();
+    channel.state = C2837X_IODEVICE_CONNECTION_ERROR;
+    channel.close_result = -1;
+    instance.runtime.close_pending = 1u;
+    resets = algorithm_context.reset_calls;
+    stops = algorithm_context.stop_calls;
+    clear_operation_counts();
+
+    C2837xBlock_Run(&instance);
+    assert_only_close(1u);
+    assert(instance.runtime.close_pending == 0u);
+    assert(instance.runtime.last_error == C2837X_BLOCK_ERROR_IODEVICE);
+
+    for (run = 1u; run < 10u; run++)
+    {
+        C2837xBlock_Run(&instance);
+        assert(channel.state_calls == run);
+        assert(channel.close_calls == 1u);
+        assert(channel.open_calls == 0u && channel.listen_calls == 0u);
+        assert(channel.receive_calls == 0u && channel.send_calls == 0u);
+        assert(instance.runtime.close_pending == 0u);
+        assert(instance.runtime.state == C2837X_BLOCK_STATE_WAIT_CONNECTION);
+        assert(instance.runtime.last_error == C2837X_BLOCK_ERROR_IODEVICE);
+        assert(algorithm_context.reset_calls == resets);
+        assert(algorithm_context.stop_calls == stops);
+    }
+}
+
+static void assert_close_error_preserves(C2837xBlock_Error primary_error)
+{
+    Uint16 run;
+    Uint16 resets;
+
+    reset_fixture();
+    channel.state = C2837X_IODEVICE_CONNECTION_ERROR;
+    channel.close_result = -1;
+    instance.runtime.close_pending = 1u;
+    instance.runtime.last_error = primary_error;
+    resets = algorithm_context.reset_calls;
+    clear_operation_counts();
+
+    C2837xBlock_Run(&instance);
+    for (run = 0u; run < 4u; run++)
+        C2837xBlock_Run(&instance);
+
+    assert(channel.close_calls == 1u && channel.state_calls == 4u);
+    assert(instance.runtime.close_pending == 0u);
+    assert(instance.runtime.last_error == primary_error);
+    assert(algorithm_context.reset_calls == resets);
+    assert(algorithm_context.stop_calls == 0u);
+}
+
+static void test_close_error_preserves_primary_error(void)
+{
+    assert_close_error_preserves(C2837X_BLOCK_ERROR_PROTOCOL);
+    assert_close_error_preserves(C2837X_BLOCK_ERROR_ALGORITHM_STEP);
+}
+
+static void test_connection_error_recovers_to_closed(void)
+{
+    Uint16 run;
+
+    reset_fixture();
+    channel.state = C2837X_IODEVICE_CONNECTION_ERROR;
+    channel.close_result = -1;
+    instance.runtime.close_pending = 1u;
+    clear_operation_counts();
+    C2837xBlock_Run(&instance);
+    for (run = 0u; run < 3u; run++)
+        C2837xBlock_Run(&instance);
+
+    channel.state = C2837X_IODEVICE_CONNECTION_CLOSED;
+    C2837xBlock_Run(&instance);
+    assert(channel.state_calls == 4u);
+    assert(channel.open_calls == 1u && channel.listen_calls == 0u);
+    assert(channel.close_calls == 1u);
+
+    channel.state = C2837X_IODEVICE_CONNECTION_OPEN;
+    C2837xBlock_Run(&instance);
+    assert(channel.state_calls == 5u);
+    assert(channel.open_calls == 1u && channel.listen_calls == 1u);
+    assert(channel.close_calls == 1u);
+}
+
+static void test_startup_connection_error_waits(void)
+{
+    Uint16 run;
+    Uint16 resets;
+
+    reset_fixture();
+    channel.state = C2837X_IODEVICE_CONNECTION_ERROR;
+    resets = algorithm_context.reset_calls;
+    clear_operation_counts();
+    for (run = 1u; run <= 10u; run++)
+    {
+        C2837xBlock_Run(&instance);
+        assert(channel.state_calls == run);
+        assert(channel.close_calls == 0u);
+        assert(channel.open_calls == 0u && channel.listen_calls == 0u);
+        assert(instance.runtime.close_pending == 0u);
+        assert(instance.runtime.state == C2837X_BLOCK_STATE_WAIT_CONNECTION);
+        assert(instance.runtime.last_error == C2837X_BLOCK_ERROR_IODEVICE);
+        assert(algorithm_context.reset_calls == resets);
+        assert(algorithm_context.stop_calls == 0u);
+    }
+}
+
 static void test_normal_connection_budget(void)
 {
     reset_fixture();
@@ -280,18 +393,26 @@ static void test_termination_and_primary_error(void)
     channel.close_result = -1;
     C2837xBlock_Run(&instance);
     assert(instance.runtime.last_error == C2837X_BLOCK_ERROR_DISCONNECTED);
+    assert(instance.runtime.close_pending == 0u);
+    assert(channel.close_calls == 1u);
 
     reset_fixture();
     channel.state = C2837X_IODEVICE_CONNECTION_ERROR;
     C2837xBlock_Run(&instance);
     assert(instance.runtime.last_error == C2837X_BLOCK_ERROR_IODEVICE);
-    assert(instance.runtime.close_pending == 1u);
+    assert(instance.runtime.close_pending == 0u);
     assert(channel.close_calls == 0u);
+    assert(algorithm_context.reset_calls == 1u);
+    assert(algorithm_context.stop_calls == 0u);
 }
 
 int main(void)
 {
     test_close_busy_done_error();
+    test_close_error_stays_fault_waiting();
+    test_close_error_preserves_primary_error();
+    test_connection_error_recovers_to_closed();
+    test_startup_connection_error_waits();
     test_normal_connection_budget();
     test_termination_and_primary_error();
     return 0;

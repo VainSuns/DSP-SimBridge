@@ -506,7 +506,6 @@ static void c2837x_block_service_wait_connection(C2837xBlock *ctx)
     case C2837X_IODEVICE_CONNECTION_ERROR:
     default:
         c2837x_block_latch_error(ctx, C2837X_BLOCK_ERROR_IODEVICE);
-        c2837x_block_terminate_session(ctx);
         return;
     }
 }
