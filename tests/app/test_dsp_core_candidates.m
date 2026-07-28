@@ -8,6 +8,8 @@ classdef test_dsp_core_candidates < matlab.unittest.TestCase
             root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
             testCase.applyFixture(matlab.unittest.fixtures.PathFixture( ...
                 fullfile(root, 'app')));
+            testCase.applyFixture(matlab.unittest.fixtures.PathFixture( ...
+                fullfile(root, 'tests', 'app', 'fixtures')));
         end
     end
 
@@ -77,6 +79,58 @@ classdef test_dsp_core_candidates < matlab.unittest.TestCase
                 'SNAPSHOT_DEPENDENCY_CHANGED')));
         end
 
+        function testDefinitionDependenciesFollowProjectTypes(testCase)
+            providerProject = provider_project(testCase.WorkFolder, false);
+            [~, providerDependencies] = ...
+                c2837x_block_build_dsp_candidates(providerProject);
+            providerDefinitions = definition_dependencies(providerDependencies);
+            testCase.verifyEqual({providerDefinitions.identity}, ...
+                {'dsp-generator:iodevice-definition:test_provider'});
+            testCase.verifyNotEmpty(strfind( ...
+                providerDefinitions.source_path, ...
+                'c2837x_block_iodevice_test_provider_definition.m'));
+
+            mixedProject = provider_project(testCase.WorkFolder, true);
+            [~, mixedDependencies] = ...
+                c2837x_block_build_dsp_candidates(mixedProject);
+            mixedDefinitions = definition_dependencies(mixedDependencies);
+            testCase.verifyEqual({mixedDefinitions.identity}, { ...
+                'dsp-generator:iodevice-definition:test_provider', ...
+                'dsp-generator:iodevice-definition:w5300_tcp'});
+            testCase.verifyEqual(numel(unique({mixedDefinitions.identity})), 2);
+        end
+
+        function testProviderDefinitionChangeInvalidatesSnapshot(testCase)
+            fixturePath = which( ...
+                'c2837x_block_iodevice_test_provider_definition');
+            providerFolder = fullfile(testCase.WorkFolder, 'provider');
+            mkdir(providerFolder);
+            providerPath = fullfile(providerFolder, ...
+                'c2837x_block_iodevice_test_provider_definition.m');
+            copyfile(fixturePath, providerPath);
+            addpath(providerFolder, '-begin');
+            testCase.addTeardown(@() cleanup_provider_path(providerFolder));
+            clear c2837x_block_iodevice_test_provider_definition
+            rehash;
+            project = provider_project(testCase.WorkFolder, false);
+            [candidates, dependencies] = ...
+                c2837x_block_build_dsp_candidates(project);
+            providerDependency = definition_dependencies(dependencies);
+            testCase.verifyEqual(providerDependency.source_path, ...
+                c2837x_block_normalize_absolute_path(providerPath));
+            [snapshot, snapshotIssues] = c2837x_block_create_preview_snapshot( ...
+                project, candidates, dependencies);
+            testCase.assertFalse(any(strcmp({snapshotIssues.severity}, 'Error')));
+
+            write_bytes(providerPath, [read_bytes(providerPath) uint8(10)]);
+            [isValid, issues] = c2837x_block_validate_preview_snapshot( ...
+                snapshot, project, candidates, dependencies);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifyTrue(any(strcmp({issues.code}, ...
+                'SNAPSHOT_DEPENDENCY_CHANGED')));
+        end
+
         function testLegacyWriterRetiresWithoutCreatingTarget(testCase)
             target = fullfile(testCase.WorkFolder, 'missing');
 
@@ -138,6 +192,17 @@ testCase.verifyTrue(all(cellfun(@isfile, {dependencies.source_path})));
 testCase.verifyTrue(all(cellfun(@isempty, {dependencies.content_bytes})));
 end
 
+function values = definition_dependencies(dependencies)
+values = dependencies(startsWith({dependencies.identity}, ...
+    'dsp-generator:iodevice-definition:'));
+end
+
+function cleanup_provider_path(folder)
+rmpath(folder);
+clear c2837x_block_iodevice_test_provider_definition
+rehash;
+end
+
 function [isValid, issues] = changed_dependency_result(testCase, root, role)
 project = valid_project(root, 'dsp');
 [candidates, dependencies] = c2837x_block_build_dsp_candidates(project);
@@ -181,6 +246,20 @@ instance.iodevice.settings.socket_number = uint16(socket);
 instance.iodevice.settings.tcp_port = uint16(port);
 instance.inputs = struct('name', 'command', 'type', 'single', 'dim', 1);
 instance.outputs = struct('name', 'feedback', 'type', 'single', 'dim', 1);
+end
+
+function project = provider_project(root, mixed)
+project = valid_project(root, 'provider_dsp');
+project.instances(1).iodevice.type = 'test_provider';
+project.instances(1).iodevice.settings = struct('channel_id', 42);
+if mixed
+    third = project.instances(1);
+    third.display_name = 'Third';
+    third.internal_name = 'third';
+    project.instances(3) = third;
+else
+    project.instances = project.instances(1);
+end
 end
 
 function paths = fixed_core_paths()

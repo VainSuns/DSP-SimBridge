@@ -68,12 +68,6 @@ require_text(iodevice.type, 'instance.iodevice.type');
 if ~isstruct(iodevice.settings) || ~isscalar(iodevice.settings)
     invalid_project('instance.iodevice.settings must be a scalar struct.');
 end
-require_fields(iodevice.settings, {'socket_number', 'tcp_port'}, ...
-    'instance.iodevice.settings');
-require_numeric_scalar(iodevice.settings.socket_number, ...
-    'instance.iodevice.settings.socket_number');
-require_numeric_scalar(iodevice.settings.tcp_port, ...
-    'instance.iodevice.settings.tcp_port');
 
 validate_variables(instance.inputs, 'instance.inputs');
 validate_variables(instance.outputs, 'instance.outputs');

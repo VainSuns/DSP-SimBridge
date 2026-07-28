@@ -10,12 +10,12 @@ end
 function issues = validate_settings(settings, instanceIndex)
 issues = empty_issues();
 prefix = sprintf('project.instances(%u).iodevice.settings.', instanceIndex);
-if ~is_integer_in_range(settings.socket_number, 0, 7)
+if ~valid_field(settings, 'socket_number', 0, 7)
     issues(end + 1) = issue('SOCKET_INVALID', ...
         'Socket number must be an integer from 0 to 7.', ...
         [prefix 'socket_number'], instanceIndex);
 end
-if ~is_integer_in_range(settings.tcp_port, 1, 65535)
+if ~valid_field(settings, 'tcp_port', 1, 65535)
     issues(end + 1) = issue('TCP_PORT_INVALID', ...
         'TCP port must be an integer from 1 to 65535.', ...
         [prefix 'tcp_port'], instanceIndex);
@@ -28,12 +28,12 @@ prototype = struct('scope', '', 'kind', '', 'key', '', 'exclusive', false, ...
     'instance_index', 0);
 claims = repmat(prototype, 1, 0);
 prefix = sprintf('project.instances(%u).iodevice.settings.', instanceIndex);
-if is_integer_in_range(settings.socket_number, 0, 7)
+if valid_field(settings, 'socket_number', 0, 7)
     claims(end + 1) = claim('socket', settings.socket_number, ...
         'SOCKET_DUPLICATE', 'Socket number is already used.', ...
         [prefix 'socket_number'], instanceIndex);
 end
-if is_integer_in_range(settings.tcp_port, 1, 65535)
+if valid_field(settings, 'tcp_port', 1, 65535)
     claims(end + 1) = claim('tcp_listen_port', settings.tcp_port, ...
         'TCP_PORT_DUPLICATE', 'TCP port is already used.', ...
         [prefix 'tcp_port'], instanceIndex);
@@ -97,4 +97,9 @@ end
 function tf = is_integer_in_range(value, minimum, maximum)
 tf = isnumeric(value) && isscalar(value) && isreal(value) && ...
     isfinite(value) && value == fix(value) && value >= minimum && value <= maximum;
+end
+
+function tf = valid_field(settings, name, minimum, maximum)
+tf = isstruct(settings) && isscalar(settings) && isfield(settings, name) && ...
+    is_integer_in_range(settings.(name), minimum, maximum);
 end

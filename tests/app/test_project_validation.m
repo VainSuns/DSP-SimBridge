@@ -15,6 +15,8 @@ classdef test_project_validation < matlab.unittest.TestCase
         function addAppFolder(testCase)
             root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
             testCase.applyFixture(matlab.unittest.fixtures.PathFixture(fullfile(root, 'app')));
+            testCase.applyFixture(matlab.unittest.fixtures.PathFixture( ...
+                fullfile(root, 'tests', 'app', 'fixtures')));
         end
     end
 
@@ -73,6 +75,33 @@ classdef test_project_validation < matlab.unittest.TestCase
             codes = {c2837x_block_validate_project(project, 'instant').code};
             testCase.verifyTrue(all(ismember({'SOCKET_INVALID', ...
                 'TCP_PORT_INVALID', 'SAMPLE_TIME_INVALID'}, codes)));
+        end
+
+        function testProviderOwnsItsSettingsStructure(testCase)
+            project = valid_project(testCase.WorkFolder);
+            project.instances.iodevice.type = 'test_provider';
+            project.instances.iodevice.settings = struct('channel_id', 0);
+
+            issues = c2837x_block_validate_project(project, 'instant');
+
+            testCase.verifyTrue(any(strcmp({issues.code}, 'TEST_CHANNEL_INVALID')));
+            testCase.verifyFalse(any(strcmp({issues.code}, 'PROJECT_STRUCTURE_INVALID')));
+        end
+
+        function testMissingW5300FieldsReturnSpecificIssues(testCase)
+            project = valid_project(testCase.WorkFolder);
+            settings = {struct('tcp_port', 5000), ...
+                struct('socket_number', 1), struct()};
+            expected = {{'SOCKET_INVALID'}, {'TCP_PORT_INVALID'}, ...
+                {'SOCKET_INVALID', 'TCP_PORT_INVALID'}};
+            for index = 1:numel(settings)
+                project.instances.iodevice.settings = settings{index};
+                issues = c2837x_block_validate_project(project, 'instant');
+                codes = {issues.code};
+                testCase.verifyEqual(codes(ismember(codes, ...
+                    {'SOCKET_INVALID', 'TCP_PORT_INVALID'})), expected{index});
+                testCase.verifyFalse(any(strcmp(codes, 'PROJECT_STRUCTURE_INVALID')));
+            end
         end
 
         function testW5300InstanceLimitPreservesResourceIssues(testCase)
