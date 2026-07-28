@@ -22,6 +22,17 @@
 /* Project bound for volatile 32-bit size-register snapshots. */
 #define C2837X_W5300_STABLE_READ_ATTEMPTS 3u
 
+typedef struct
+{
+    Uint16 mac[6];
+    Uint32 ip_address;
+    Uint32 gateway;
+    Uint32 subnet;
+} C2837xW5300ProjectConfig;
+
+extern const C2837xW5300ProjectConfig
+    c2837x_w5300_project_config;
+
 /* ---- FIFO byte-swap flag ---- */
 extern Uint16 c2837x_w5300_fifo_swap;
 

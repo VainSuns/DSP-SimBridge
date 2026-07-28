@@ -104,16 +104,18 @@ end
 
 function verify_candidates(testCase, candidates, root)
 expected = fixed_core_paths();
-testCase.verifyNumElements(candidates, 17);
-testCase.verifyEqual(relative_targets(root, {candidates.target_path}), expected);
-testCase.verifyEqual({candidates.category}, repmat({'core'}, 1, 17));
-testCase.verifyEqual([candidates.instance_index], zeros(1, 17));
-testCase.verifyEqual({candidates.owner}, ...
+testCase.verifyNumElements(candidates, 19);
+core = candidates(strcmp({candidates.category}, 'core'));
+testCase.verifyNumElements(core, 17);
+testCase.verifyEqual(relative_targets(root, {core.target_path}), expected);
+testCase.verifyEqual({core.category}, repmat({'core'}, 1, 17));
+testCase.verifyEqual([core.instance_index], zeros(1, 17));
+testCase.verifyEqual({core.owner}, ...
     cellfun(@(path) ['dsp-core:' path], expected, 'UniformOutput', false));
-testCase.verifyEqual(numel(unique({candidates.owner})), 17);
+testCase.verifyEqual(numel(unique({core.owner})), 17);
 testCase.verifyEmpty(c2837x_block_validate_candidate_files(candidates));
-for index = 1:numel(candidates)
-    bytes = candidates(index).content_bytes;
+for index = 1:numel(core)
+    bytes = core(index).content_bytes;
     text = native2unicode(bytes, 'UTF-8');
     testCase.verifyEqual(reshape(uint8(unicode2native(text, 'UTF-8')), 1, []), bytes);
     testCase.verifyFalse(startsWithBytes(bytes, uint8([239 187 191])));
@@ -126,12 +128,12 @@ end
 end
 
 function verify_dependencies(testCase, dependencies)
-testCase.verifyNumElements(dependencies, 19);
-testCase.verifyEqual({dependencies(1:2).role}, ...
-    {'generator_template', 'generator_template'});
-testCase.verifyEqual({dependencies(3:end).role}, repmat({'core_source'}, 1, 17));
-testCase.verifyEqual({dependencies.source_kind}, repmat({'file'}, 1, 19));
-testCase.verifyEqual(numel(unique({dependencies.identity})), 19);
+testCase.verifyNumElements(dependencies, 22);
+testCase.verifyEqual({dependencies(1:5).role}, ...
+    repmat({'generator_template'}, 1, 5));
+testCase.verifyEqual({dependencies(6:end).role}, repmat({'core_source'}, 1, 17));
+testCase.verifyEqual({dependencies.source_kind}, repmat({'file'}, 1, 22));
+testCase.verifyEqual(numel(unique({dependencies.identity})), 22);
 testCase.verifyTrue(all(cellfun(@isfile, {dependencies.source_path})));
 testCase.verifyTrue(all(cellfun(@isempty, {dependencies.content_bytes})));
 end

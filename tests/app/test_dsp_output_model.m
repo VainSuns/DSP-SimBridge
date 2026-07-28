@@ -55,7 +55,8 @@ classdef test_dsp_output_model < matlab.unittest.TestCase
                 {stringModel.files.owner})));
             testCase.verifyTrue(all(cellfun(@is_char_row, ...
                 {stringModel.files.target_path})));
-            testCase.verifyFalse(any([stringModel.files(18:end).candidate_available]));
+            testCase.verifyTrue(all([stringModel.files(18:19).candidate_available]));
+            testCase.verifyFalse(any([stringModel.files(20:end).candidate_available]));
             testCase.verifyFalse(isfolder(stringProject.output.dsp_root));
         end
 
@@ -113,7 +114,8 @@ testCase.verifyEqual({model.files(1:17).file_scope}, repmat({'core'}, 1, 17));
 testCase.verifyEqual({model.files(18:19).file_scope}, repmat({'project'}, 1, 2));
 testCase.verifyEqual({model.files(20:31).file_scope}, repmat({'instance'}, 1, 12));
 testCase.verifyEqual([model.files.instance_index], [zeros(1, 19) ones(1, 6) 2 * ones(1, 6)]);
-testCase.verifyEqual([model.files.candidate_available], [true(1, 17) false(1, 14)]);
+testCase.verifyEqual([model.files.candidate_available], ...
+    [true(1, 19) false(1, 12)]);
 testCase.verifyEqual(numel(unique({model.files.owner})), 31);
 testCase.verifyEqual(numel(unique(lower_cell({model.files.target_path}))), 31);
 testCase.verifyTrue(all(cellfun(@(path) path_below(project.output.dsp_root, path), ...

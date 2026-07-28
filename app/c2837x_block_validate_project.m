@@ -36,11 +36,15 @@ if isempty(project.instances)
 end
 
 validNames = false(1, numel(project.instances));
-validSockets = false(1, numel(project.instances));
-validPorts = false(1, numel(project.instances));
+iodeviceDefinitions = cell(1, numel(project.instances));
+claimPrototype = struct('scope', '', 'kind', '', 'key', '', ...
+    'exclusive', false, 'duplicate_code', '', 'duplicate_message', '', ...
+    'field_path', '', 'instance_index', 0);
+resourceClaims = repmat(claimPrototype, 1, 0);
 for instanceIndex = 1:numel(project.instances)
     validate_instance(project.instances(instanceIndex), instanceIndex);
 end
+validate_iodevice_counts();
 validate_unique_resources();
 
 if strcmp(mode, 'full')
@@ -142,21 +146,24 @@ end
             add('Error', 'INTERNAL_NAME_INVALID', message, ...
                 [prefix '.internal_name'], index, '');
         end
-        if ~strcmp(instance.iodevice.type, 'w5300_tcp')
+        [definition, found] = c2837x_block_get_iodevice_definition( ...
+            instance.iodevice.type);
+        if ~found
             add('Error', 'IODEVICE_UNSUPPORTED', ...
-                'IoDevice type must be w5300_tcp.', [prefix '.iodevice.type'], index, '');
-        end
-        socket = instance.iodevice.settings.socket_number;
-        validSockets(index) = is_integer_in_range(socket, 0, 7);
-        if ~validSockets(index)
-            add('Error', 'SOCKET_INVALID', 'Socket number must be an integer from 0 to 7.', ...
-                [prefix '.iodevice.settings.socket_number'], index, '');
-        end
-        port = instance.iodevice.settings.tcp_port;
-        validPorts(index) = is_integer_in_range(port, 1, 65535);
-        if ~validPorts(index)
-            add('Error', 'TCP_PORT_INVALID', 'TCP port must be an integer from 1 to 65535.', ...
-                [prefix '.iodevice.settings.tcp_port'], index, '');
+                sprintf('IoDevice type "%s" is unsupported.', ...
+                char(instance.iodevice.type)), [prefix '.iodevice.type'], index, '');
+        else
+            iodeviceDefinitions{index} = definition;
+            settingsIssues = definition.validate_settings( ...
+                instance.iodevice.settings, index);
+            for issueIndex = 1:numel(settingsIssues)
+                value = settingsIssues(issueIndex);
+                add(value.severity, value.code, value.message, ...
+                    value.field_path, value.instance_index, value.file_path);
+            end
+            resourceClaims = [resourceClaims ...
+                definition.collect_resource_claims( ...
+                instance.iodevice.settings, index)];
         end
         if ~is_positive_finite_scalar(instance.sample_time_sec)
             add('Error', 'SAMPLE_TIME_INVALID', 'Sample time must be finite and positive.', ...
@@ -272,6 +279,26 @@ end
         end
     end
 
+    function validate_iodevice_counts()
+        countedTypes = {};
+        for index = 1:numel(iodeviceDefinitions)
+            if isempty(iodeviceDefinitions{index}) || ...
+                    any(strcmp(countedTypes, iodeviceDefinitions{index}.type))
+                continue;
+            end
+            definition = iodeviceDefinitions{index};
+            count = sum(cellfun(@(value) ~isempty(value) && ...
+                strcmp(value.type, definition.type), iodeviceDefinitions));
+            if count > definition.max_instance_count
+                add('Error', 'IODEVICE_INSTANCE_LIMIT_EXCEEDED', ...
+                    sprintf(['IoDevice type "%s" has %u configured instances; ' ...
+                    'the allowed count is %g.'], definition.type, count, ...
+                    definition.max_instance_count), 'project.instances', 0, '');
+            end
+            countedTypes{end + 1} = definition.type; %#ok<AGROW>
+        end
+    end
+
     function validate_unique_resources()
         for later = 2:numel(project.instances)
             for earlier = 1:later - 1
@@ -283,20 +310,20 @@ end
                         sprintf('project.instances(%u).internal_name', later), later, '');
                     validNames(later) = false;
                 end
-                if validSockets(later) && validSockets(earlier) && numeric_values_equal( ...
-                        project.instances(later).iodevice.settings.socket_number, ...
-                        project.instances(earlier).iodevice.settings.socket_number)
-                    add('Error', 'SOCKET_DUPLICATE', 'Socket number is already used.', ...
-                        sprintf('project.instances(%u).iodevice.settings.socket_number', later), later, '');
-                    validSockets(later) = false;
-                end
-                if validPorts(later) && validPorts(earlier) && numeric_values_equal( ...
-                        project.instances(later).iodevice.settings.tcp_port, ...
-                        project.instances(earlier).iodevice.settings.tcp_port)
-                    add('Error', 'TCP_PORT_DUPLICATE', 'TCP port is already used.', ...
-                        sprintf('project.instances(%u).iodevice.settings.tcp_port', later), later, '');
-                    validPorts(later) = false;
-                end
+            end
+        end
+        accepted = repmat(claimPrototype, 1, 0);
+        for index = 1:numel(resourceClaims)
+            current = resourceClaims(index);
+            duplicate = current.exclusive && any(arrayfun(@(prior) ...
+                prior.exclusive && strcmp(prior.scope, current.scope) && ...
+                strcmp(prior.kind, current.kind) && strcmp(prior.key, current.key), ...
+                accepted));
+            if duplicate
+                add('Error', current.duplicate_code, current.duplicate_message, ...
+                    current.field_path, current.instance_index, '');
+            else
+                accepted(end + 1) = current; %#ok<AGROW>
             end
         end
     end
@@ -528,15 +555,6 @@ end
 
 function tf = is_positive_integer_scalar(value)
 tf = is_positive_finite_scalar(value) && value == fix(value);
-end
-
-function tf = is_integer_in_range(value, minimum, maximum)
-tf = isnumeric(value) && isscalar(value) && isreal(value) && ...
-    isfinite(value) && value == fix(value) && value >= minimum && value <= maximum;
-end
-
-function tf = numeric_values_equal(left, right)
-tf = double(left) == double(right);
 end
 
 function value = make_issue(severity, code, message, fieldPath, instanceIndex, filePath)

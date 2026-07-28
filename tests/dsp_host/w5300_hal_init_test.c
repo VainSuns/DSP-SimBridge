@@ -9,6 +9,14 @@ volatile struct TEST_DEVICE_CONFIG_REGS DevCfgRegs;
 volatile struct TEST_CLOCK_CONFIG_REGS ClkCfgRegs;
 volatile struct TEST_EMIF_REGS Emif1Regs;
 
+const C2837xW5300ProjectConfig c2837x_w5300_project_config =
+{
+    {0x00u, 0x08u, 0xDCu, 0x01u, 0x02u, 0x03u},
+    (Uint32)0xC0A80164UL,
+    (Uint32)0xC0A80101UL,
+    (Uint32)0xFFFFFF00UL
+};
+
 static volatile struct TEST_EMIF_CONFIG_REGS emif_config_regs;
 static volatile struct TEST_EMIF_CONFIG_REGS failed_read_regs;
 static Uint16 fail_emif_readback;

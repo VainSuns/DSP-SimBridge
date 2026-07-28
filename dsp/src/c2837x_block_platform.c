@@ -1,5 +1,4 @@
 #include "c2837x_block.h"
-#include "c2837x_block_config.h"
 #include "c2837x_block_platform.h"
 #include "c2837x_w5300_hal.h"
 
@@ -76,26 +75,29 @@ static int16 c2837x_block_w5300_configure_memory(void)
 static int16 c2837x_block_w5300_configure_network(void)
 {
     const Uint16 mac01 =
-        (Uint16)((C2837X_BLOCK_MAC0 << 8) | C2837X_BLOCK_MAC1);
+        (Uint16)((c2837x_w5300_project_config.mac[0] << 8) |
+                 c2837x_w5300_project_config.mac[1]);
     const Uint16 mac23 =
-        (Uint16)((C2837X_BLOCK_MAC2 << 8) | C2837X_BLOCK_MAC3);
+        (Uint16)((c2837x_w5300_project_config.mac[2] << 8) |
+                 c2837x_w5300_project_config.mac[3]);
     const Uint16 mac45 =
-        (Uint16)((C2837X_BLOCK_MAC4 << 8) | C2837X_BLOCK_MAC5);
+        (Uint16)((c2837x_w5300_project_config.mac[4] << 8) |
+                 c2837x_w5300_project_config.mac[5]);
 
     c2837x_w5300_set_shar(mac01, mac23, mac45);
-    c2837x_w5300_set_gar(C2837X_BLOCK_GATEWAY);
-    c2837x_w5300_set_subr(C2837X_BLOCK_SUBNET);
-    c2837x_w5300_set_sipr(C2837X_BLOCK_IP_ADDR);
+    c2837x_w5300_set_gar(c2837x_w5300_project_config.gateway);
+    c2837x_w5300_set_subr(c2837x_w5300_project_config.subnet);
+    c2837x_w5300_set_sipr(c2837x_w5300_project_config.ip_address);
 
     if ((c2837x_w5300_read16(SHAR0) != mac01) ||
         (c2837x_w5300_read16(SHAR2) != mac23) ||
         (c2837x_w5300_read16(SHAR4) != mac45) ||
-        (c2837x_w5300_read16(GAR0) != (Uint16)(C2837X_BLOCK_GATEWAY >> 16)) ||
-        (c2837x_w5300_read16(GAR2) != (Uint16)C2837X_BLOCK_GATEWAY) ||
-        (c2837x_w5300_read16(SUBR0) != (Uint16)(C2837X_BLOCK_SUBNET >> 16)) ||
-        (c2837x_w5300_read16(SUBR2) != (Uint16)C2837X_BLOCK_SUBNET) ||
-        (c2837x_w5300_read16(SIPR0) != (Uint16)(C2837X_BLOCK_IP_ADDR >> 16)) ||
-        (c2837x_w5300_read16(SIPR2) != (Uint16)C2837X_BLOCK_IP_ADDR))
+        (c2837x_w5300_read16(GAR0) != (Uint16)(c2837x_w5300_project_config.gateway >> 16)) ||
+        (c2837x_w5300_read16(GAR2) != (Uint16)c2837x_w5300_project_config.gateway) ||
+        (c2837x_w5300_read16(SUBR0) != (Uint16)(c2837x_w5300_project_config.subnet >> 16)) ||
+        (c2837x_w5300_read16(SUBR2) != (Uint16)c2837x_w5300_project_config.subnet) ||
+        (c2837x_w5300_read16(SIPR0) != (Uint16)(c2837x_w5300_project_config.ip_address >> 16)) ||
+        (c2837x_w5300_read16(SIPR2) != (Uint16)c2837x_w5300_project_config.ip_address))
     {
         return -1;
     }

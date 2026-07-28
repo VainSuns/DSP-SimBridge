@@ -22,6 +22,13 @@ static Uint16 socket_status_reads;
 static Uint16 socket_command_writes;
 
 Uint16 c2837x_w5300_fifo_swap;
+const C2837xW5300ProjectConfig c2837x_w5300_project_config =
+{
+    {0x00u, 0x08u, 0xDCu, 0x01u, 0x02u, 0x03u},
+    (Uint32)0xC0A80164UL,
+    (Uint32)0xC0A80101UL,
+    (Uint32)0xFFFFFF00UL
+};
 
 static Uint16 register_index(Uint32 address)
 {

@@ -54,15 +54,51 @@ classdef test_project_validation < matlab.unittest.TestCase
             testCase.verifyTrue(any(strcmp({issues.code}, 'PROJECT_HAS_NO_INSTANCES')));
         end
 
-        function testInvalidResourcesAndSampleTime(testCase)
+        function testUnknownIoDeviceDoesNotUseW5300Validation(testCase)
             project = valid_project(testCase.WorkFolder);
             project.instances.iodevice.type = 'other';
             project.instances.iodevice.settings.socket_number = 8.5;
             project.instances.iodevice.settings.tcp_port = 0;
+            codes = {c2837x_block_validate_project(project, 'instant').code};
+            testCase.verifyTrue(any(strcmp(codes, 'IODEVICE_UNSUPPORTED')));
+            testCase.verifyFalse(any(ismember(codes, ...
+                {'SOCKET_INVALID', 'TCP_PORT_INVALID'})));
+        end
+
+        function testInvalidW5300ResourcesAndSampleTime(testCase)
+            project = valid_project(testCase.WorkFolder);
+            project.instances.iodevice.settings.socket_number = 8.5;
+            project.instances.iodevice.settings.tcp_port = 0;
             project.instances.sample_time_sec = -1;
             codes = {c2837x_block_validate_project(project, 'instant').code};
-            testCase.verifyTrue(all(ismember({'IODEVICE_UNSUPPORTED', 'SOCKET_INVALID', ...
+            testCase.verifyTrue(all(ismember({'SOCKET_INVALID', ...
                 'TCP_PORT_INVALID', 'SAMPLE_TIME_INVALID'}, codes)));
+        end
+
+        function testW5300InstanceLimitPreservesResourceIssues(testCase)
+            project = valid_project(testCase.WorkFolder);
+            template = project.instances;
+            instances = repmat(template, 1, 9);
+            for index = 1:9
+                instances(index).display_name = sprintf('Motor %u', index);
+                instances(index).internal_name = sprintf('motor_%u', index);
+                instances(index).iodevice.settings.socket_number = mod(index - 1, 8);
+                instances(index).iodevice.settings.tcp_port = 4999 + index;
+            end
+            project.instances = instances(1:8);
+            testCase.verifyFalse(has_code(project, ...
+                'IODEVICE_INSTANCE_LIMIT_EXCEEDED'));
+
+            project.instances = instances;
+            issues = c2837x_block_validate_project(project, 'instant');
+            limit = issues(strcmp({issues.code}, ...
+                'IODEVICE_INSTANCE_LIMIT_EXCEEDED'));
+            testCase.verifyNumElements(limit, 1);
+            testCase.verifyEqual(limit.instance_index, 0);
+            testCase.verifyNotEmpty(strfind(limit.message, 'w5300_tcp'));
+            testCase.verifyNotEmpty(strfind(limit.message, '9'));
+            testCase.verifyNotEmpty(strfind(limit.message, '8'));
+            testCase.verifyTrue(any(strcmp({issues.code}, 'SOCKET_DUPLICATE')));
         end
 
         function testDuplicateResourcesLocateLaterInstance(testCase)
