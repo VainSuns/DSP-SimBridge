@@ -78,7 +78,8 @@ for instanceIndex = 1:numel(project.instances)
         fileCount = fileCount + 1;
         files(fileCount) = make_file(relativePath, categories{fileIndex}, ...
             ['dsp-instance:' name ':' relativePath], instanceIndex, ...
-            'instance', responsibilities{fileIndex}, '', false);
+            'instance', responsibilities{fileIndex}, '', ...
+            any(fileIndex == [1 2 4]));
     end
 end
 

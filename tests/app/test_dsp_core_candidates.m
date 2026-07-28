@@ -158,7 +158,7 @@ end
 
 function verify_candidates(testCase, candidates, root)
 expected = fixed_core_paths();
-testCase.verifyNumElements(candidates, 19);
+testCase.verifyNumElements(candidates, 25);
 core = candidates(strcmp({candidates.category}, 'core'));
 testCase.verifyNumElements(core, 17);
 testCase.verifyEqual(relative_targets(root, {core.target_path}), expected);
@@ -182,12 +182,22 @@ end
 end
 
 function verify_dependencies(testCase, dependencies)
-testCase.verifyNumElements(dependencies, 22);
-testCase.verifyEqual({dependencies(1:5).role}, ...
-    repmat({'generator_template'}, 1, 5));
-testCase.verifyEqual({dependencies(6:end).role}, repmat({'core_source'}, 1, 17));
-testCase.verifyEqual({dependencies.source_kind}, repmat({'file'}, 1, 22));
-testCase.verifyEqual(numel(unique({dependencies.identity})), 22);
+testCase.verifyNumElements(dependencies, 26);
+testCase.verifyEqual({dependencies(1:9).identity}, { ...
+    'dsp-generator:build-output-model', ...
+    'dsp-generator:build-candidates', ...
+    'dsp-generator:render-project-files', ...
+    'dsp-generator:resolve-iodevice-definition', ...
+    'dsp-generator:render-instance-config-files', ...
+    'dsp-generator:build-interface-hash', ...
+    'dsp-generator:build-interface-text', ...
+    'dsp-generator:crc32', ...
+    'dsp-generator:iodevice-definition:w5300_tcp'});
+testCase.verifyEqual({dependencies(1:9).role}, ...
+    repmat({'generator_template'}, 1, 9));
+testCase.verifyEqual({dependencies(10:end).role}, repmat({'core_source'}, 1, 17));
+testCase.verifyEqual({dependencies.source_kind}, repmat({'file'}, 1, 26));
+testCase.verifyEqual(numel(unique({dependencies.identity})), 26);
 testCase.verifyTrue(all(cellfun(@isfile, {dependencies.source_path})));
 testCase.verifyTrue(all(cellfun(@isempty, {dependencies.content_bytes})));
 end

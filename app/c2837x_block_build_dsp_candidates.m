@@ -10,6 +10,7 @@ definitions = repmat(prototype, 1, numel(availableFiles));
 rendered = c2837x_block_render_dsp_project_files(project);
 projectBytes = {rendered.header_bytes, rendered.source_bytes};
 projectIndex = 0;
+instanceFiles = c2837x_block_render_dsp_instance_config_files(project);
 for index = 1:numel(availableFiles)
     file = availableFiles(index);
     switch file.file_scope
@@ -18,6 +19,8 @@ for index = 1:numel(availableFiles)
         case 'project'
             projectIndex = projectIndex + 1;
             contentBytes = projectBytes{projectIndex};
+        case 'instance'
+            contentBytes = instance_bytes(file, instanceFiles);
         otherwise
             error('C2837xBlock:Generation:UnavailableFileScope', ...
                 'Candidate generation is unavailable for file scope "%s".', ...
@@ -43,7 +46,11 @@ templates = { ...
     'build-output-model', 'c2837x_block_build_dsp_output_model.m'; ...
     'build-candidates', 'c2837x_block_build_dsp_candidates.m'; ...
     'render-project-files', 'c2837x_block_render_dsp_project_files.m'; ...
-    'resolve-iodevice-definition', 'c2837x_block_get_iodevice_definition.m'};
+    'resolve-iodevice-definition', 'c2837x_block_get_iodevice_definition.m'; ...
+    'render-instance-config-files', 'c2837x_block_render_dsp_instance_config_files.m'; ...
+    'build-interface-hash', 'c2837x_block_build_interface_hash.m'; ...
+    'build-interface-text', 'c2837x_block_build_interface_text.m'; ...
+    'crc32', 'c2837x_block_crc32.m'};
 definitionTypes = {};
 definitionPaths = {};
 for index = 1:numel(project.instances)
@@ -84,6 +91,28 @@ end
             'source_path', c2837x_block_normalize_absolute_path(sourcePath), ...
             'content_bytes', zeros(1, 0, 'uint8'));
     end
+end
+
+function bytes = instance_bytes(file, rendered)
+matches = find([rendered.instance_index] == file.instance_index);
+if numel(matches) ~= 1
+    error('C2837xBlock:Generation:InstanceRenderMismatch', ...
+        'Expected exactly one rendered result for instance %u.', ...
+        file.instance_index);
+end
+value = rendered(matches);
+expectedName = value.internal_name;
+switch file.relative_path
+    case ['inc/' expectedName '_config.h']
+        bytes = value.config_header_bytes;
+    case ['inc/' expectedName '_user_config.h']
+        bytes = value.user_config_header_bytes;
+    case ['src/' expectedName '_config.c']
+        bytes = value.config_source_bytes;
+    otherwise
+        error('C2837xBlock:Generation:InstanceRenderMismatch', ...
+            'No rendered instance file matches "%s".', file.relative_path);
+end
 end
 
 function bytes = normalized_core_bytes(path)
