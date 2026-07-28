@@ -34,9 +34,9 @@ classdef test_dsp_instance_config_candidates < matlab.unittest.TestCase
             twoCandidates = c2837x_block_build_dsp_candidates(two);
             threeCandidates = c2837x_block_build_dsp_candidates(three);
 
-            testCase.verifyNumElements(oneCandidates, 22);
-            testCase.verifyNumElements(twoCandidates, 25);
-            testCase.verifyNumElements(threeCandidates, 28);
+            testCase.verifyNumElements(oneCandidates, 24);
+            testCase.verifyNumElements(twoCandidates, 29);
+            testCase.verifyNumElements(threeCandidates, 34);
             verify_instance_files(testCase, three, threeCandidates);
         end
 
@@ -222,7 +222,8 @@ classdef test_dsp_instance_config_candidates < matlab.unittest.TestCase
         function testUserConfigDefaultsAndProtection(testCase)
             project = make_project(testCase.WorkFolder, {'axis_x'});
             candidates = c2837x_block_build_dsp_candidates(project);
-            user = candidates(strcmp({candidates.category}, 'user'));
+            user = candidates(endsWith({candidates.target_path}, ...
+                'axis_x_user_config.h'));
             header = text_of(user.content_bytes);
             mkdir(fileparts(user.target_path));
 
@@ -283,7 +284,8 @@ for index = 1:numel(project.instances)
     instance = model.files([model.files.instance_index] == index);
     testCase.verifyEqual({instance([instance.candidate_available]).relative_path}, ...
         {['inc/' name '_config.h'], ['inc/' name '_user_config.h'], ...
-        ['src/' name '_config.c']});
+        ['inc/' name '_algorithm.h'], ['src/' name '_config.c'], ...
+        ['src/' name '_algorithm.c']});
     testCase.verifyEqual({instance.category}, {'auto_generated', 'user', ...
         'auto_generated', 'auto_generated', 'auto_generated', 'user'});
     testCase.verifyEqual([instance.instance_index], index * ones(1, 6));
@@ -370,7 +372,6 @@ generatedInc = fullfile(testCase.WorkFolder, 'generated-inc');
 generatedSrc = fullfile(testCase.WorkFolder, 'generated-src');
 mkdir(generatedInc); mkdir(generatedSrc);
 write_generated_candidates(candidates, generatedInc, generatedSrc);
-write_algorithm_stubs(project, generatedInc);
 mainPath = fullfile(testCase.WorkFolder, 'main.c');
 write_text(mainPath, sprintf([ ...
     '#include "c2837x_block_project.h"\n' ...
@@ -383,6 +384,8 @@ for index = 1:numel(project.instances)
     name = project.instances(index).internal_name;
     compile_ok(testCase, flags, fullfile(generatedSrc, [name '_config.c']), ...
         fullfile(testCase.WorkFolder, [name '.o']));
+    compile_ok(testCase, flags, fullfile(generatedSrc, [name '_algorithm.c']), ...
+        fullfile(testCase.WorkFolder, [name '-algorithm.o']));
 end
 end
 
@@ -392,7 +395,6 @@ generatedInc = fullfile(testCase.WorkFolder, 'timeout-inc');
 generatedSrc = fullfile(testCase.WorkFolder, 'timeout-src');
 mkdir(generatedInc); mkdir(generatedSrc);
 write_generated_candidates(candidates, generatedInc, generatedSrc);
-write_algorithm_stubs(project, generatedInc);
 flags = include_flags(testCase.RepositoryRoot, generatedInc);
 source = fullfile(generatedSrc, 'axis_x_config.c');
 userPath = fullfile(generatedInc, 'axis_x_user_config.h');
@@ -434,9 +436,11 @@ end
 
 function write_generated_candidates(candidates, inc, src)
 names = {'c2837x_block_project.h', 'c2837x_block_project.c', ...
-    'axis_x_config.h', 'axis_x_user_config.h', 'axis_x_config.c', ...
+    'axis_x_config.h', 'axis_x_user_config.h', 'axis_x_algorithm.h', ...
+    'axis_x_config.c', 'axis_x_algorithm.c', ...
     'thermal_monitor_config.h', 'thermal_monitor_user_config.h', ...
-    'thermal_monitor_config.c'};
+    'thermal_monitor_algorithm.h', 'thermal_monitor_config.c', ...
+    'thermal_monitor_algorithm.c'};
 for index = 1:numel(names)
     bytes = candidate_bytes(candidates, names{index});
     if endsWith(names{index}, '.h')
@@ -445,17 +449,6 @@ for index = 1:numel(names)
         folder = src;
     end
     write_bytes(fullfile(folder, names{index}), bytes);
-end
-end
-
-function write_algorithm_stubs(project, folder)
-for index = 1:numel(project.instances)
-    name = project.instances(index).internal_name;
-    typed = strjoin(cellfun(@(part) [upper(part(1)) part(2:end)], ...
-        strsplit(name, '_'), 'UniformOutput', false), '');
-    write_text(fullfile(folder, [name '_algorithm.h']), sprintf([ ...
-        'typedef struct { Uint16 value; } %s_InputData;\n' ...
-        'typedef struct { Uint16 value; } %s_OutputData;\n'], typed, typed));
 end
 end
 

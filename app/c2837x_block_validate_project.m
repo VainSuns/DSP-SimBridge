@@ -412,32 +412,11 @@ end
         end
         path = instance.algorithm.source_path;
         fieldPath = sprintf('project.instances(%u).algorithm.source_path', index);
-        if ~isfile(path)
-            if isfolder(path)
-                code = 'ALGORITHM_SOURCE_IS_DIRECTORY';
-                message = 'External algorithm source must be a regular file.';
-            else
-                code = 'ALGORITHM_SOURCE_MISSING';
-                message = 'External algorithm source does not exist.';
-            end
+        try
+            c2837x_block_resolve_external_algorithm_source(path);
+        catch cause
+            [code, message] = external_source_issue(cause);
             add('Error', code, message, fieldPath, index, path);
-            return;
-        end
-        [validExtension, reliable] = has_c_extension_identity(path);
-        if ~reliable
-            add('Error', 'ALGORITHM_SOURCE_IDENTITY_UNKNOWN', ...
-                'Could not reliably determine .c file identity.', fieldPath, index, path);
-        elseif ~validExtension
-            add('Error', 'ALGORITHM_SOURCE_EXTENSION_INVALID', ...
-                'External algorithm source extension must be .c under current filesystem semantics.', ...
-                fieldPath, index, path);
-        end
-        fileID = fopen(path, 'r');
-        if fileID < 0
-            add('Error', 'ALGORITHM_SOURCE_UNREADABLE', ...
-                'External algorithm source is not readable.', fieldPath, index, path);
-        else
-            cleanup = onCleanup(@() fclose(fileID));
         end
     end
 end
@@ -464,27 +443,30 @@ bits = bits(:).';
 tf = isempty(strfind(bits, '01')); %#ok<STREMP>
 end
 
-function [tf, reliable] = has_c_extension_identity(path)
-[folder, name, extension] = fileparts(path);
-if strcmp(extension, '.c')
-    tf = true;
-    reliable = true;
-    return;
+function [code, message] = external_source_issue(cause)
+prefix = 'C2837xBlock:AlgorithmSource:';
+if startsWith(cause.identifier, prefix)
+    reason = extractAfter(cause.identifier, strlength(prefix));
+else
+    reason = "IdentityUnknown";
 end
-if ~strcmp(extension, '.C')
-    tf = false;
-    reliable = true;
-    return;
-end
-literalPath = fullfile(folder, [name '.c']);
-try
-    selected = java.io.File(path);
-    literal = java.io.File(literalPath);
-    tf = java.nio.file.Files.isSameFile(selected.toPath(), literal.toPath());
-    reliable = true;
-catch
-    tf = false;
-    reliable = false;
+mapping = struct( ...
+    'Missing', 'ALGORITHM_SOURCE_MISSING', ...
+    'IsDirectory', 'ALGORITHM_SOURCE_IS_DIRECTORY', ...
+    'ExtensionInvalid', 'ALGORITHM_SOURCE_EXTENSION_INVALID', ...
+    'IdentityUnknown', 'ALGORITHM_SOURCE_IDENTITY_UNKNOWN', ...
+    'Unreadable', 'ALGORITHM_SOURCE_UNREADABLE', ...
+    'ReadFailed', 'ALGORITHM_SOURCE_UNREADABLE', ...
+    'SymbolicLink', 'ALGORITHM_SOURCE_IS_SYMBOLIC_LINK', ...
+    'NotRegularFile', 'ALGORITHM_SOURCE_NOT_REGULAR_FILE', ...
+    'InvalidPath', 'ALGORITHM_SOURCE_PATH_INVALID');
+reason = char(reason);
+if isfield(mapping, reason)
+    code = mapping.(reason);
+    message = cause.message;
+else
+    code = 'ALGORITHM_SOURCE_IDENTITY_UNKNOWN';
+    message = 'External algorithm source identity could not be determined.';
 end
 end
 

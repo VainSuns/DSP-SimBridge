@@ -32,7 +32,7 @@ classdef test_dsp_project_candidates < matlab.unittest.TestCase
             source = candidate_text(projectCandidates, 'c2837x_block_project.c');
 
             testCase.verifyEmpty(issues);
-            testCase.verifyNumElements(candidates, 25);
+            testCase.verifyNumElements(candidates, 29);
             testCase.verifyNumElements(projectCandidates, 2);
             testCase.verifyEqual([projectCandidates.instance_index], [0 0]);
             verify_order(testCase, header, {'g_motor_control', 'g_thermal_monitor'});
@@ -173,11 +173,9 @@ project.instances = instances;
 end
 
 function bytes = project_bytes(project)
-candidates = c2837x_block_build_dsp_candidates(project);
-projectCandidates = candidates(strcmp({candidates.category}, 'auto_generated'));
-bytes = struct('header', candidate_bytes(projectCandidates, ...
-    'c2837x_block_project.h'), 'source', candidate_bytes(projectCandidates, ...
-    'c2837x_block_project.c'));
+rendered = c2837x_block_render_dsp_project_files(project);
+bytes = struct('header', rendered.header_bytes, ...
+    'source', rendered.source_bytes);
 end
 
 function text = candidate_text(candidates, name)

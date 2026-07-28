@@ -73,13 +73,15 @@ for instanceIndex = 1:numel(project.instances)
         error('C2837xBlock:DspOutput:InvalidInstanceName', '%s', message);
     end
     name = char(rawName);
+    algorithmMode = char(project.instances(instanceIndex).algorithm.mode);
     for fileIndex = 1:numel(suffixes)
         relativePath = [folders{fileIndex} '/' name '_' suffixes{fileIndex}];
         fileCount = fileCount + 1;
         files(fileCount) = make_file(relativePath, categories{fileIndex}, ...
             ['dsp-instance:' name ':' relativePath], instanceIndex, ...
             'instance', responsibilities{fileIndex}, '', ...
-            any(fileIndex == [1 2 4]));
+            any(fileIndex == [1 2 3 4]) || ...
+            (fileIndex == 6 && ~strcmp(algorithmMode, 'external_reference')));
     end
 end
 
