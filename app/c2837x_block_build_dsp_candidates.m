@@ -12,6 +12,7 @@ rendered = c2837x_block_render_dsp_project_files(project);
 projectBytes = {rendered.header_bytes, rendered.source_bytes};
 projectIndex = 0;
 instanceFiles = c2837x_block_render_dsp_instance_config_files(project);
+ioFiles = c2837x_block_render_dsp_instance_io_files(project);
 for index = 1:numel(availableFiles)
     file = availableFiles(index);
     switch file.file_scope
@@ -21,7 +22,7 @@ for index = 1:numel(availableFiles)
             projectIndex = projectIndex + 1;
             contentBytes = projectBytes{projectIndex};
         case 'instance'
-            contentBytes = instance_bytes(file, instanceFiles, algorithmFiles);
+            contentBytes = instance_bytes(file, instanceFiles, ioFiles, algorithmFiles);
         otherwise
             error('C2837xBlock:Generation:UnavailableFileScope', ...
                 'Candidate generation is unavailable for file scope "%s".', ...
@@ -49,6 +50,8 @@ templates = { ...
     'render-project-files', 'c2837x_block_render_dsp_project_files.m'; ...
     'resolve-iodevice-definition', 'c2837x_block_get_iodevice_definition.m'; ...
     'render-instance-config-files', 'c2837x_block_render_dsp_instance_config_files.m'; ...
+    'build-wire-layout', 'c2837x_block_build_dsp_wire_layout.m'; ...
+    'render-instance-io-files', 'c2837x_block_render_dsp_instance_io_files.m'; ...
     'render-algorithm-files', 'c2837x_block_render_dsp_algorithm_files.m'; ...
     'resolve-external-algorithm-source', 'c2837x_block_resolve_external_algorithm_source.m'; ...
     'build-instance-c-names', 'c2837x_block_build_instance_c_names.m'; ...
@@ -97,17 +100,21 @@ end
     end
 end
 
-function bytes = instance_bytes(file, configFiles, algorithmFiles)
+function bytes = instance_bytes(file, configFiles, ioFiles, algorithmFiles)
 configMatches = find([configFiles.instance_index] == file.instance_index);
+ioMatches = find([ioFiles.instance_index] == file.instance_index);
 algorithmMatches = find([algorithmFiles.instance_index] == file.instance_index);
-if numel(configMatches) ~= 1 || numel(algorithmMatches) ~= 1
+if numel(configMatches) ~= 1 || numel(ioMatches) ~= 1 || ...
+        numel(algorithmMatches) ~= 1
     error('C2837xBlock:Generation:InstanceRenderMismatch', ...
         'Expected exactly one rendered result for instance %u.', ...
         file.instance_index);
 end
 config = configFiles(configMatches);
+io = ioFiles(ioMatches);
 algorithm = algorithmFiles(algorithmMatches);
-if ~strcmp(config.internal_name, algorithm.internal_name)
+if ~strcmp(config.internal_name, io.internal_name) || ...
+        ~strcmp(config.internal_name, algorithm.internal_name)
     error('C2837xBlock:Generation:InstanceRenderMismatch', ...
         'Rendered instance names do not match for instance %u.', ...
         file.instance_index);
@@ -122,6 +129,8 @@ switch file.relative_path
         bytes = algorithm.algorithm_header_bytes;
     case ['src/' expectedName '_config.c']
         bytes = config.config_source_bytes;
+    case ['src/' expectedName '_io.c']
+        bytes = io.io_source_bytes;
     case ['src/' expectedName '_algorithm.c']
         if ~algorithm.algorithm_source_available
             error('C2837xBlock:Generation:InstanceRenderMismatch', ...

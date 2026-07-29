@@ -38,7 +38,8 @@ classdef test_iodevice_definitions < matlab.unittest.TestCase
             testCase.verifyEqual(definition.max_instance_count, 8);
             testCase.verifyTrue(all(isfield(definition, {'validate_settings', ...
                 'collect_resource_claims', 'render_project_support', ...
-                'render_instance_config_support'})));
+                'render_instance_config_support', ...
+                'render_instance_io_support'})));
             resolver = fileread(which('c2837x_block_get_iodevice_definition'));
             testCase.verifyEmpty(strfind(resolver, 'w5300_tcp'));
         end
@@ -120,6 +121,27 @@ classdef test_iodevice_definitions < matlab.unittest.TestCase
             testCase.verifyNotEmpty(strfind(support.source, '0xC0A80164UL'));
             testCase.verifyNotEmpty(strfind(support.source, '0xFFFFFF00UL'));
         end
+
+        function testW5300InstanceIoSupport(testCase)
+            project = c2837x_block_create_default_project();
+            instance = c2837x_block_create_default_instance();
+            instance.internal_name = 'axis_x';
+            project.instances = instance;
+            definition = c2837x_block_get_iodevice_definition('w5300_tcp');
+
+            support = definition.render_instance_io_support(project, 1);
+            repeated = definition.render_instance_io_support(project, 1);
+
+            testCase.verifyEqual(repeated, support);
+            testCase.verifyEqual(support.source_includes, ...
+                {'c2837x_block_platform.h', 'c2837x_w5300_channel.h'});
+            testCase.verifyNotEmpty(strfind(support.source_definitions, ...
+                'C2837X_W5300_CHANNEL_INITIALIZER'));
+            testCase.verifyNotEmpty(strfind(support.source_definitions, ...
+                'AXIS_X_W5300_SOCKET_NUMBER'));
+            testCase.verifyEqual(numel(strfind( ...
+                support.source_definitions, '8192u')), 2);
+        end
     end
 end
 
@@ -131,7 +153,8 @@ text = sprintf([ ...
     '    ''validate_settings'', @(varargin) [], ...\n' ...
     '    ''collect_resource_claims'', @(varargin) [], ...\n' ...
     '    ''render_project_support'', @(varargin) [], ...\n' ...
-    '    ''render_instance_config_support'', @(varargin) []);\n' ...
+    '    ''render_instance_config_support'', @(varargin) [], ...\n' ...
+    '    ''render_instance_io_support'', @(varargin) []);\n' ...
     'end\n'], type, type, maxExpression);
 fileID = fopen(path, 'w'); assert(fileID >= 0);
 cleanup = onCleanup(@() fclose(fileID));

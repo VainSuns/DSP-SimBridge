@@ -212,7 +212,7 @@ classdef test_dsp_algorithm_candidates < matlab.unittest.TestCase
             [snapshot, issues] = c2837x_block_create_preview_snapshot( ...
                 project, candidates, dependencies);
 
-            testCase.verifyNumElements(candidates, 23);
+            testCase.verifyNumElements(candidates, 24);
             testCase.verifyFalse(any(endsWith({candidates.target_path}, ...
                 'axis_x_algorithm.c')));
             testCase.verifyTrue(any(endsWith({candidates.target_path}, ...
@@ -240,7 +240,7 @@ classdef test_dsp_algorithm_candidates < matlab.unittest.TestCase
             candidates = c2837x_block_build_dsp_candidates(project);
             model = c2837x_block_build_dsp_output_model(project);
 
-            testCase.verifyNumElements(candidates, 33);
+            testCase.verifyNumElements(candidates, 36);
             testCase.verifyEqual({candidates.target_path}, ...
                 {model.files([model.files.candidate_available]).target_path});
             testCase.verifyFalse(any(endsWith({candidates.target_path}, ...

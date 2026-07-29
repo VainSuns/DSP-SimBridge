@@ -32,7 +32,7 @@ classdef test_dsp_project_candidates < matlab.unittest.TestCase
             source = candidate_text(projectCandidates, 'c2837x_block_project.c');
 
             testCase.verifyEmpty(issues);
-            testCase.verifyNumElements(candidates, 29);
+            testCase.verifyNumElements(candidates, 31);
             testCase.verifyNumElements(projectCandidates, 2);
             testCase.verifyEqual([projectCandidates.instance_index], [0 0]);
             verify_order(testCase, header, {'g_motor_control', 'g_thermal_monitor'});
