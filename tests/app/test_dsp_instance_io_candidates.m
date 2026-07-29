@@ -56,6 +56,26 @@ classdef test_dsp_instance_io_candidates < matlab.unittest.TestCase
             testCase.verifyEqual(changed.project_protocol_buffer_words, 106);
         end
 
+        function testMaximumLegalWireLayout(testCase)
+            project = wire_project(testCase.WorkFolder, {'axis_x'});
+            project.instances.inputs = struct( ...
+                'name', 'maximum_in', 'type', 'uint16', 'dim', 32765);
+            project.instances.outputs = struct( ...
+                'name', 'maximum_out', 'type', 'uint16', 'dim', 32765);
+            project.instances.max_payload_size_bytes = uint32(65534);
+
+            layout = c2837x_block_build_dsp_wire_layout(project);
+
+            testCase.verifyEqual(layout.instances.input_data_octets, 65530);
+            testCase.verifyEqual(layout.instances.output_data_octets, 65530);
+            testCase.verifyEqual(layout.instances.input_payload_octets, 65534);
+            testCase.verifyEqual(layout.instances.output_payload_octets, 65534);
+            testCase.verifyEqual(layout.instances.rx_frame_octets, 65538);
+            testCase.verifyEqual(layout.instances.tx_frame_octets, 65538);
+            testCase.verifyEqual(layout.instances.rx_frame_words, 32769);
+            testCase.verifyEqual(layout.instances.tx_frame_words, 32769);
+        end
+
         function testRendererContractAndIsolation(testCase)
             project = wire_project(testCase.WorkFolder, {'axis_x'});
             first = c2837x_block_render_dsp_instance_io_files(project);
@@ -67,6 +87,14 @@ classdef test_dsp_instance_io_candidates < matlab.unittest.TestCase
             testCase.verifyEqual(first.io_source_bytes(end), uint8(10));
             testCase.verifyNotEmpty(strfind(text, ...
                 'sizeof(long double) * CHAR_BIT == 64'));
+            testCase.verifyNotEmpty(strfind(text, ...
+                '((Uint32)AXIS_X_RX_FRAME_WORDS * (Uint32)2u)'));
+            testCase.verifyNotEmpty(strfind(text, ...
+                '((Uint32)AXIS_X_TX_FRAME_WORDS * (Uint32)2u)'));
+            testCase.verifyEmpty(strfind(text, ...
+                'AXIS_X_RX_FRAME_WORDS * 2u =='));
+            testCase.verifyEmpty(strfind(text, ...
+                'AXIS_X_TX_FRAME_WORDS * 2u =='));
             testCase.verifyNotEmpty(strfind(text, 'TestProviderChannel'));
             testCase.verifyEmpty(regexp(text, ...
                 '(W5300|malloc|calloc|realloc|free|uint8_t\s+\w*frame|step_index)', ...
