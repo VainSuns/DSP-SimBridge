@@ -37,13 +37,18 @@ for index = 1:numel(includes)
 end
 for index = 1:numel(project.instances)
     name = valid_name(project.instances(index).internal_name);
-    source = [source sprintf('#include "%s_config.h"\n', name)]; %#ok<AGROW>
     header = [header sprintf('extern C2837xBlock g_%s;\n', name)]; %#ok<AGROW>
 end
 header = [header sprintf('\n#endif /* C2837X_BLOCK_PROJECT_H */\n')];
 source = [source newline];
 for index = 1:numel(sourceSupport)
     source = [source sourceSupport{index} newline]; %#ok<AGROW>
+end
+for index = 1:numel(project.instances)
+    name = valid_name(project.instances(index).internal_name);
+    source = [source sprintf([ ...
+        'extern const C2837xBlock_Config\n' ...
+        '    c2837x_block_%s_config;\n\n'], name)]; %#ok<AGROW>
 end
 for index = 1:numel(project.instances)
     name = valid_name(project.instances(index).internal_name);
