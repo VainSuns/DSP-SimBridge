@@ -73,6 +73,18 @@ classdef test_dsp_algorithm_candidates < matlab.unittest.TestCase
                 'ThermalMonitor_OnStep'));
         end
 
+        function testCandidateBuilderRejectsTypedPrefixCollisions(testCase)
+            testCase.verifyError(@() build_conflicting_candidates( ...
+                testCase.WorkFolder, 'axis_x', 'axisX'), ...
+                'C2837xBlock:DspInstance:CNameConflict');
+            testCase.verifyError(@() build_conflicting_candidates( ...
+                testCase.WorkFolder, 'axis_x', 'AxisX'), ...
+                'C2837xBlock:DspInstance:CNameConflict');
+            testCase.verifyError(@() build_conflicting_candidates( ...
+                testCase.WorkFolder, 'motor_ctrl', 'motorCtrl'), ...
+                'C2837xBlock:DspInstance:CNameConflict');
+        end
+
         function testHeaderChangeIsolationAndTextInputs(testCase)
             project = base_project(testCase.WorkFolder, {'axis_x'});
             first = c2837x_block_render_dsp_algorithm_files(project);
@@ -424,6 +436,11 @@ for index = 1:numel(names)
     instances(index).iodevice.settings.tcp_port = uint16(4999 + index);
 end
 project.instances = instances;
+end
+
+function build_conflicting_candidates(root, firstName, secondName)
+project = base_project(root, {firstName, secondName});
+c2837x_block_build_dsp_candidates(project);
 end
 
 function values = variables(names, types, dimensions)

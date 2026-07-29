@@ -2,6 +2,7 @@ function [candidates, dependencies, issues] = ...
         c2837x_block_build_dsp_candidates(project)
 %C2837X_BLOCK_BUILD_DSP_CANDIDATES Build deterministic DSP candidates.
 
+algorithmFiles = c2837x_block_render_dsp_algorithm_files(project);
 model = c2837x_block_build_dsp_output_model(project);
 availableFiles = model.files([model.files.candidate_available]);
 prototype = struct('target_path', '', 'category', '', 'owner', '', ...
@@ -11,7 +12,6 @@ rendered = c2837x_block_render_dsp_project_files(project);
 projectBytes = {rendered.header_bytes, rendered.source_bytes};
 projectIndex = 0;
 instanceFiles = c2837x_block_render_dsp_instance_config_files(project);
-algorithmFiles = c2837x_block_render_dsp_algorithm_files(project);
 for index = 1:numel(availableFiles)
     file = availableFiles(index);
     switch file.file_scope

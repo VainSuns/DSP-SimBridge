@@ -143,6 +143,30 @@ classdef test_project_validation < matlab.unittest.TestCase
             testCase.verifyEqual([duplicate.instance_index], [2 2 2]);
         end
 
+        function testGeneratedCNameConflictLocatesLaterInstance(testCase)
+            project = valid_project(testCase.WorkFolder);
+            project.instances(1).internal_name = 'axis_x';
+            second = project.instances(1);
+            second.display_name = 'Second';
+            second.internal_name = 'axisX';
+            second.iodevice.settings.socket_number = uint16(1);
+            second.iodevice.settings.tcp_port = uint16(5001);
+            project.instances(2) = second;
+
+            issues = c2837x_block_validate_project(project, 'instant');
+            conflict = issues(strcmp({issues.code}, ...
+                'GENERATED_C_NAME_CONFLICT'));
+
+            testCase.verifyNumElements(conflict, 1);
+            testCase.verifyEqual(conflict.severity, 'Error');
+            testCase.verifyEqual(conflict.instance_index, 2);
+            testCase.verifyEqual(conflict.field_path, ...
+                'project.instances(2).internal_name');
+            testCase.verifyTrue(contains(conflict.message, 'axis_x'));
+            testCase.verifyTrue(contains(conflict.message, 'axisX'));
+            testCase.verifyTrue(contains(conflict.message, 'AxisX'));
+        end
+
         function testDuplicateSocketAcrossNumericClasses(testCase)
             project = valid_project(testCase.WorkFolder);
             second = project.instances;
