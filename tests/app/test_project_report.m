@@ -40,10 +40,13 @@ classdef test_project_report < matlab.unittest.TestCase
         end
 
         function testProjectTotal(testCase)
-            report = c2837x_block_build_project_report(report_project(2));
+            project = report_project(2);
+            report = c2837x_block_build_project_report(project);
+            wireLayout = c2837x_block_build_dsp_wire_layout(project);
             testCase.verifyEqual(report.total_protocol_buffer_words, ...
-                sum([report.instances.rx_frame_words] + ...
-                [report.instances.tx_frame_words]));
+                wireLayout.project_protocol_buffer_words);
+            testCase.verifyEqual([report.instances.protocol_buffer_words], ...
+                [wireLayout.instances.protocol_buffer_words]);
         end
 
         function testCanonicalOctets(testCase)
@@ -61,7 +64,8 @@ classdef test_project_report < matlab.unittest.TestCase
             project.instances(1).iodevice.settings.socket_number = uint16(7);
             project.instances(1).iodevice.settings.tcp_port = uint16(6000);
             project.instances(1).sample_time_sec = 0.5;
-            project.output.dsp_root = 'changed';
+            project.output.dsp_root = c2837x_block_normalize_absolute_path( ...
+                fullfile(tempdir, 'changed'));
             second = c2837x_block_build_project_report(project);
             testCase.verifyEqual(first.instances.interface_hash, ...
                 second.instances.interface_hash);
