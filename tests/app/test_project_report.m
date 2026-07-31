@@ -89,13 +89,21 @@ classdef test_project_report < matlab.unittest.TestCase
                 second.instances.interface_hash);
         end
 
-        function testMaxPayloadChangesHash(testCase)
+        function testMaxPayloadLimitDoesNotSizeFrameBuffers(testCase)
             project = report_project(1);
-            first = c2837x_block_build_project_report(project);
-            project.instances(1).max_payload_size_bytes = uint32(2048);
-            second = c2837x_block_build_project_report(project);
-            testCase.verifyNotEqual(first.instances.interface_hash, ...
-                second.instances.interface_hash);
+            baseline = c2837x_block_build_project_report(project);
+            project.instances(1).max_payload_size_bytes = uint32(4096);
+            changed = c2837x_block_build_project_report(project);
+            testCase.verifyEqual([changed.instances.rx_frame_words, ...
+                changed.instances.tx_frame_words], ...
+                [baseline.instances.rx_frame_words, ...
+                baseline.instances.tx_frame_words]);
+            testCase.verifyEqual([changed.instances.input_payload_octets, ...
+                changed.instances.output_payload_octets], ...
+                [baseline.instances.input_payload_octets, ...
+                baseline.instances.output_payload_octets]);
+            testCase.verifyNotEqual(changed.instances.interface_hash, ...
+                baseline.instances.interface_hash);
         end
 
         function testProjectIsNotModified(testCase)

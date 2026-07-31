@@ -95,6 +95,32 @@ classdef test_configurator_layout < matlab.unittest.TestCase
                 {'create', 'skip', 'replace', 'keep'});
         end
 
+        function testInstanceContextLabels(testCase)
+            expected = { ...
+                'InputsOutputsInstanceContext', 'Current Instance: None'; ...
+                'IssuesInstanceContext', ...
+                'Current Instance: None | Scope: Entire Project'; ...
+                'InterfaceInstanceContext', 'Current Instance: None'};
+            for index = 1:size(expected, 1)
+                label = find_one_by_tag(testCase, testCase.App.UIFigure, ...
+                    expected{index, 1});
+                testCase.verifyEqual(label.Text, expected{index, 2});
+            end
+        end
+
+        function testMaxPayloadLabelAndTooltip(testCase)
+            tooltip = ['Protocol safety limit only. RX/TX buffers ' ...
+                'use actual legal message lengths.'];
+            label = find_one_by_tag(testCase, testCase.App.UIFigure, ...
+                'MaxPayloadLimitLabel');
+            field = find_one_by_tag(testCase, testCase.App.UIFigure, ...
+                'MaxPayloadLimitField');
+            testCase.verifyEqual(label.Text, ...
+                'Max Payload Limit (wire octets)');
+            testCase.verifyEqual(label.Tooltip, tooltip);
+            testCase.verifyEqual(field.Tooltip, tooltip);
+        end
+
         function testConstructionPreservesEnvironment(testCase)
             originalFolder = pwd;
             originalPath = path;
@@ -116,6 +142,12 @@ classdef test_configurator_layout < matlab.unittest.TestCase
             testCase.verifyEqual(childTitle, issueRoute.child);
         end
     end
+end
+
+function value = find_one_by_tag(testCase, figure, tag)
+values = findall(figure, 'Tag', tag);
+testCase.assertNumElements(values, 1);
+value = values(1);
 end
 
 function app = create_hidden_app(testCase)

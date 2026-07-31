@@ -26,10 +26,13 @@ classdef C2837xBlockConfigurator < handle
         InstancesTab
         InputsOutputsTab
         InputsOutputsTabGroup
+        InputsOutputsContextLabel
         InputsTab
         OutputsTab
         IssuesInterfaceTab
         IssuesInterfaceTabGroup
+        IssuesContextLabel
+        InterfaceContextLabel
         InterfaceTab
         GenerationPreviewTab
         SelectedInstance = 0
@@ -177,7 +180,7 @@ classdef C2837xBlockConfigurator < handle
 
             detailPanel = uipanel(grid, 'Title', 'Instance Detail');
             detail = uigridlayout(detailPanel, [5 4]);
-            detail.ColumnWidth = {140, '1x', 140, '1x'};
+            detail.ColumnWidth = {205, '1x', 140, '1x'};
             detail.RowHeight = {'1x', '1x', '1x', '1x', '1x'};
             detail.Padding = [8 8 8 8];
             detail.RowSpacing = 8;
@@ -186,7 +189,8 @@ classdef C2837xBlockConfigurator < handle
                 'socket', 'port', 'sample_time', 'max_payload', ...
                 'algorithm_mode', 'source_path'};
             detailLabels = {'Display Name', 'Internal Name', 'IoDevice', ...
-                'Socket', 'TCP Port', 'Sample Time', 'Max Payload', ...
+                'Socket', 'TCP Port', 'Sample Time', ...
+                'Max Payload Limit (wire octets)', ...
                 'Algorithm Mode', 'External Source Path'};
             app.DetailFields = struct();
             for index = 1:numel(detailKeys)
@@ -226,17 +230,28 @@ classdef C2837xBlockConfigurator < handle
                 end
                 field.ValueChangedFcn = @(~, ~) app.detailEdited();
                 app.DetailFields.(key) = field;
+                if strcmp(key, 'max_payload')
+                    tooltip = ['Protocol safety limit only. RX/TX buffers ' ...
+                        'use actual legal message lengths.'];
+                    label.Tag = 'MaxPayloadLimitLabel';
+                    label.Tooltip = tooltip;
+                    field.Tag = 'MaxPayloadLimitField';
+                    field.Tooltip = tooltip;
+                end
             end
             app.DetailFields.iodevice.Editable = 'off';
         end
 
         function createInputsOutputsTab(app, tab)
-            outerGrid = uigridlayout(tab, [1 1]);
-            outerGrid.RowHeight = {'1x'};
+            outerGrid = uigridlayout(tab, [2 1]);
+            outerGrid.RowHeight = {24, '1x'};
             outerGrid.ColumnWidth = {'1x'};
             outerGrid.Padding = [8 8 8 8];
-            outerGrid.RowSpacing = 0;
+            outerGrid.RowSpacing = 6;
             outerGrid.ColumnSpacing = 0;
+            app.InputsOutputsContextLabel = uilabel(outerGrid, ...
+                'Text', 'Current Instance: None', ...
+                'Tag', 'InputsOutputsInstanceContext');
             app.InputsOutputsTabGroup = uitabgroup(outerGrid);
             app.InputsTab = uitab(app.InputsOutputsTabGroup, 'Title', 'Inputs');
             app.OutputsTab = uitab(app.InputsOutputsTabGroup, 'Title', 'Outputs');
@@ -297,22 +312,28 @@ classdef C2837xBlockConfigurator < handle
             issuesTab = uitab(app.IssuesInterfaceTabGroup, 'Title', 'Issues');
             app.InterfaceTab = uitab(app.IssuesInterfaceTabGroup, ...
                 'Title', 'Interface Hash / Memory');
-            issuesGrid = uigridlayout(issuesTab, [1 1]);
-            issuesGrid.RowHeight = {'1x'};
+            issuesGrid = uigridlayout(issuesTab, [2 1]);
+            issuesGrid.RowHeight = {24, '1x'};
             issuesGrid.ColumnWidth = {'1x'};
             issuesGrid.Padding = [8 8 8 8];
-            issuesGrid.RowSpacing = 0;
+            issuesGrid.RowSpacing = 6;
             issuesGrid.ColumnSpacing = 0;
+            app.IssuesContextLabel = uilabel(issuesGrid, ...
+                'Text', 'Current Instance: None | Scope: Entire Project', ...
+                'Tag', 'IssuesInstanceContext');
             app.IssueTable = uitable(issuesGrid, 'ColumnName', ...
                 {'Severity', 'Code', 'Instance', 'Field', 'File', 'Message'}, ...
                 'ColumnEditable', false(1, 6), ...
                 'CellSelectionCallback', @(~, event) app.issueSelected(event));
-            reportGrid = uigridlayout(app.InterfaceTab, [1 1]);
-            reportGrid.RowHeight = {'1x'};
+            reportGrid = uigridlayout(app.InterfaceTab, [2 1]);
+            reportGrid.RowHeight = {24, '1x'};
             reportGrid.ColumnWidth = {'1x'};
             reportGrid.Padding = [8 8 8 8];
-            reportGrid.RowSpacing = 0;
+            reportGrid.RowSpacing = 6;
             reportGrid.ColumnSpacing = 0;
+            app.InterfaceContextLabel = uilabel(reportGrid, ...
+                'Text', 'Current Instance: None', ...
+                'Tag', 'InterfaceInstanceContext');
             app.ReportArea = uitextarea(reportGrid, 'Editable', 'off', ...
                 'FontName', 'Consolas');
         end
@@ -413,6 +434,7 @@ classdef C2837xBlockConfigurator < handle
                 matlab.lang.OnOffSwitchState(~strcmp(value.algorithm.mode, 'generated_example'));
             app.InputTable.Data = variables_to_cell(value.inputs);
             app.OutputTable.Data = variables_to_cell(value.outputs);
+            app.refreshInstanceContext();
         end
 
         function clearDetail(app)
@@ -428,6 +450,34 @@ classdef C2837xBlockConfigurator < handle
             app.SourcePathGrid.Visible = 'off';
             app.InputTable.Data = cell(0, 3);
             app.OutputTable.Data = cell(0, 3);
+            app.refreshInstanceContext();
+        end
+
+        function text = currentInstanceText(app)
+            instances = app.ProjectSession.Project.instances;
+            if app.SelectedInstance < 1 || ...
+                    app.SelectedInstance > numel(instances)
+                text = 'Current Instance: None';
+                return;
+            end
+            instance = instances(app.SelectedInstance);
+            text = sprintf('Current Instance: %s [%s]', ...
+                char(instance.display_name), char(instance.internal_name));
+        end
+
+        function refreshInstanceContext(app)
+            text = app.currentInstanceText();
+            app.InputsOutputsContextLabel.Text = text;
+            app.IssuesContextLabel.Text = sprintf('%s | Scope: Entire Project', text);
+            app.InterfaceContextLabel.Text = text;
+            if strcmp(text, 'Current Instance: None')
+                app.InstanceTable.Selection = [];
+            else
+                columnCount = numel(app.InstanceTable.ColumnName);
+                app.InstanceTable.Selection = [ ...
+                    repmat(app.SelectedInstance, columnCount, 1), ...
+                    (1:columnCount)'];
+            end
         end
 
         function commonEdited(app, key)
@@ -753,6 +803,7 @@ classdef C2837xBlockConfigurator < handle
                 app.Updating = true;
                 app.showInstance();
                 app.Updating = false;
+                app.refreshReport();
             end
             if ~isempty(data{row, 5})
                 app.StatusLabel.Text = data{row, 5};
@@ -831,7 +882,12 @@ classdef C2837xBlockConfigurator < handle
             if app.SelectedInstance >= 1 && ...
                     app.SelectedInstance <= numel(report.instances)
                 value = report.instances(app.SelectedInstance);
-                lines = [lines, {sprintf('Interface Hash: 0x%08X', value.interface_hash), ...
+                instance = app.ProjectSession.Project.instances(app.SelectedInstance);
+                lines = [lines, {sprintf('Selected Instance: %s [%s]', ...
+                    char(instance.display_name), char(instance.internal_name)), ...
+                    sprintf('Max Payload Limit: %u wire octets', ...
+                    instance.max_payload_size_bytes), ...
+                    sprintf('Interface Hash: 0x%08X', value.interface_hash), ...
                     sprintf('Input Data Octets: %u', value.input_data_octets), ...
                     sprintf('Output Data Octets: %u', value.output_data_octets), ...
                     sprintf('Input Payload Octets: %u', value.input_payload_octets), ...

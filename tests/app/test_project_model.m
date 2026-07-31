@@ -23,16 +23,43 @@ classdef test_project_model < matlab.unittest.TestCase
             testCase.verifyEqual(project.common.dsp_model, 'TMS320F28377D');
             testCase.verifyEqual(project.common.protocol_version, uint16(1));
             testCase.verifyEqual(project.common.abi, 'eabi');
-            testCase.verifyEqual(project.common.network.mac, zeros(1, 0, 'uint8'));
-            testCase.verifyEqual(project.common.network.ip, '');
-            testCase.verifyEqual(project.common.network.gateway, '');
-            testCase.verifyEqual(project.common.network.subnet, '');
+            testCase.verifyEqual(project.common.network.mac, ...
+                uint8([0 8 220 1 2 3]));
+            testCase.verifyEqual(project.common.network.ip, '192.168.1.100');
+            testCase.verifyEqual(project.common.network.gateway, '192.168.1.1');
+            testCase.verifyEqual(project.common.network.subnet, '255.255.255.0');
+            testCase.verifyEmpty(project.instances);
             testCase.verifyEqual(project.output.dsp_root, '');
             testCase.verifyEqual(project.output.sfun_root, '');
             testCase.verifyFalse(isfield(project, 'abi'));
             testCase.verifyFalse(isfield(project, 'core_api_version'));
             testCase.verifyFalse(isfield(project.common, 'dsp_root'));
             testCase.verifyFalse(isfield(project.common, 'sfun_root'));
+            testCase.verifyEqual(sort(fieldnames(project.common.network)), ...
+                sort({'mac'; 'ip'; 'gateway'; 'subnet'}));
+        end
+
+        function testNetworkValuesRoundTripWithoutBeingOverwritten(testCase)
+            folder = tempname;
+            mkdir(folder);
+            testCase.addTeardown(@() rmdir(folder, 's'));
+            filePath = fullfile(folder, 'project.mat');
+            project = c2837x_block_create_default_project();
+            source = c2837x_block_project_session(project);
+            source.saveProject(filePath);
+            loaded = c2837x_block_project_session();
+            loaded.loadProject(filePath);
+            testCase.verifyEqual(loaded.Project.common.network, ...
+                project.common.network);
+
+            custom = struct('mac', uint8([2 4 6 8 10 12]), ...
+                'ip', '10.20.30.40', 'gateway', '10.20.30.1', ...
+                'subnet', '255.255.0.0');
+            project.common.network = custom;
+            source.updateProject(project);
+            source.saveProject(filePath);
+            loaded.loadProject(filePath);
+            testCase.verifyEqual(loaded.Project.common.network, custom);
         end
 
         function testTypedEmptyInstancesCanAppend(testCase)
