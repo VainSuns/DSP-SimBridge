@@ -1,0 +1,297 @@
+/*
+ * AUTO-GENERATED FILE
+ * Manual changes will be overwritten.
+ */
+
+#include "@NAME@_protocol.h"
+
+#include <stdlib.h>
+
+static void @NAME@_write_le16(uint8_t *buffer, uint16_t value)
+{
+    buffer[0] = (uint8_t)(value & 0xffu);
+    buffer[1] = (uint8_t)((value >> 8) & 0xffu);
+}
+
+static void @NAME@_write_le32(uint8_t *buffer, uint32_t value)
+{
+    buffer[0] = (uint8_t)(value & 0xffu);
+    buffer[1] = (uint8_t)((value >> 8) & 0xffu);
+    buffer[2] = (uint8_t)((value >> 16) & 0xffu);
+    buffer[3] = (uint8_t)((value >> 24) & 0xffu);
+}
+
+static uint16_t @NAME@_read_le16(const uint8_t *buffer)
+{
+    return (uint16_t)((uint16_t)buffer[0] | ((uint16_t)buffer[1] << 8));
+}
+
+static uint32_t @NAME@_remaining(uint64_t deadline)
+{
+    uint64_t now = @NAME@_pc_socket_monotonic_ms();
+    uint64_t value = deadline > now ? deadline - now : 0u;
+    return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
+}
+
+static uint64_t @NAME@_deadline(uint32_t timeout_ms)
+{
+    uint64_t now = @NAME@_pc_socket_monotonic_ms();
+    return UINT64_MAX - now < timeout_ms ? UINT64_MAX : now + timeout_ms;
+}
+
+static int @NAME@_protocol_fail(@TYPED@PcSocket *socket,
+    @TYPED@PcError *error, @TYPED@PcErrorKind kind, const char *stage)
+{
+    if (error != NULL) {
+        error->kind = kind;
+        error->stage = stage;
+    }
+    @NAME@_pc_socket_close(socket);
+    return -1;
+}
+
+int @NAME@_protocol_send_frame(@TYPED@PcSocket *socket, uint16_t type,
+    uint16_t length, const uint8_t *payload, uint32_t timeout_ms,
+    @TYPED@PcError *error)
+{
+    uint32_t frame_size = @MACRO@_HEADER_SIZE + (uint32_t)length;
+    uint8_t *frame;
+    int status;
+    @NAME@_pc_error_reset(error, "send_frame");
+    if (socket == NULL || (length != 0u && payload == NULL)) {
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    if ((length & 1u) != 0u) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_PAYLOAD_LENGTH;
+            error->available = @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH;
+            error->actual_length = length;
+        }
+        @NAME@_pc_socket_close(socket);
+        return -1;
+    }
+    frame = (uint8_t *)malloc(frame_size);
+    if (frame == NULL) {
+        return @NAME@_protocol_fail(socket, error,
+            @MACRO@_PC_ERROR_INTERNAL, "send_frame");
+    }
+    @NAME@_write_le16(frame, type);
+    @NAME@_write_le16(frame + 2u, length);
+    if (length != 0u) {
+        uint32_t index;
+        for (index = 0u; index < length; ++index) {
+            frame[@MACRO@_HEADER_SIZE + index] = payload[index];
+        }
+    }
+    status = @NAME@_pc_socket_send_all(socket, frame, frame_size,
+        timeout_ms, error);
+    free(frame);
+    if (status != 0 && error != NULL) error->stage = "send_frame";
+    return status;
+}
+
+int @NAME@_protocol_recv_frame(@TYPED@PcSocket *socket, uint16_t *type,
+    uint16_t *length, uint8_t *payload, uint32_t payload_capacity,
+    uint32_t timeout_ms, @TYPED@PcError *error)
+{
+    uint8_t header[@MACRO@_HEADER_SIZE];
+    uint16_t received_length;
+    uint64_t deadline = @NAME@_deadline(timeout_ms);
+    @NAME@_pc_error_reset(error, "recv_header");
+    if (socket == NULL || type == NULL || length == NULL) {
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    if (@NAME@_pc_socket_recv_exact(socket, header, @MACRO@_HEADER_SIZE,
+            @NAME@_remaining(deadline), error) != 0) {
+        if (error != NULL && error->kind != @MACRO@_PC_ERROR_ARGUMENT) {
+            error->stage = "recv_header";
+            error->available |= @MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH |
+                @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH;
+            error->expected_length = @MACRO@_HEADER_SIZE;
+            error->actual_length = (uint16_t)socket->last_transfer_count;
+            if (error->kind == @MACRO@_PC_ERROR_DISCONNECT &&
+                    socket->last_transfer_count != 0u) {
+                error->kind = @MACRO@_PC_ERROR_TRUNCATED;
+            }
+        }
+        return -1;
+    }
+    *type = @NAME@_read_le16(header);
+    received_length = @NAME@_read_le16(header + 2u);
+    *length = received_length;
+    if ((received_length & 1u) != 0u) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_PAYLOAD_LENGTH;
+            error->stage = "recv_header";
+            error->available = @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH;
+            error->actual_length = received_length;
+        }
+        @NAME@_pc_socket_close(socket);
+        return -1;
+    }
+    if (received_length > payload_capacity) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_PAYLOAD_CAPACITY;
+            error->stage = "recv_header";
+            error->available = @MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH |
+                @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH;
+            error->expected_length = (uint16_t)(payload_capacity > UINT16_MAX ?
+                UINT16_MAX : payload_capacity);
+            error->actual_length = received_length;
+        }
+        @NAME@_pc_socket_close(socket);
+        return -1;
+    }
+    if (received_length != 0u && payload == NULL) {
+        return @NAME@_protocol_fail(socket, error,
+            @MACRO@_PC_ERROR_ARGUMENT, "recv_payload");
+    }
+    if (received_length != 0u &&
+            @NAME@_pc_socket_recv_exact(socket, payload, received_length,
+                @NAME@_remaining(deadline), error) != 0) {
+        if (error != NULL) {
+            error->stage = "recv_payload";
+            error->available |= @MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH |
+                @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH;
+            error->expected_length = received_length;
+            error->actual_length = (uint16_t)socket->last_transfer_count;
+            if (error->kind == @MACRO@_PC_ERROR_DISCONNECT) {
+                error->kind = @MACRO@_PC_ERROR_TRUNCATED;
+            }
+        }
+        return -1;
+    }
+    return 0;
+}
+
+int @NAME@_protocol_send_sim_start(@TYPED@PcSocket *socket,
+    uint16_t protocol_version, uint32_t interface_hash, uint32_t timeout_ms,
+    @TYPED@PcError *error)
+{
+    uint8_t payload[@MACRO@_SIM_START_PAYLOAD_SIZE];
+    @NAME@_write_le16(payload, protocol_version);
+    @NAME@_write_le32(payload + 2u, interface_hash);
+    return @NAME@_protocol_send_frame(socket, @MACRO@_TYPE_SIM_START,
+        @MACRO@_SIM_START_PAYLOAD_SIZE, payload, timeout_ms, error);
+}
+
+int @NAME@_protocol_send_sim_stop(@TYPED@PcSocket *socket,
+    uint32_t timeout_ms, @TYPED@PcError *error)
+{
+    return @NAME@_protocol_send_frame(socket, @MACRO@_TYPE_SIM_STOP,
+        0u, NULL, timeout_ms, error);
+}
+
+int @NAME@_protocol_send_input_data(@TYPED@PcSocket *socket,
+    const uint8_t *payload, uint16_t length, uint32_t timeout_ms,
+    @TYPED@PcError *error)
+{
+    return @NAME@_protocol_send_frame(socket, @MACRO@_TYPE_INPUT_DATA,
+        length, payload, timeout_ms, error);
+}
+
+static int @NAME@_response_error(@TYPED@PcSocket *socket,
+    const uint8_t *payload, @TYPED@PcError *error, const char *stage)
+{
+    uint16_t dsp_error = @NAME@_read_le16(payload);
+    if (dsp_error == @MACRO@_ERR_NONE) return 0;
+    if (error != NULL) {
+        error->kind = @MACRO@_PC_ERROR_DSP_RESPONSE;
+        error->stage = stage;
+        error->available |= @MACRO@_PC_ERROR_HAS_DSP_ERROR;
+        error->dsp_error = dsp_error;
+    }
+    @NAME@_pc_socket_close(socket);
+    return -1;
+}
+
+int @NAME@_protocol_wait_response(@TYPED@PcSocket *socket,
+    uint32_t timeout_ms, @TYPED@PcError *error)
+{
+    uint8_t payload[@MACRO@_RESPONSE_PAYLOAD_SIZE];
+    uint16_t type = 0u;
+    uint16_t length = 0u;
+    if (@NAME@_protocol_recv_frame(socket, &type, &length, payload,
+            sizeof(payload), timeout_ms, error) != 0) {
+        if (type == @MACRO@_TYPE_RESPONSE &&
+                length != @MACRO@_RESPONSE_PAYLOAD_SIZE && error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_PAYLOAD_LENGTH;
+            error->stage = "wait_response";
+            error->available |= @MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH |
+                @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH;
+            error->expected_length = @MACRO@_RESPONSE_PAYLOAD_SIZE;
+            error->actual_length = length;
+        }
+        return -1;
+    }
+    if (type != @MACRO@_TYPE_RESPONSE) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_MESSAGE_TYPE;
+            error->stage = "wait_response";
+            error->available = @MACRO@_PC_ERROR_HAS_EXPECTED_TYPE |
+                @MACRO@_PC_ERROR_HAS_ACTUAL_TYPE;
+            error->expected_type = @MACRO@_TYPE_RESPONSE;
+            error->actual_type = type;
+        }
+        @NAME@_pc_socket_close(socket);
+        return -1;
+    }
+    if (length != @MACRO@_RESPONSE_PAYLOAD_SIZE) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_PAYLOAD_LENGTH;
+            error->stage = "wait_response";
+            error->available = @MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH |
+                @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH;
+            error->expected_length = @MACRO@_RESPONSE_PAYLOAD_SIZE;
+            error->actual_length = length;
+        }
+        @NAME@_pc_socket_close(socket);
+        return -1;
+    }
+    return @NAME@_response_error(socket, payload, error, "wait_response");
+}
+
+int @NAME@_protocol_wait_output_data(@TYPED@PcSocket *socket,
+    uint8_t *payload, uint16_t *length, uint32_t payload_capacity,
+    uint32_t timeout_ms, @TYPED@PcError *error)
+{
+    uint16_t type = 0u;
+    if (payload == NULL || length == NULL) {
+        @NAME@_pc_error_reset(error, "wait_output_data");
+        return @NAME@_protocol_fail(socket, error,
+            @MACRO@_PC_ERROR_ARGUMENT, "wait_output_data");
+    }
+    if (@NAME@_protocol_recv_frame(socket, &type, length, payload,
+            payload_capacity, timeout_ms, error) != 0) return -1;
+    if (type == @MACRO@_TYPE_RESPONSE) {
+        if (*length != @MACRO@_RESPONSE_PAYLOAD_SIZE) {
+            if (error != NULL) {
+                error->kind = @MACRO@_PC_ERROR_PAYLOAD_LENGTH;
+                error->stage = "wait_output_data";
+                error->available = @MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH |
+                    @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH;
+                error->expected_length = @MACRO@_RESPONSE_PAYLOAD_SIZE;
+                error->actual_length = *length;
+            }
+            @NAME@_pc_socket_close(socket);
+            return -1;
+        }
+        return @NAME@_response_error(socket, payload, error,
+            "wait_output_data");
+    }
+    if (type != @MACRO@_TYPE_OUTPUT_DATA) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_MESSAGE_TYPE;
+            error->stage = "wait_output_data";
+            error->available = @MACRO@_PC_ERROR_HAS_EXPECTED_TYPE |
+                @MACRO@_PC_ERROR_HAS_ACTUAL_TYPE;
+            error->expected_type = @MACRO@_TYPE_OUTPUT_DATA;
+            error->actual_type = type;
+        }
+        @NAME@_pc_socket_close(socket);
+        return -1;
+    }
+    return 0;
+}

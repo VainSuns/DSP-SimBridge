@@ -1,0 +1,459 @@
+/*
+ * AUTO-GENERATED FILE
+ * Manual changes will be overwritten.
+ */
+
+#include "@NAME@_pc_socket.h"
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+typedef SOCKET @NAME@_native_socket;
+typedef int @NAME@_socket_length;
+#define @MACRO@_INVALID_SOCKET INVALID_SOCKET
+#define @MACRO@_SOCKET_ERROR SOCKET_ERROR
+#define @MACRO@_LAST_ERROR() WSAGetLastError()
+#define @MACRO@_CLOSE_SOCKET(s_) closesocket(s_)
+#else
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <time.h>
+#include <unistd.h>
+typedef int @NAME@_native_socket;
+typedef socklen_t @NAME@_socket_length;
+#define @MACRO@_INVALID_SOCKET (-1)
+#define @MACRO@_SOCKET_ERROR (-1)
+#define @MACRO@_LAST_ERROR() errno
+#define @MACRO@_CLOSE_SOCKET(s_) close(s_)
+#endif
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
+static @NAME@_native_socket @NAME@_native(const @TYPED@PcSocket *socket)
+{
+    return (@NAME@_native_socket)socket->native_handle;
+}
+
+static void @NAME@_invalidate(@TYPED@PcSocket *socket)
+{
+    socket->native_handle = (uintptr_t)@MACRO@_INVALID_SOCKET;
+    socket->valid = 0;
+}
+
+void @NAME@_pc_error_reset(@TYPED@PcError *error, const char *stage)
+{
+    if (error != NULL) {
+        memset(error, 0, sizeof(*error));
+        error->stage = stage;
+    }
+}
+
+static const char *@NAME@_error_kind_name(@TYPED@PcErrorKind kind)
+{
+    switch (kind) {
+    case @MACRO@_PC_ERROR_NONE: return "none";
+    case @MACRO@_PC_ERROR_ARGUMENT: return "argument";
+    case @MACRO@_PC_ERROR_TIMEOUT: return "timeout";
+    case @MACRO@_PC_ERROR_DISCONNECT: return "disconnect";
+    case @MACRO@_PC_ERROR_SOCKET: return "socket";
+    case @MACRO@_PC_ERROR_TRUNCATED: return "truncated";
+    case @MACRO@_PC_ERROR_MESSAGE_TYPE: return "message_type";
+    case @MACRO@_PC_ERROR_PAYLOAD_LENGTH: return "payload_length";
+    case @MACRO@_PC_ERROR_PAYLOAD_CAPACITY: return "payload_capacity";
+    case @MACRO@_PC_ERROR_DSP_RESPONSE: return "dsp_response";
+    case @MACRO@_PC_ERROR_INTERNAL: return "internal";
+    default: return "unknown";
+    }
+}
+
+static int @NAME@_append(char *buffer, size_t capacity, size_t *used,
+    const char *format, ...)
+{
+    int count;
+    va_list args;
+    if (*used >= capacity) {
+        return -1;
+    }
+    va_start(args, format);
+    count = vsnprintf(buffer + *used, capacity - *used, format, args);
+    va_end(args);
+    if (count < 0 || (size_t)count >= capacity - *used) {
+        buffer[capacity - 1u] = '\0';
+        return -1;
+    }
+    *used += (size_t)count;
+    return 0;
+}
+
+int @NAME@_pc_error_format(const @TYPED@PcError *error,
+    char *buffer, size_t capacity)
+{
+    size_t used = 0u;
+    int status = 0;
+    if (error == NULL || buffer == NULL || capacity == 0u) {
+        return -1;
+    }
+    buffer[0] = '\0';
+    status |= @NAME@_append(buffer, capacity, &used,
+        "instance=@NAME@ stage=%s category=%s",
+        error->stage != NULL ? error->stage : "unknown",
+        @NAME@_error_kind_name(error->kind));
+#define @MACRO@_APPEND_IF(flag_, ...) \
+    do { if ((error->available & (flag_)) != 0u) { \
+        status |= @NAME@_append(buffer, capacity, &used, __VA_ARGS__); \
+    } } while (0)
+    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_STEP_INDEX,
+        " step_index=%lu", (unsigned long)error->step_index);
+    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_EXPECTED_TYPE,
+        " expected_type=%u", (unsigned int)error->expected_type);
+    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_ACTUAL_TYPE,
+        " actual_type=%u", (unsigned int)error->actual_type);
+    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH,
+        " expected_length=%u", (unsigned int)error->expected_length);
+    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH,
+        " actual_length=%u", (unsigned int)error->actual_length);
+    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_EXPECTED_STEP,
+        " expected_step=%lu", (unsigned long)error->expected_step);
+    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_ACTUAL_STEP,
+        " actual_step=%lu", (unsigned long)error->actual_step);
+    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_DSP_ERROR,
+        " dsp_error=%u", (unsigned int)error->dsp_error);
+    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_OS_ERROR,
+        " os_error=%d", error->os_error);
+#undef @MACRO@_APPEND_IF
+    return status == 0 ? 0 : -1;
+}
+
+uint64_t @NAME@_pc_socket_monotonic_ms(void)
+{
+#ifdef _WIN32
+    LARGE_INTEGER counter;
+    LARGE_INTEGER frequency;
+    if (!QueryPerformanceCounter(&counter) ||
+            !QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+        return 0u;
+    }
+    return (uint64_t)(counter.QuadPart / frequency.QuadPart) * 1000u +
+        (uint64_t)(counter.QuadPart % frequency.QuadPart) * 1000u /
+            (uint64_t)frequency.QuadPart;
+#else
+    struct timespec value;
+    if (clock_gettime(CLOCK_MONOTONIC, &value) != 0) {
+        return 0u;
+    }
+    return (uint64_t)value.tv_sec * 1000u + (uint64_t)value.tv_nsec / 1000000u;
+#endif
+}
+
+static uint64_t @NAME@_deadline(uint32_t timeout_ms)
+{
+    uint64_t now = @NAME@_pc_socket_monotonic_ms();
+    return UINT64_MAX - now < timeout_ms ? UINT64_MAX : now + timeout_ms;
+}
+
+static uint32_t @NAME@_remaining(uint64_t deadline)
+{
+    uint64_t now = @NAME@_pc_socket_monotonic_ms();
+    uint64_t remaining = deadline > now ? deadline - now : 0u;
+    return remaining > UINT32_MAX ? UINT32_MAX : (uint32_t)remaining;
+}
+
+static int @NAME@_would_block(int error)
+{
+#ifdef _WIN32
+    return error == WSAEWOULDBLOCK;
+#else
+    return error == EAGAIN || error == EWOULDBLOCK;
+#endif
+}
+
+static int @NAME@_interrupted(int error)
+{
+#ifdef _WIN32
+    return error == WSAEINTR;
+#else
+    return error == EINTR;
+#endif
+}
+
+static int @NAME@_connect_pending(int error)
+{
+#ifdef _WIN32
+    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS ||
+        error == WSAEALREADY;
+#else
+    return error == EINPROGRESS || error == EALREADY;
+#endif
+}
+
+static int @NAME@_set_nonblocking(@NAME@_native_socket native, int enabled)
+{
+#ifdef _WIN32
+    u_long mode = enabled ? 1u : 0u;
+    return ioctlsocket(native, FIONBIO, &mode) == 0 ? 0 : -1;
+#else
+    int flags = fcntl(native, F_GETFL, 0);
+    if (flags < 0) {
+        return -1;
+    }
+    return fcntl(native, F_SETFL,
+        enabled ? flags | O_NONBLOCK : flags & ~O_NONBLOCK) == 0 ? 0 : -1;
+#endif
+}
+
+static int @NAME@_wait(@NAME@_native_socket native, int writable,
+    uint64_t deadline, int *os_error)
+{
+    for (;;) {
+        uint32_t remaining = @NAME@_remaining(deadline);
+        int result;
+#ifdef _WIN32
+        fd_set read_set;
+        fd_set write_set;
+        fd_set error_set;
+        struct timeval timeout;
+        FD_ZERO(&read_set);
+        FD_ZERO(&write_set);
+        FD_ZERO(&error_set);
+        if (writable) FD_SET(native, &write_set); else FD_SET(native, &read_set);
+        FD_SET(native, &error_set);
+        timeout.tv_sec = (long)(remaining / 1000u);
+        timeout.tv_usec = (long)((remaining % 1000u) * 1000u);
+        result = select(0, &read_set, &write_set, &error_set, &timeout);
+#else
+        struct pollfd descriptor;
+        int poll_timeout = remaining > (uint32_t)INT_MAX ? INT_MAX : (int)remaining;
+        descriptor.fd = native;
+        descriptor.events = writable ? POLLOUT : POLLIN;
+        descriptor.revents = 0;
+        result = poll(&descriptor, 1, poll_timeout);
+#endif
+        if (result > 0) {
+#ifdef _WIN32
+            if (FD_ISSET(native, &error_set)) {
+                *os_error = @MACRO@_LAST_ERROR();
+                return -1;
+            }
+#else
+            if ((descriptor.revents & descriptor.events) == 0 &&
+                    (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                *os_error = 0;
+                return -1;
+            }
+#endif
+            return 1;
+        }
+        if (result == 0) {
+            return 0;
+        }
+        *os_error = @MACRO@_LAST_ERROR();
+        if (!@NAME@_interrupted(*os_error)) {
+            return -1;
+        }
+        if (@NAME@_remaining(deadline) == 0u) {
+            return 0;
+        }
+    }
+}
+
+static int @NAME@_fail(@TYPED@PcSocket *socket, @TYPED@PcError *error,
+    @TYPED@PcErrorKind kind, int os_error)
+{
+    if (error != NULL) {
+        error->kind = kind;
+        if (os_error != 0) {
+            error->available |= @MACRO@_PC_ERROR_HAS_OS_ERROR;
+            error->os_error = os_error;
+        }
+    }
+    if (socket != NULL) {
+        socket->last_os_error = os_error;
+        @NAME@_pc_socket_close(socket);
+    }
+    return -1;
+}
+
+int @NAME@_pc_socket_init(@TYPED@PcSocket *socket, @TYPED@PcError *error)
+{
+    if (socket == NULL) {
+        @NAME@_pc_error_reset(error, "socket_init");
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    memset(socket, 0, sizeof(*socket));
+    @NAME@_invalidate(socket);
+    @NAME@_pc_error_reset(error, "socket_init");
+#ifdef _WIN32
+    {
+        WSADATA data;
+        int result = WSAStartup(MAKEWORD(2, 2), &data);
+        if (result != 0) {
+            return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_SOCKET, result);
+        }
+    }
+#endif
+    socket->platform_initialized = 1;
+    return 0;
+}
+
+void @NAME@_pc_socket_close(@TYPED@PcSocket *socket)
+{
+    if (socket != NULL && socket->valid) {
+        (void)@MACRO@_CLOSE_SOCKET(@NAME@_native(socket));
+        @NAME@_invalidate(socket);
+    }
+}
+
+void @NAME@_pc_socket_cleanup(@TYPED@PcSocket *socket)
+{
+    if (socket == NULL) return;
+    @NAME@_pc_socket_close(socket);
+#ifdef _WIN32
+    if (socket->platform_initialized) (void)WSACleanup();
+#endif
+    socket->platform_initialized = 0;
+}
+
+int @NAME@_pc_socket_is_valid(const @TYPED@PcSocket *socket)
+{
+    return socket != NULL && socket->valid;
+}
+
+int @NAME@_pc_socket_connect(@TYPED@PcSocket *context, const char *ip,
+    uint16_t port, uint32_t timeout_ms, @TYPED@PcError *error)
+{
+    struct sockaddr_in address;
+    @NAME@_native_socket native;
+    uint64_t deadline;
+    int result;
+    int os_error = 0;
+    @NAME@_socket_length error_size;
+    @NAME@_pc_error_reset(error, "connect");
+    if (context == NULL || ip == NULL || !context->platform_initialized) {
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    @NAME@_pc_socket_close(context);
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_port = htons(port);
+#ifdef _WIN32
+    address.sin_addr.s_addr = inet_addr(ip);
+    if (address.sin_addr.s_addr == INADDR_NONE) {
+#else
+    if (inet_pton(AF_INET, ip, &address.sin_addr) != 1) {
+#endif
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    native = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (native == @MACRO@_INVALID_SOCKET) {
+        return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET,
+            @MACRO@_LAST_ERROR());
+    }
+    context->native_handle = (uintptr_t)native;
+    context->valid = 1;
+    if (@NAME@_set_nonblocking(native, 1) != 0) {
+        return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET,
+            @MACRO@_LAST_ERROR());
+    }
+    deadline = @NAME@_deadline(timeout_ms);
+    result = connect(native, (struct sockaddr *)&address, sizeof(address));
+    if (result == @MACRO@_SOCKET_ERROR) {
+        os_error = @MACRO@_LAST_ERROR();
+        if (!@NAME@_connect_pending(os_error)) {
+            return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET, os_error);
+        }
+        result = @NAME@_wait(native, 1, deadline, &os_error);
+        if (result == 0) {
+            return @NAME@_fail(context, error, @MACRO@_PC_ERROR_TIMEOUT, 0);
+        }
+        if (result < 0) {
+            return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET, os_error);
+        }
+        os_error = 0;
+        error_size = (@NAME@_socket_length)sizeof(os_error);
+        if (getsockopt(native, SOL_SOCKET, SO_ERROR,
+                (char *)&os_error, &error_size) != 0 || os_error != 0) {
+            if (os_error == 0) os_error = @MACRO@_LAST_ERROR();
+            return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET, os_error);
+        }
+    }
+    return 0;
+}
+
+static int @NAME@_transfer(@TYPED@PcSocket *socket, uint8_t *data,
+    uint32_t length, uint32_t timeout_ms, @TYPED@PcError *error, int sending)
+{
+    uint64_t deadline;
+    uint32_t done = 0u;
+    @NAME@_native_socket native;
+    @NAME@_pc_error_reset(error, sending ? "send" : "receive");
+    if (socket == NULL || !socket->valid || (length != 0u && data == NULL)) {
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    socket->last_transfer_count = 0u;
+    if (length == 0u) return 0;
+    native = @NAME@_native(socket);
+    deadline = @NAME@_deadline(timeout_ms);
+    while (done < length) {
+        uint32_t remaining = length - done;
+        int chunk = remaining > 0x7fffffffu ? 0x7fffffff : (int)remaining;
+        int os_error = 0;
+        int ready = @NAME@_wait(native, sending, deadline, &os_error);
+        int count;
+        if (ready == 0) {
+            socket->last_transfer_count = done;
+            return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_TIMEOUT, 0);
+        }
+        if (ready < 0) {
+            socket->last_transfer_count = done;
+            return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_SOCKET, os_error);
+        }
+        if (sending) {
+#ifdef MSG_NOSIGNAL
+            count = (int)send(native, (const char *)data + done, chunk, MSG_NOSIGNAL);
+#else
+            count = (int)send(native, (const char *)data + done, chunk, 0);
+#endif
+        } else {
+            count = (int)recv(native, (char *)data + done, chunk, 0);
+        }
+        if (count == @MACRO@_SOCKET_ERROR) {
+            os_error = @MACRO@_LAST_ERROR();
+            if (@NAME@_would_block(os_error) || @NAME@_interrupted(os_error)) {
+                continue;
+            }
+            socket->last_transfer_count = done;
+            return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_SOCKET, os_error);
+        }
+        if (count == 0) {
+            socket->last_transfer_count = done;
+            return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_DISCONNECT, 0);
+        }
+        done += (uint32_t)count;
+        socket->last_transfer_count = done;
+    }
+    return 0;
+}
+
+int @NAME@_pc_socket_send_all(@TYPED@PcSocket *socket, const uint8_t *data,
+    uint32_t length, uint32_t timeout_ms, @TYPED@PcError *error)
+{
+    return @NAME@_transfer(socket, (uint8_t *)(uintptr_t)data, length,
+        timeout_ms, error, 1);
+}
+
+int @NAME@_pc_socket_recv_exact(@TYPED@PcSocket *socket, uint8_t *data,
+    uint32_t length, uint32_t timeout_ms, @TYPED@PcError *error)
+{
+    return @NAME@_transfer(socket, data, length, timeout_ms, error, 0);
+}

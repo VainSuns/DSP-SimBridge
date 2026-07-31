@@ -30,27 +30,31 @@ classdef test_sfun_candidates < matlab.unittest.TestCase
 
             testCase.verifyEmpty(issues);
             testCase.verifyEqual(second, first);
-            testCase.verifyNumElements(first, 8);
-            testCase.verifyEqual([first.instance_index], [ones(1, 4) 2 * ones(1, 4)]);
-            testCase.verifyEqual({first.category}, repmat({'auto_generated'}, 1, 8));
-            testCase.verifyNumElements(unique({first.owner}), 8);
+            testCase.verifyNumElements(first, 16);
+            testCase.verifyEqual([first.instance_index], [ones(1, 8) 2 * ones(1, 8)]);
+            testCase.verifyEqual({first.category}, repmat({'auto_generated'}, 1, 16));
+            testCase.verifyNumElements(unique({first.owner}), 16);
             testCase.verifyEqual(candidate_names(first), { ...
                 'axis_alpha_sfun.c', 'axis_alpha_sfun.h', ...
                 'axis_alpha_sfun_io.c', 'axis_alpha_sfun_config.h', ...
+                'axis_alpha_pc_socket.c', 'axis_alpha_pc_socket.h', ...
+                'axis_alpha_protocol.c', 'axis_alpha_protocol.h', ...
                 'axis_beta_sfun.c', 'axis_beta_sfun.h', ...
-                'axis_beta_sfun_io.c', 'axis_beta_sfun_config.h'});
+                'axis_beta_sfun_io.c', 'axis_beta_sfun_config.h', ...
+                'axis_beta_pc_socket.c', 'axis_beta_pc_socket.h', ...
+                'axis_beta_protocol.c', 'axis_beta_protocol.h'});
             testCase.verifyTrue(all(cellfun(@(path) contains(path, ...
                 [project.output.sfun_root filesep]), {first.target_path})));
             testCase.verifyFalse(isfolder(project.output.sfun_root));
-            testCase.verifyNumElements(dependencies, 4);
+            testCase.verifyNumElements(dependencies, 9);
             testCase.verifyTrue(all(cellfun(@isfile, {dependencies.source_path})));
             testCase.verifyEmpty(c2837x_block_validate_candidate_files(first));
             [comparisons, comparisonIssues] = ...
                 c2837x_block_compare_candidate_files(first);
             testCase.verifyEmpty(comparisonIssues);
-            testCase.verifyEqual({comparisons.target_state}, repmat({'missing'}, 1, 8));
+            testCase.verifyEqual({comparisons.target_state}, repmat({'missing'}, 1, 16));
             testCase.verifyFalse(any(contains({first.target_path}, { ...
-                '_protocol.', '_pc_socket.', '_sfun_user_config.h', 'build_'}), 'all'));
+                '_sfun_user_config.h', 'build_'}), 'all'));
         end
 
         function testNamesContextNormalModeAndUnimplementedStep(testCase)
@@ -240,9 +244,9 @@ for index = 1:numel(selected)
         value.io = text;
     elseif endsWith(name, '_sfun_config')
         value.config = text;
-    elseif strcmp(extension, '.c')
+    elseif endsWith(name, '_sfun') && strcmp(extension, '.c')
         value.source = text;
-    else
+    elseif endsWith(name, '_sfun')
         value.header = text;
     end
 end

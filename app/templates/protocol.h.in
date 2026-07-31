@@ -1,0 +1,61 @@
+/*
+ * AUTO-GENERATED FILE
+ * Manual changes will be overwritten.
+ */
+
+#ifndef @MACRO@_PROTOCOL_H
+#define @MACRO@_PROTOCOL_H
+
+#include <stdint.h>
+#include "@NAME@_pc_socket.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define @MACRO@_PROTOCOL_VERSION 1u
+#define @MACRO@_TYPE_SIM_START 0x0001u
+#define @MACRO@_TYPE_INPUT_DATA 0x0002u
+#define @MACRO@_TYPE_OUTPUT_DATA 0x0003u
+#define @MACRO@_TYPE_SIM_STOP 0x0004u
+#define @MACRO@_TYPE_RESPONSE 0x0005u
+
+#define @MACRO@_ERR_NONE 0u
+#define @MACRO@_ERR_UNKNOWN_TYPE 1u
+#define @MACRO@_ERR_LENGTH 2u
+#define @MACRO@_ERR_CONFIG_HASH 3u
+#define @MACRO@_ERR_STATE 4u
+#define @MACRO@_ERR_INTERNAL 5u
+#define @MACRO@_ERR_PROTOCOL_VERSION 6u
+#define @MACRO@_ERR_STEP_INDEX 7u
+#define @MACRO@_ERR_UNSUPPORTED_TYPE 8u
+
+#define @MACRO@_HEADER_SIZE 4u
+#define @MACRO@_SIM_START_PAYLOAD_SIZE 6u
+#define @MACRO@_RESPONSE_PAYLOAD_SIZE 2u
+
+int @NAME@_protocol_send_frame(@TYPED@PcSocket *socket, uint16_t type,
+    uint16_t length, const uint8_t *payload, uint32_t timeout_ms,
+    @TYPED@PcError *error);
+int @NAME@_protocol_recv_frame(@TYPED@PcSocket *socket, uint16_t *type,
+    uint16_t *length, uint8_t *payload, uint32_t payload_capacity,
+    uint32_t timeout_ms, @TYPED@PcError *error);
+int @NAME@_protocol_send_sim_start(@TYPED@PcSocket *socket,
+    uint16_t protocol_version, uint32_t interface_hash, uint32_t timeout_ms,
+    @TYPED@PcError *error);
+int @NAME@_protocol_send_sim_stop(@TYPED@PcSocket *socket,
+    uint32_t timeout_ms, @TYPED@PcError *error);
+int @NAME@_protocol_send_input_data(@TYPED@PcSocket *socket,
+    const uint8_t *payload, uint16_t length, uint32_t timeout_ms,
+    @TYPED@PcError *error);
+int @NAME@_protocol_wait_response(@TYPED@PcSocket *socket,
+    uint32_t timeout_ms, @TYPED@PcError *error);
+int @NAME@_protocol_wait_output_data(@TYPED@PcSocket *socket,
+    uint8_t *payload, uint16_t *length, uint32_t payload_capacity,
+    uint32_t timeout_ms, @TYPED@PcError *error);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* @MACRO@_PROTOCOL_H */
