@@ -1,4 +1,4 @@
-classdef test_sfun_lifecycle_candidates < matlab.unittest.TestCase
+classdef test_sfun_step_candidates < matlab.unittest.TestCase
     methods (TestClassSetup)
         function addAppPath(testCase)
             root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
@@ -7,63 +7,70 @@ classdef test_sfun_lifecycle_candidates < matlab.unittest.TestCase
     end
 
     methods (Test)
-        function testGeneratedLifecycleAgainstMockTcp(testCase)
+        function testSynchronousStepAndAtomicOutputs(testCase)
             root = c2837x_block_normalize_absolute_path(tempname);
             mkdir(root);
             testCase.addTeardown(@() rmdir(root, 's'));
             port = free_port();
-            project = lifecycle_project(root, port);
+            project = step_project(root, port);
             candidates = c2837x_block_build_sfun_candidates(project);
             testCase.verifyNumElements(candidates, 16);
-            alphaSource = candidate_text(candidates, 'axis_alpha_sfun.c');
-            alphaConfig = candidate_text(candidates, 'axis_alpha_sfun_config.h');
-            betaConfig = candidate_text(candidates, 'axis_beta_sfun_config.h');
-            testCase.verifySubstring(alphaConfig, '#define AXIS_ALPHA_SFUN_DSP_IP_ADDRESS "127.0.0.1"');
-            testCase.verifySubstring(alphaConfig, sprintf('#define AXIS_ALPHA_SFUN_TCP_PORT %uu', port));
-            testCase.verifySubstring(alphaConfig, '#define AXIS_ALPHA_SFUN_PROTOCOL_VERSION 1u');
-            testCase.verifySubstring(alphaConfig, '#define AXIS_ALPHA_SFUN_INTERFACE_HASH 0x12345678u');
-            testCase.verifyFalse(contains(betaConfig, sprintf('TCP_PORT %uu', port)));
-            testCase.verifyFalse(contains([alphaConfig betaConfig], ...
-                {'CONNECT_TIMEOUT_MS', 'STEP_TIMEOUT_MS', 'TERMINATE_TIMEOUT_MS'}));
-            testCase.verifyEqual(numel(strfind(alphaSource, 'CONNECT_TIMEOUT_MS, &context->error')), 1);
-            testCase.verifyEqual(numel(strfind(alphaSource, 'STEP_TIMEOUT_MS, &context->error')), 2);
-            testCase.verifyEqual(numel(strfind(alphaSource, 'STEP_TIMEOUT_MS,')), 4);
-            testCase.verifyEqual(numel(strfind(alphaSource, 'TERMINATE_TIMEOUT_MS, &context->error')), 1);
             write_candidates(candidates);
-            folder = fullfile(project.output.sfun_root, 'axis_alpha');
-            write_fixture(folder, 'axis_alpha_sfun_user_config.h', sprintf([ ...
-                '#ifndef CONNECT_TIMEOUT_MS\n#define CONNECT_TIMEOUT_MS 500u\n#endif\n' ...
-                '#define STEP_TIMEOUT_MS 100u\n#define TERMINATE_TIMEOUT_MS 50u\n']));
             write_fixture(project.output.sfun_root, 'simstruc.h', simstruc_stub());
             write_fixture(project.output.sfun_root, 'simulink.c', '/* host stub */');
+            folder = fullfile(project.output.sfun_root, 'axis_alpha');
+            write_fixture(folder, 'axis_alpha_sfun_user_config.h', sprintf([ ...
+                '#define CONNECT_TIMEOUT_MS 500u\n' ...
+                '#define STEP_TIMEOUT_MS 100u\n' ...
+                '#define TERMINATE_TIMEOUT_MS 50u\n']));
+
+            config = candidate_text(candidates, 'axis_alpha_sfun_config.h');
+            source = candidate_text(candidates, 'axis_alpha_sfun.c');
+            header = candidate_text(candidates, 'axis_alpha_sfun.h');
+            io = candidate_text(candidates, 'axis_alpha_sfun_io.c');
+            testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_INPUT_PAYLOAD_OCTETS 38u');
+            testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_OUTPUT_PAYLOAD_OCTETS 32u');
+            testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_INPUT_DATA_OCTETS 34u');
+            testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_OUTPUT_DATA_OCTETS 28u');
+            testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_STEP_INDEX_OCTETS 4u');
+            testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_MAX_PAYLOAD_OCTETS 1024u');
+            testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_INPUT_0_WIRE_OFFSET 4u');
+            testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_OUTPUT_5_WIRE_OCTETS 8u');
+            testCase.verifySubstring(config, 'FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128');
+            testCase.verifySubstring(config, 'DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024');
+            testCase.verifySubstring(header, 'AxisAlphaSfunOutputTemp output_temp;');
+            testCase.verifySubstring(header, 'uint8_t tx_payload[AXIS_ALPHA_SFUN_INPUT_PAYLOAD_OCTETS];');
+            testCase.verifySubstring(source, 'STEP_TIMEOUT_MS, &context->error');
+            testCase.verifySubstring(io, 'ssGetInputPortSignal(S, port)');
+            testCase.verifySubstring(io, 'ssGetOutputPortSignal(S, port)');
+
             support = fullfile(fileparts(mfilename('fullpath')), 'support');
-            executable = fullfile(root, 's4_03_client');
+            executable = fullfile(root, 's4_04_step');
             python = pyenv;
             command = sprintf('"%s" "%s" "%s" "%s" %u 2>&1', ...
-                python.Executable, fullfile(support, 'run_s4_03_lifecycle.py'), ...
+                python.Executable, fullfile(support, 'run_s4_04_step.py'), ...
                 executable, folder, port);
             [status, output] = system(command);
             testCase.verifyEqual(status, 0, output);
-            testCase.verifySubstring(output, 'SUMMARY passed=8 failed=0');
+            testCase.verifySubstring(output, 'SUMMARY passed=15 failed=0');
         end
     end
 end
 
-function text = candidate_text(candidates, name)
-index = find(endsWith({candidates.target_path}, name), 1);
-assert(~isempty(index));
-text = native2unicode(candidates(index).content_bytes, 'UTF-8');
-end
-
-function project = lifecycle_project(root, port)
+function project = step_project(root, port)
 project = c2837x_block_create_default_project();
 project.common.network.ip = '127.0.0.1';
 project.output.dsp_root = c2837x_block_normalize_absolute_path(fullfile(root, 'dsp'));
 project.output.sfun_root = c2837x_block_normalize_absolute_path(fullfile(root, 'sfun'));
+types = {'int16', 'uint16', 'int32', 'uint32', 'single', 'double'};
+inputDims = {2, 1, 1, 1, 1, 2};
+outputDims = {1, 1, 1, 1, 2, 1};
+inputNames = cellfun(@(type) ['i_' type], types, 'UniformOutput', false);
+outputNames = cellfun(@(type) ['o_' type], types, 'UniformOutput', false);
 first = c2837x_block_create_default_instance();
 first.display_name = 'Axis Alpha'; first.internal_name = 'axis_alpha';
-first.inputs = struct('name', 'command', 'type', 'uint16', 'dim', 1);
-first.outputs = struct('name', 'feedback', 'type', 'uint16', 'dim', 1);
+first.inputs = struct('name', inputNames, 'type', types, 'dim', inputDims);
+first.outputs = struct('name', outputNames, 'type', types, 'dim', outputDims);
 first.iodevice.settings.tcp_port = uint16(port);
 second = first; second.display_name = 'Axis Beta'; second.internal_name = 'axis_beta';
 second.iodevice.settings.socket_number = uint16(1);
@@ -73,6 +80,12 @@ for index = 1:2
     [~, project.instances(index).interface_hash] = c2837x_block_build_interface_hash(project, index);
 end
 project.instances(1).interface_hash = uint32(hex2dec('12345678'));
+end
+
+function text = candidate_text(candidates, name)
+index = find(endsWith({candidates.target_path}, name), 1);
+assert(~isempty(index));
+text = native2unicode(candidates(index).content_bytes, 'UTF-8');
 end
 
 function port = free_port()
@@ -104,7 +117,7 @@ function text = simstruc_stub()
 text = sprintf([ ...
     '#ifndef SIMSTRUC_H\n#define SIMSTRUC_H\n#include <stddef.h>\n#include <stdint.h>\n' ...
     'typedef int int_T;\ntypedef struct { void *pwork; char dwork[512]; const char *error_status; ' ...
-    'uint32_t options; size_t dwork_width; } SimStruct;\n' ...
+    'const void *inputs[6]; void *outputs[6]; uint32_t options; size_t dwork_width; } SimStruct;\n' ...
     '#define SS_INT16 1\n#define SS_UINT16 2\n#define SS_INT32 3\n#define SS_UINT32 4\n' ...
     '#define SS_SINGLE 5\n#define SS_DOUBLE 6\n#define SS_UINT8 7\n' ...
     '#define SS_OPTION_EXCEPTION_FREE_CODE 1u\n#define SS_OPTION_CALL_TERMINATE_ON_EXIT 2u\n' ...
@@ -129,6 +142,6 @@ text = sprintf([ ...
     '#define ssSetPWorkValue(S,i,v) ((void)(i),(S)->pwork=(v))\n' ...
     '#define ssGetPWorkValue(S,i) ((void)(i),(S)->pwork)\n' ...
     '#define ssGetDWork(S,i) ((void)(i),(void *)(S)->dwork)\n' ...
-    '#define ssGetInputPortSignal(S,p) ((void)(S),(void)(p),(const void *)0)\n' ...
-    '#define ssGetOutputPortSignal(S,p) ((void)(S),(void)(p),(void *)0)\n#endif\n']);
+    '#define ssGetInputPortSignal(S,p) ((S)->inputs[(p)])\n' ...
+    '#define ssGetOutputPortSignal(S,p) ((S)->outputs[(p)])\n#endif\n']);
 end

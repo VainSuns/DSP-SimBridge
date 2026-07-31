@@ -75,6 +75,9 @@ static const char *@NAME@_error_kind_name(@TYPED@PcErrorKind kind)
     case @MACRO@_PC_ERROR_PAYLOAD_CAPACITY: return "payload_capacity";
     case @MACRO@_PC_ERROR_DSP_RESPONSE: return "dsp_response";
     case @MACRO@_PC_ERROR_INTERNAL: return "internal";
+    case @MACRO@_PC_ERROR_STEP_INDEX: return "step_index";
+    case @MACRO@_PC_ERROR_FIELD_DECODE: return "field_decode";
+    case @MACRO@_PC_ERROR_PORT_ACCESS: return "port_access";
     default: return "unknown";
     }
 }
