@@ -1,6 +1,6 @@
 function [candidates, dependencies, issues] = ...
         c2837x_block_build_sfun_candidates(project)
-%C2837X_BLOCK_BUILD_SFUN_CANDIDATES Build deterministic S4-01 candidates.
+%C2837X_BLOCK_BUILD_SFUN_CANDIDATES Build deterministic S4-03 candidates.
 
 model = c2837x_block_build_sfun_output_model(project);
 rendered = c2837x_block_render_sfun_files(project);
