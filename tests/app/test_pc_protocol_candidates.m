@@ -56,16 +56,41 @@ classdef test_pc_protocol_candidates < matlab.unittest.TestCase
             testCase.verifyEmpty(intersect(alphaMacros, betaMacros));
         end
 
+        function testPosixFeatureMacroPrecedesAllIncludes(testCase)
+            for instance = 1:2
+                selected = testCase.Candidates( ...
+                    [testCase.Candidates.instance_index] == instance & ...
+                    endsWith({testCase.Candidates.target_path}, '_pc_socket.c'));
+                testCase.assertNumElements(selected, 1);
+                text = native2unicode(selected.content_bytes, 'UTF-8');
+                macroPosition = strfind(text, '#define _POSIX_C_SOURCE 200809L');
+                includePosition = regexp(text, '(?m)^#include\s', 'once');
+                testCase.verifyTrue(isscalar(macroPosition) && ...
+                    macroPosition < includePosition);
+            end
+            if ispc
+                fprintf('POSIX_STRICT_COMPILE=NOT_EXECUTED (Windows host)\n');
+            else
+                fprintf('POSIX_STRICT_COMPILE=PASS (actual candidates)\n');
+            end
+        end
+
         function testFocusedMockTcpAndGoldenVectors(testCase)
             folder = instance_folder(testCase.Candidates, 1);
-            executable = fullfile(testCase.WorkFolder, 's4_02_client.exe');
+            if ispc
+                executable = fullfile(testCase.WorkFolder, 's4_02_client.exe');
+                socketLibrary = '-lws2_32';
+            else
+                executable = fullfile(testCase.WorkFolder, 's4_02_client');
+                socketLibrary = '';
+            end
             support = fullfile(testCase.RepositoryRoot, 'tests', 'app', 'support');
             command = sprintf([ ...
-                'gcc -std=c11 -Wall -Wextra -Werror -I"%s" "%s" "%s" ' ...
-                '"%s" -o "%s" -lws2_32 2>&1'], folder, ...
+                'gcc -std=c11 -Wall -Wextra -Werror -pedantic-errors -I"%s" "%s" "%s" ' ...
+                '"%s" -o "%s" %s 2>&1'], folder, ...
                 fullfile(folder, 'axis_alpha_pc_socket.c'), ...
                 fullfile(folder, 'axis_alpha_protocol.c'), ...
-                fullfile(support, 's4_02_client.c'), executable);
+                fullfile(support, 's4_02_client.c'), executable, socketLibrary);
             [status, output] = system(command);
             testCase.assertEqual(status, 0, output);
             python = pyenv;
@@ -76,7 +101,7 @@ classdef test_pc_protocol_candidates < matlab.unittest.TestCase
                 executable, folder);
             [status, output] = system(command);
             testCase.verifyEqual(status, 0, output);
-            testCase.verifySubstring(output, 'SUMMARY passed=15 failed=0');
+            testCase.verifySubstring(output, 'SUMMARY passed=24 failed=0');
         end
     end
 end
@@ -135,7 +160,7 @@ sources = {fullfile(folder, [name '_pc_socket.c']), ...
 objects = {fullfile(folder, 'socket.o'), fullfile(folder, 'protocol.o')};
 for index = 1:2
     [status, output] = system(sprintf( ...
-        'gcc -std=c11 -Wall -Wextra -Werror -I"%s" -c "%s" -o "%s" 2>&1', ...
+        'gcc -std=c11 -Wall -Wextra -Werror -pedantic-errors -I"%s" -c "%s" -o "%s" 2>&1', ...
         folder, sources{index}, objects{index}));
     testCase.assertEqual(status, 0, output);
 end
@@ -160,4 +185,5 @@ for index = 1:numel(selected)
 end
 tokens = regexp(text, '(?m)^#define\s+([A-Za-z_]\w*)', 'tokens');
 macros = unique(cellfun(@(token) token{1}, tokens, 'UniformOutput', false));
+macros(strcmp(macros, '_POSIX_C_SOURCE')) = [];
 end

@@ -66,6 +66,11 @@ typedef struct
     int last_os_error;
 } @TYPED@PcSocket;
 
+typedef struct
+{
+    uint64_t expires_at_ms;
+} @TYPED@PcDeadline;
+
 void @NAME@_pc_error_reset(@TYPED@PcError *error, const char *stage);
 int @NAME@_pc_error_format(const @TYPED@PcError *error,
     char *buffer, size_t capacity);
@@ -77,9 +82,18 @@ int @NAME@_pc_socket_send_all(@TYPED@PcSocket *socket, const uint8_t *data,
     uint32_t length, uint32_t timeout_ms, @TYPED@PcError *error);
 int @NAME@_pc_socket_recv_exact(@TYPED@PcSocket *socket, uint8_t *data,
     uint32_t length, uint32_t timeout_ms, @TYPED@PcError *error);
+int @NAME@_pc_deadline_start(uint32_t timeout_ms,
+    @TYPED@PcDeadline *deadline, @TYPED@PcError *error);
+int @NAME@_pc_deadline_remaining(const @TYPED@PcDeadline *deadline,
+    uint32_t *remaining_ms, int *expired, @TYPED@PcError *error);
+int @NAME@_pc_socket_send_all_until(@TYPED@PcSocket *socket,
+    const uint8_t *data, uint32_t length, const @TYPED@PcDeadline *deadline,
+    @TYPED@PcError *error);
+int @NAME@_pc_socket_recv_exact_until(@TYPED@PcSocket *socket,
+    uint8_t *data, uint32_t length, const @TYPED@PcDeadline *deadline,
+    @TYPED@PcError *error);
 void @NAME@_pc_socket_close(@TYPED@PcSocket *socket);
 int @NAME@_pc_socket_is_valid(const @TYPED@PcSocket *socket);
-uint64_t @NAME@_pc_socket_monotonic_ms(void);
 
 #ifdef __cplusplus
 }
