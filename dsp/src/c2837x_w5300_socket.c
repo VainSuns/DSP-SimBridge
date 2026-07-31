@@ -6,10 +6,10 @@ static int16 socket_is_valid(const C2837xW5300Socket *sk)
 {
     if ((sk == 0) || (sk->sn >= C2837X_W5300_MAX_SOCK_NUM))
         return 0;
-    if ((sk->pending_command < C2837X_W5300_COMMAND_NONE) ||
-        (sk->pending_command > C2837X_W5300_COMMAND_DUMMY_SEND) ||
-        (sk->command_phase < C2837X_W5300_COMMAND_PHASE_IDLE) ||
-        (sk->command_phase > C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE))
+    if (((Uint32)sk->pending_command >
+         (Uint32)C2837X_W5300_COMMAND_DUMMY_SEND) ||
+        ((Uint32)sk->command_phase >
+         (Uint32)C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE))
         return 0;
     return (((sk->pending_command == C2837X_W5300_COMMAND_NONE) &&
              (sk->command_phase == C2837X_W5300_COMMAND_PHASE_IDLE)) ||

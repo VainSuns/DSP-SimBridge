@@ -230,6 +230,8 @@ static const C2837xBlock_Config config_b = {
 
 static C2837xBlock instance_a = C2837X_BLOCK_INSTANCE_INITIALIZER(&config_a);
 static C2837xBlock instance_b = C2837X_BLOCK_INSTANCE_INITIALIZER(&config_b);
+static C2837xBlock probe_instance =
+    C2837X_BLOCK_INSTANCE_INITIALIZER((const C2837xBlock_Config *)0);
 
 int16 C2837xBlock_PlatformInit(void)
 {
@@ -328,6 +330,34 @@ static void test_init_and_static_isolation(void)
     assert(config_a.max_payload_octets == 8u);
     assert(config_b.rx_frame_capacity_octets == 12u);
     assert(config_b.max_payload_octets == 10u);
+}
+
+static void test_static_instance_initializer(void)
+{
+    assert(probe_instance.config == NULL);
+    assert(probe_instance.runtime.state ==
+           C2837X_BLOCK_STATE_WAIT_CONNECTION);
+    assert(probe_instance.runtime.protocol_phase ==
+           C2837X_BLOCK_PROTOCOL_WAIT_SIM_START);
+    assert(probe_instance.runtime.rx_phase == C2837X_BLOCK_RX_HEADER);
+    assert(probe_instance.runtime.receive_wait_kind ==
+           C2837X_BLOCK_WAIT_TRANSFER);
+    assert(probe_instance.runtime.tx_done_action ==
+           C2837X_BLOCK_TX_DONE_CLOSE);
+    assert(probe_instance.runtime.rx_header_received_octets == 0u);
+    assert(probe_instance.runtime.rx_msg_type == 0u);
+    assert(probe_instance.runtime.rx_payload_length_octets == 0u);
+    assert(probe_instance.runtime.rx_payload_received_octets == 0u);
+    assert(probe_instance.runtime.tx_total_octets == 0u);
+    assert(probe_instance.runtime.tx_sent_octets == 0u);
+    assert(probe_instance.runtime.expected_step_index == 0u);
+    assert(probe_instance.runtime.progress_start_us == 0u);
+    assert(probe_instance.runtime.algorithm_started == 0u);
+    assert(probe_instance.runtime.close_pending == 0u);
+    assert(probe_instance.runtime.primary_error_latched == 0u);
+    assert(probe_instance.runtime.normal_end_pending == 0u);
+    assert(probe_instance.runtime.response_error == 0u);
+    assert(probe_instance.runtime.last_error == C2837X_BLOCK_ERROR_NONE);
 }
 
 static void test_config_driven_adapter_routing(void)
@@ -546,6 +576,7 @@ static void test_shared_clock_timeout_isolation(void)
 
 int main(void)
 {
+    test_static_instance_initializer();
     test_init_and_static_isolation();
     test_config_driven_adapter_routing();
     test_step_failure_has_no_normal_output();

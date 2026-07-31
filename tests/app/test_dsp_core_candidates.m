@@ -61,6 +61,19 @@ classdef test_dsp_core_candidates < matlab.unittest.TestCase
             testCase.verifyEqual(secondDependencies, firstDependencies);
         end
 
+        function testInstanceInitializerUsesNamedEnum(testCase)
+            root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+            header = fileread(fullfile(root, 'dsp', 'src', ...
+                'c2837x_block_internal.h'));
+
+            testCase.verifyNotEmpty(regexp(header, ...
+                ['C2837X_BLOCK_INSTANCE_INITIALIZER\(config_ptr\)' ...
+                 '[\s\S]{0,100}C2837X_BLOCK_STATE_WAIT_CONNECTION'], ...
+                'once'));
+            testCase.verifyFalse(contains(header, ...
+                '{ (config_ptr), { 0 } }'));
+        end
+
         function testCoreDependencyChangeInvalidatesSnapshot(testCase)
             [isValid, issues] = changed_dependency_result( ...
                 testCase, testCase.WorkFolder, 'core_source');

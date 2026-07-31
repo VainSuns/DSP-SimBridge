@@ -450,6 +450,46 @@ static void test_two_socket_command_phase_isolation(void)
     assert(writes_of(Sn_CR(1u)) == 1u && writes_of(Sn_CR(6u)) == 1u);
 }
 
+static void assert_invalid_enum_state(C2837xW5300Socket sk)
+{
+    C2837xW5300Socket before = sk;
+
+    reset_fixture();
+    assert(c2837x_w5300_socket_take_pending(&sk) < 0);
+    assert(read_count == 0u && write_count == 0u);
+    assert(memcmp(&sk, &before, sizeof(sk)) == 0);
+}
+
+static void test_socket_enum_range_validation(void)
+{
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(1u, 8192u, 8192u);
+
+    reset_fixture();
+    assert(c2837x_w5300_socket_take_pending(&sk) > 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    sk.pending_command = C2837X_W5300_COMMAND_DUMMY_SEND;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE;
+    assert(c2837x_w5300_socket_complete_close_command(
+               &sk, C2837X_W5300_COMMAND_DUMMY_SEND) > 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    sk.pending_command = (C2837xW5300PendingCommand)
+        (C2837X_W5300_COMMAND_DUMMY_SEND + 1);
+    assert_invalid_enum_state(sk);
+    sk.pending_command = C2837X_W5300_COMMAND_NONE;
+    sk.command_phase = (C2837xW5300CommandPhase)
+        (C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE + 1);
+    assert_invalid_enum_state(sk);
+    sk.pending_command = (C2837xW5300PendingCommand)-1;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
+    assert_invalid_enum_state(sk);
+    sk.pending_command = C2837X_W5300_COMMAND_NONE;
+    sk.command_phase = (C2837xW5300CommandPhase)-1;
+    assert_invalid_enum_state(sk);
+}
+
 int main(void)
 {
     test_command_issue_and_poll();
@@ -459,5 +499,6 @@ int main(void)
     test_close_primitives_and_disconnect_state_windows();
     test_conflicting_operations_do_not_issue();
     test_two_socket_command_phase_isolation();
+    test_socket_enum_range_validation();
     return 0;
 }

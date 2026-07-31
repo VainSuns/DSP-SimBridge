@@ -72,6 +72,6 @@ struct C2837xBlock
 };
 
 #define C2837X_BLOCK_INSTANCE_INITIALIZER(config_ptr) \
-    { (config_ptr), { 0 } }
+    { (config_ptr), { C2837X_BLOCK_STATE_WAIT_CONNECTION } }
 
 #endif /* C2837X_BLOCK_INTERNAL_H */
