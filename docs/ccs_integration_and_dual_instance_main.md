@@ -158,7 +158,36 @@ V1 wire 协议兼容不代表 DSP C API、生成文件或二进制兼容。必�
 - 各实例 Socket 编号和 TCP port 来自生成配置，且互不重复。
 - 用户现有工程负责器件/时钟初始化、链接、启动及存储布局。
 
-## 9. 初始化与裸机轮询顺序
+## 9. 实例对象使用限制
+
+`C2837xBlock` 是不透明类型。用户只能使用生成的
+`c2837x_block_project.h` 导出的项目实例，例如
+`g_current_loop` 和 `g_voltage_loop`。
+
+禁止：
+
+- 在栈、静态存储区或动态内存中自行定义新的
+  `C2837xBlock` 实例；
+- 使用 `malloc`、`calloc`、`realloc` 或 `free`
+  创建、复制、调整或释放实例资源；
+- 直接赋值复制实例对象，或使用 `memcpy`、`memmove`
+  等方式复制实例内部状态；
+- 将内部头文件加入用户代码，以绕过不透明类型边界；
+- 将非生成实例传给 `C2837xBlock_Init()`、
+  `C2837xBlock_Run()` 或 `C2837xBlock_GetLastError()`；
+- 让两个实例共享同一实例配置、Socket、RX/TX 缓冲区
+  或 IoDevice 通道；
+- 手工修改 `g_<internal_name>` 的生成定义、配置绑定或
+  内部资源指针。
+
+每个生成实例的配置、Socket、协议缓冲区和 IoDevice
+通道均由生成文件静态绑定。用户代码只负责按固定顺序
+调用生成实例，不负责创建、复制、销毁或重新绑定实例。
+
+当前第一版不建立对象注册表、实例魔数或复杂运行时合法性
+检查，因此上述约束必须由 CCS 集成代码和工程文件严格遵守。
+
+## 10. 初始化与裸机轮询顺序
 
 固定流程为：
 
@@ -180,7 +209,7 @@ V1 wire 协议兼容不代表 DSP C API、生成文件或二进制兼容。必�
 
 可复制的双实例代码见 [`examples/dual_instance_main.c`](examples/dual_instance_main.c)。示例使用 `g_current_loop`、`g_voltage_loop`，初始化和轮询顺序均为 `current_loop` 后 `voltage_loop`。
 
-## 10. 后续 CCS 证据记录
+## 11. 后续 CCS 证据记录
 
 用户后续应记录：
 
