@@ -9,6 +9,8 @@ import sys
 import tempfile
 import time
 
+sys.dont_write_bytecode = True
+
 from sfun_mock_endpoint import SCENARIOS, exact, frame
 
 

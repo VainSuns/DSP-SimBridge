@@ -30,11 +30,19 @@ classdef test_sfun_pc_integration < matlab.unittest.TestCase
         function testMockRepeatability(testCase)
             script = fullfile(testCase.RepositoryRoot, 'tests', 'pc', ...
                 'run_sfun_pc_matrix.py');
-            [status, output] = system(sprintf('"%s" "%s" 2>&1', ...
-                testCase.Python, script));
-            testCase.verifyEqual(status, 0, output);
-            testCase.verifySubstring(output, ...
-                'MOCK_REPEATABILITY=PASS scenarios=13 repeats=2');
+            cacheFolder = fullfile(testCase.RepositoryRoot, 'tests', 'pc', ...
+                '__pycache__');
+            source = fileread(script);
+            disablePosition = strfind(source, 'sys.dont_write_bytecode = True');
+            importPosition = strfind(source, 'from sfun_mock_endpoint import');
+            testCase.assertFalse(isfolder(cacheFolder), ...
+                'The test must start without a repository Python cache.');
+            testCase.verifyNotEmpty(disablePosition);
+            testCase.verifyNotEmpty(importPosition);
+            testCase.verifyLessThan(disablePosition(1), importPosition(1));
+
+            verify_mock_run(testCase, script, cacheFolder);
+            verify_mock_run(testCase, script, cacheFolder);
         end
 
         function testAppCommitDualBuildAndNormalMode(testCase)
@@ -145,6 +153,16 @@ classdef test_sfun_pc_integration < matlab.unittest.TestCase
             end
         end
     end
+end
+
+function verify_mock_run(testCase, script, cacheFolder)
+[status, output] = system(sprintf('"%s" "%s" 2>&1', ...
+    testCase.Python, script));
+testCase.verifyEqual(status, 0, output);
+testCase.verifySubstring(output, ...
+    'MOCK_REPEATABILITY=PASS scenarios=13 repeats=2');
+testCase.verifyFalse(isfolder(cacheFolder), ...
+    'Mock matrix created a repository Python cache.');
 end
 
 function project = integration_project(root)
