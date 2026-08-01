@@ -144,6 +144,7 @@ classdef c2837x_block_project_session < handle
                     'Project file does not contain a project or config variable.');
             end
             c2837x_block_validate_project_structure(project);
+            [project, hashMismatch] = refresh_interface_hashes(project);
 
             loaded = session.canDiscardChanges(choice, savePath);
             if ~loaded
@@ -158,7 +159,7 @@ classdef c2837x_block_project_session < handle
                 session.Dirty = true;
             else
                 session.FilePath = filePath;
-                session.Dirty = false;
+                session.Dirty = hashMismatch;
             end
         end
 
@@ -192,6 +193,16 @@ classdef c2837x_block_project_session < handle
             end
         end
     end
+end
+
+function [project, mismatch] = refresh_interface_hashes(project)
+mismatch = false;
+for index = 1:numel(project.instances)
+    savedHash = project.instances(index).interface_hash;
+    [~, interfaceHash] = c2837x_block_build_interface_hash(project, index);
+    mismatch = mismatch || ~numeric_values_equal(savedHash, interfaceHash);
+    project.instances(index).interface_hash = interfaceHash;
+end
 end
 
 function instance = merge_changes(instance, changes)

@@ -21,7 +21,7 @@ classdef test_legacy_project_migration < matlab.unittest.TestCase
 
     methods (Test)
         function testMigratesLegacyConfigToOneV2Instance(testCase)
-            config = legacy_config();
+            config = hashable_legacy_config();
             path = write_legacy(testCase.WorkFolder, 'legacy.mat', config);
             session = c2837x_block_project_session();
 
@@ -51,7 +51,8 @@ classdef test_legacy_project_migration < matlab.unittest.TestCase
             testCase.verifyEqual(instance.outputs, config.outputs);
             testCase.verifyEqual(instance.algorithm.mode, 'generated_example');
             testCase.verifyEqual(instance.algorithm.source_path, '');
-            testCase.verifyEqual(instance.interface_hash, uint32(0));
+            [~, expectedHash] = c2837x_block_build_interface_hash(project, 1);
+            testCase.verifyEqual(instance.interface_hash, expectedHash);
             testCase.verifyEmpty(session.FilePath);
             testCase.verifyTrue(session.Dirty);
         end
@@ -141,7 +142,8 @@ classdef test_legacy_project_migration < matlab.unittest.TestCase
         end
 
         function testLegacyFileIsUnmodifiedAndSaveAsStoresOnlyProject(testCase)
-            legacyPath = write_legacy(testCase.WorkFolder, 'legacy.mat', legacy_config());
+            legacyPath = write_legacy(testCase.WorkFolder, 'legacy.mat', ...
+                hashable_legacy_config());
             savedPath = fullfile(testCase.WorkFolder, 'saved-v2.mat');
             before = file_bytes(legacyPath);
             session = c2837x_block_project_session();
@@ -233,6 +235,13 @@ config = struct( ...
         'type', {'uint16'; 'single'}, 'dim', {[2 3]; 4}), ...
     'outputs', struct('name', {'z'; 'a'}, ...
         'type', {'int32'; 'uint8'}, 'dim', {1; [3 2]}));
+end
+
+function config = hashable_legacy_config()
+config = legacy_config();
+[config.inputs.dim] = deal(6, 4);
+[config.outputs.type] = deal('int32', 'uint16');
+[config.outputs.dim] = deal(1, 6);
 end
 
 function path = write_legacy(folder, name, config)

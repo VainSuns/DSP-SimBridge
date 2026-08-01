@@ -51,6 +51,65 @@ classdef test_project_session < matlab.unittest.TestCase
             testCase.verifyEqual(session.State, 'saved_dirty');
         end
 
+        function testLoadMatchingHashStaysClean(testCase)
+            project = populated_project('matching-hash');
+            expectedHash = project.instances.interface_hash;
+            filePath = write_project(testCase.WorkFolder, 'matching-hash.mat', project);
+            session = c2837x_block_project_session();
+
+            loaded = session.loadProject(filePath);
+
+            testCase.verifyTrue(loaded);
+            testCase.verifyEqual(session.Project.instances.interface_hash, expectedHash);
+            testCase.verifyFalse(session.Dirty);
+        end
+
+        function testLoadStaleHashRefreshesAndMakesDirty(testCase)
+            project = populated_project('stale-hash');
+            project.instances.interface_hash = bitxor( ...
+                project.instances.interface_hash, uint32(1));
+            filePath = write_project(testCase.WorkFolder, 'stale-hash.mat', project);
+            session = c2837x_block_project_session();
+
+            loaded = session.loadProject(filePath);
+            [~, expectedHash] = c2837x_block_build_interface_hash( ...
+                session.Project, 1);
+
+            testCase.verifyTrue(loaded);
+            testCase.verifyEqual(session.Project.instances.interface_hash, expectedHash);
+            testCase.verifyTrue(session.Dirty);
+        end
+
+        function testLoadMultipleHashesWithOneStaleMakesDirty(testCase)
+            project = multi_instance_project('one-stale');
+            expectedHashes = [project.instances.interface_hash];
+            project.instances(2).interface_hash = bitxor( ...
+                project.instances(2).interface_hash, uint32(1));
+            filePath = write_project(testCase.WorkFolder, 'one-stale.mat', project);
+            session = c2837x_block_project_session();
+
+            loaded = session.loadProject(filePath);
+
+            testCase.verifyTrue(loaded);
+            testCase.verifyEqual([session.Project.instances.interface_hash], ...
+                expectedHashes);
+            testCase.verifyTrue(session.Dirty);
+        end
+
+        function testLoadMultipleMatchingHashesStaysClean(testCase)
+            project = multi_instance_project('all-matching');
+            expectedHashes = [project.instances.interface_hash];
+            filePath = write_project(testCase.WorkFolder, 'all-matching.mat', project);
+            session = c2837x_block_project_session();
+
+            loaded = session.loadProject(filePath);
+
+            testCase.verifyTrue(loaded);
+            testCase.verifyEqual([session.Project.instances.interface_hash], ...
+                expectedHashes);
+            testCase.verifyFalse(session.Dirty);
+        end
+
         function testFailedSaveKeepsDirtyAndPath(testCase)
             goodPath = fullfile(testCase.WorkFolder, 'saved.mat');
             badPath = fullfile(testCase.WorkFolder, 'missing', 'failed.mat');
@@ -298,6 +357,26 @@ project.output.dsp_root = project_path(dspRoot);
 project.instances = c2837x_block_create_default_instance();
 project.instances.display_name = 'Instance';
 project.instances.internal_name = 'instance';
+project.instances.inputs = struct( ...
+    'name', 'input_value', 'type', 'single', 'dim', 1);
+project.instances.outputs = struct( ...
+    'name', 'output_value', 'type', 'single', 'dim', 1);
+[~, project.instances.interface_hash] = ...
+    c2837x_block_build_interface_hash(project, 1);
+end
+
+function project = multi_instance_project(dspRoot)
+project = populated_project(dspRoot);
+second = project.instances;
+second.display_name = 'Second';
+second.internal_name = 'second';
+second.iodevice.settings.socket_number = uint16(1);
+second.iodevice.settings.tcp_port = uint16(5001);
+project.instances(2) = second;
+for index = 1:numel(project.instances)
+    [~, project.instances(index).interface_hash] = ...
+        c2837x_block_build_interface_hash(project, index);
+end
 end
 
 function path = project_path(name)

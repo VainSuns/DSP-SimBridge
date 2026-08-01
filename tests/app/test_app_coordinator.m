@@ -267,6 +267,36 @@ classdef test_app_coordinator < matlab.unittest.TestCase
             testCase.verifyEqual(coordinator.LastCommitResult, lastCommit);
         end
 
+        function testLoadStaleHashSucceedsAndMakesDirty(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            project = valid_project(fullfile(testCase.WorkFolder, 'stale'));
+            [~, expectedHash] = c2837x_block_build_interface_hash(project, 1);
+            project.instances.interface_hash = bitxor(expectedHash, uint32(1));
+            path = fullfile(testCase.WorkFolder, 'stale.mat');
+            save_project(path, project);
+
+            [loaded, issues] = coordinator.loadProject(path);
+
+            testCase.verifyTrue(loaded);
+            testCase.verifyEmpty(issues);
+            testCase.verifyEqual( ...
+                coordinator.Session.Project.instances.interface_hash, expectedHash);
+            testCase.verifyTrue(coordinator.Session.Dirty);
+        end
+
+        function testLoadMatchingHashSucceedsAndStaysClean(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            project = valid_project(fullfile(testCase.WorkFolder, 'matching'));
+            path = fullfile(testCase.WorkFolder, 'matching.mat');
+            save_project(path, project);
+
+            [loaded, issues] = coordinator.loadProject(path);
+
+            testCase.verifyTrue(loaded);
+            testCase.verifyEmpty(issues);
+            testCase.verifyFalse(coordinator.Session.Dirty);
+        end
+
         function testDraftStructureErrorDoesNotApply(testCase)
             coordinator = previewed(testCase.WorkFolder);
             project = coordinator.Session.Project;
@@ -391,7 +421,15 @@ classdef test_app_coordinator < matlab.unittest.TestCase
             save_project(path, project);
             [loaded, issues] = coordinator.loadProject(path);
             testCase.verifyFalse(loaded);
-            testCase.verifyEqual(issues.code, 'APP_PROJECT_LOAD_FAILED');
+            testCase.verifyEqual(issues.code, ...
+                'APP_PROJECT_VERSION_UNSUPPORTED');
+            testCase.verifyEqual(issues.severity, 'Error');
+            testCase.verifyTrue(contains(issues.message, ...
+                'version higher than this App supports'));
+            testCase.verifyTrue(contains(issues.message, ...
+                'use a newer version of the App'));
+            testCase.verifyFalse(any(strcmp({issues.code}, ...
+                'APP_PROJECT_LOAD_FAILED')));
             testCase.verifyEqual(coordinator.PreviewStatus, 'valid');
         end
     end
@@ -425,6 +463,8 @@ for index = 1:numel(names)
     instance.(names{index}) = changes.(names{index});
 end
 project.instances = instance;
+[~, project.instances.interface_hash] = ...
+    c2837x_block_build_interface_hash(project, 1);
 end
 
 function changes = instance_changes(index)
