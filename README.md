@@ -5,7 +5,7 @@
 
 ## 当前开发状态
 
-当前唯一需求入口是 `requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md`，当前唯一实施计划是 `plan.md`。当前 App、DSP 和 S-Function 产品代码仍为“旧单实例”实现；README 后续功能和使用说明描述的是现有旧单实例代码。多实例实现必须按照 `feature/multi-instance-v1` 上的计划任务和门禁推进。
+当前唯一需求入口是 `requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md`，当前唯一实施计划是 `plan.md`。当前 App 已采用 V2 多实例项目、Preview 和 Generate 流程；请从[《App 项目与旧配置迁移指南》](docs/app_project_and_migration_guide.md)开始使用。README 后续保留的单实例操作示例是历史内容，不应作为当前 App 的操作入口。
 
 DSP-SimBridge 是一个 DSP 在环仿真（DSP-in-the-Loop）通信模块，用于在 Simulink 仿真环境中验证运行在 TI C2000 DSP 上的控制算法。
 
@@ -136,6 +136,8 @@ DSP-SimBridge/
 ```
 
 ## 快速开始
+
+> 本节及其后续单实例 App 操作步骤保留作历史参考，与当前 V2 多实例 App 不一致。新项目、旧配置迁移、Preview 和 Generate 请使用[当前 App 指南](docs/app_project_and_migration_guide.md)。
 
 ### 前置条件
 
