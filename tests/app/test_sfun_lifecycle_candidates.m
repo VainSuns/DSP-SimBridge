@@ -14,7 +14,7 @@ classdef test_sfun_lifecycle_candidates < matlab.unittest.TestCase
             port = free_port();
             project = lifecycle_project(root, port);
             candidates = c2837x_block_build_sfun_candidates(project);
-            testCase.verifyNumElements(candidates, 16);
+            testCase.verifyNumElements(candidates, 20);
             alphaSource = candidate_text(candidates, 'axis_alpha_sfun.c');
             alphaConfig = candidate_text(candidates, 'axis_alpha_sfun_config.h');
             betaConfig = candidate_text(candidates, 'axis_beta_sfun_config.h');

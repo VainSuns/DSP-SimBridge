@@ -30,31 +30,36 @@ classdef test_sfun_candidates < matlab.unittest.TestCase
 
             testCase.verifyEmpty(issues);
             testCase.verifyEqual(second, first);
-            testCase.verifyNumElements(first, 16);
-            testCase.verifyEqual([first.instance_index], [ones(1, 8) 2 * ones(1, 8)]);
-            testCase.verifyEqual({first.category}, repmat({'auto_generated'}, 1, 16));
-            testCase.verifyNumElements(unique({first.owner}), 16);
+            testCase.verifyNumElements(first, 20);
+            testCase.verifyEqual([first.instance_index], [ones(1, 10) 2 * ones(1, 10)]);
+            expectedCategories = [repmat({'auto_generated'}, 1, 4), ...
+                {'user'}, repmat({'auto_generated'}, 1, 5)];
+            testCase.verifyEqual({first.category}, ...
+                [expectedCategories expectedCategories]);
+            testCase.verifyNumElements(unique({first.owner}), 20);
             testCase.verifyEqual(candidate_names(first), { ...
                 'axis_alpha_sfun.c', 'axis_alpha_sfun.h', ...
                 'axis_alpha_sfun_io.c', 'axis_alpha_sfun_config.h', ...
+                'axis_alpha_sfun_user_config.h', ...
                 'axis_alpha_pc_socket.c', 'axis_alpha_pc_socket.h', ...
                 'axis_alpha_protocol.c', 'axis_alpha_protocol.h', ...
+                'build_axis_alpha_sfun.m', ...
                 'axis_beta_sfun.c', 'axis_beta_sfun.h', ...
                 'axis_beta_sfun_io.c', 'axis_beta_sfun_config.h', ...
+                'axis_beta_sfun_user_config.h', ...
                 'axis_beta_pc_socket.c', 'axis_beta_pc_socket.h', ...
-                'axis_beta_protocol.c', 'axis_beta_protocol.h'});
+                'axis_beta_protocol.c', 'axis_beta_protocol.h', ...
+                'build_axis_beta_sfun.m'});
             testCase.verifyTrue(all(cellfun(@(path) contains(path, ...
                 [project.output.sfun_root filesep]), {first.target_path})));
             testCase.verifyFalse(isfolder(project.output.sfun_root));
-            testCase.verifyNumElements(dependencies, 10);
+            testCase.verifyNumElements(dependencies, 11);
             testCase.verifyTrue(all(cellfun(@isfile, {dependencies.source_path})));
             testCase.verifyEmpty(c2837x_block_validate_candidate_files(first));
             [comparisons, comparisonIssues] = ...
                 c2837x_block_compare_candidate_files(first);
             testCase.verifyEmpty(comparisonIssues);
-            testCase.verifyEqual({comparisons.target_state}, repmat({'missing'}, 1, 16));
-            testCase.verifyFalse(any(contains({first.target_path}, { ...
-                '_sfun_user_config.h', 'build_'}), 'all'));
+            testCase.verifyEqual({comparisons.target_state}, repmat({'missing'}, 1, 20));
         end
 
         function testNamesContextNormalModeAndSynchronousStep(testCase)
@@ -151,12 +156,7 @@ classdef test_sfun_candidates < matlab.unittest.TestCase
                 '(CONTINUOUS_SAMPLE_TIME|INHERITED_SAMPLE_TIME|VARIABLE_SAMPLE_TIME)', 'once'));
 
             for index = 1:numel(candidates)
-                bytes = candidates(index).content_bytes;
-                text = native2unicode(bytes, 'UTF-8');
-                expectedHeader = sprintf([ ...
-                    '/*\n * AUTO-GENERATED FILE\n' ...
-                    ' * Manual changes will be overwritten.\n */\n\n']);
-                testCase.verifyTrue(startsWith(text, expectedHeader));
+                [bytes, text] = verify_candidate_header(testCase, candidates(index));
                 testCase.verifyFalse(any(bytes == 13));
                 testCase.verifyFalse(numel(bytes) >= 3 && ...
                     isequal(bytes(1:3), uint8([239 187 191])));
@@ -216,6 +216,27 @@ classdef test_sfun_candidates < matlab.unittest.TestCase
     end
 end
 
+function [bytes, text] = verify_candidate_header(testCase, candidate)
+bytes = candidate.content_bytes;
+text = native2unicode(bytes, 'UTF-8');
+[~, name, extension] = fileparts(candidate.target_path);
+if strcmp(candidate.category, 'user')
+    testCase.verifyTrue(startsWith(text, sprintf([ ...
+        '/*\n * USER-EDITABLE FILE\n' ...
+        ' * Existing contents are preserved by default.\n */\n\n'])));
+    testCase.verifyFalse(contains(text, 'Manual changes will be overwritten.'));
+    testCase.verifyFalse(contains(text, 'AUTO-GENERATED FILE'));
+elseif strcmp(extension, '.m') && startsWith(name, 'build_')
+    testCase.verifyTrue(startsWith(text, sprintf([ ...
+        '%% AUTO-GENERATED FILE\n' ...
+        '%% Manual changes will be overwritten.\n\n'])));
+else
+    testCase.verifyTrue(startsWith(text, sprintf([ ...
+        '/*\n * AUTO-GENERATED FILE\n' ...
+        ' * Manual changes will be overwritten.\n */\n\n'])));
+end
+end
+
 function project = two_instance_project(root)
 project = c2837x_block_create_default_project();
 project.output.dsp_root = c2837x_block_normalize_absolute_path(fullfile(root, 'dsp'));
@@ -263,7 +284,7 @@ for index = 1:numel(selected)
         value.config = text;
     elseif endsWith(name, '_sfun') && strcmp(extension, '.c')
         value.source = text;
-    elseif endsWith(name, '_sfun')
+    elseif endsWith(name, '_sfun') && strcmp(extension, '.h')
         value.header = text;
     end
 end

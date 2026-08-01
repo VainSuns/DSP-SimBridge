@@ -26,19 +26,19 @@ classdef test_pc_protocol_candidates < matlab.unittest.TestCase
     end
 
     methods (Test)
-        function testEightFilesPerInstanceAndDeterminism(testCase)
+        function testTenFilesPerInstanceAndDeterminism(testCase)
             project = two_instance_project(testCase.WorkFolder);
             second = c2837x_block_build_sfun_candidates(project);
             testCase.verifyEqual(second, testCase.Candidates);
             for instance = 1:2
                 selected = testCase.Candidates( ...
                     [testCase.Candidates.instance_index] == instance);
-                testCase.verifyNumElements(selected, 8);
+                testCase.verifyNumElements(selected, 10);
                 names = candidate_names(selected);
                 testCase.verifyEqual(sum(contains(names, '_protocol.')), 2);
                 testCase.verifyEqual(sum(contains(names, '_pc_socket.')), 2);
-                testCase.verifyFalse(any(contains(names, ...
-                    {'_sfun_user_config.h', 'build_'}), 'all'));
+                testCase.verifyEqual(sum(contains(names, '_sfun_user_config.h')), 1);
+                testCase.verifyEqual(sum(startsWith(names, 'build_')), 1);
             end
         end
 
