@@ -43,7 +43,7 @@ classdef C2837xBlockConfigurator < handle
         function app = C2837xBlockConfigurator(options)
             if nargin < 1
                 options = struct('visible', 'on', 'preview_provider', ...
-                    @c2837x_block_build_dsp_candidates);
+                    @c2837x_block_build_project_candidates);
             else
                 options = validate_options(options);
             end

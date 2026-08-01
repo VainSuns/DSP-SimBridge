@@ -33,7 +33,7 @@ classdef test_configurator_smoke < matlab.unittest.TestCase
             clear cleanup
         end
 
-        function testDefaultAppUsesOfficialDspProvider(testCase)
+        function testDefaultAppUsesProjectProvider(testCase)
             fixture = testCase.applyFixture( ...
                 matlab.unittest.fixtures.TemporaryFolderFixture);
             try
@@ -50,7 +50,11 @@ classdef test_configurator_smoke < matlab.unittest.TestCase
 
             testCase.verifyEqual(view.status, 'valid');
             testCase.verifyFalse(any(strcmp({issues.severity}, 'Error')));
-            testCase.verifyEqual(numel(view.comparisons), 25);
+            testCase.verifyEqual(numel(view.comparisons), 35);
+            testCase.verifyTrue(any(startsWith({view.comparisons.target_path}, ...
+                project.output.dsp_root)));
+            testCase.verifyTrue(any(startsWith({view.comparisons.target_path}, ...
+                project.output.sfun_root)));
             clear cleanup
         end
 
