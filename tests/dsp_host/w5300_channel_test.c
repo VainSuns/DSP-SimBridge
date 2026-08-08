@@ -12,9 +12,15 @@ static Uint16 opened_port[8];
 static Uint16 connection_clear_calls[8];
 static Uint32 last_send_count;
 static Uint32 last_receive_capacity;
+static Uint16 platform_generation_calls;
+static Uint32 platform_generation;
 
 static Uint32 fake_time_us(void) { return 0u; }
-Uint32 c2837x_block_platform_generation(void) { return 0u; }
+Uint32 c2837x_block_platform_generation(void)
+{
+    platform_generation_calls++;
+    return platform_generation;
+}
 
 Uint16 c2837x_w5300_read16(Uint32 address)
 {
@@ -135,6 +141,7 @@ int main(void)
     second.faulted = 1u;
 
     c2837x_w5300_iodevice_ops.channel_init(&first);
+    assert(platform_generation_calls == 1u);
     assert(first.socket.sn == 1u && first.tcp_port == 5001u);
     assert(first.socket.tx_mem_size == 8192u && first.socket.rx_mem_size == 8192u);
     assert(first.connected == 0u);
@@ -153,6 +160,7 @@ int main(void)
            second.faulted == 1u);
 
     c2837x_w5300_iodevice_ops.channel_init(&second);
+    assert(platform_generation_calls == 2u);
     socket_status[1] = SOCK_CLOSED;
     socket_status[6] = SOCK_INIT;
     assert(c2837x_w5300_iodevice_ops.get_connection_state(&first) ==
@@ -185,19 +193,24 @@ int main(void)
     assert(listen_calls[6] == 1u);
     assert(open_calls[6] == 0u && listen_calls[1] == 0u);
 
-    assert(c2837x_w5300_iodevice_ops.receive(&first, words, 7u) == 6);
-    socket_status[6] = SOCK_ESTABLISHED;
-    assert(c2837x_w5300_iodevice_ops.send(&second, words, 7u) == 0);
-    assert(second.send_state == C2837X_W5300_SEND_PENDING);
-    assert(second.pending_octets == 6u);
-    assert(c2837x_w5300_iodevice_ops.send(&second, words, 2u) == 0);
-    socket_ir[6] = Sn_IR_SENDOK;
-    assert(c2837x_w5300_iodevice_ops.send(&second, 0, 0u) == 6);
-    assert(second.send_state == C2837X_W5300_SEND_IDLE);
-    assert(second.pending_octets == 0u);
-    assert(last_receive_capacity == 6u && last_send_count == 6u);
-    assert(receive_calls[1] == 1u && receive_calls[6] == 0u);
-    assert(send_calls[6] == 1u && send_calls[1] == 0u);
+    {
+        Uint16 generation_calls_before_data = platform_generation_calls;
+
+        assert(c2837x_w5300_iodevice_ops.receive(&first, words, 7u) == 6);
+        socket_status[6] = SOCK_ESTABLISHED;
+        assert(c2837x_w5300_iodevice_ops.send(&second, words, 7u) == 0);
+        assert(second.send_state == C2837X_W5300_SEND_PENDING);
+        assert(second.pending_octets == 6u);
+        assert(c2837x_w5300_iodevice_ops.send(&second, words, 2u) == 0);
+        socket_ir[6] = Sn_IR_SENDOK;
+        assert(c2837x_w5300_iodevice_ops.send(&second, 0, 0u) == 6);
+        assert(second.send_state == C2837X_W5300_SEND_IDLE);
+        assert(second.pending_octets == 0u);
+        assert(last_receive_capacity == 6u && last_send_count == 6u);
+        assert(receive_calls[1] == 1u && receive_calls[6] == 0u);
+        assert(send_calls[6] == 1u && send_calls[1] == 0u);
+        assert(platform_generation_calls == generation_calls_before_data);
+    }
 
     assert(c2837x_w5300_iodevice_ops.close(&first) > 0);
     socket_status[6] = SOCK_ESTABLISHED;

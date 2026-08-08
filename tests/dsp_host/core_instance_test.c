@@ -307,6 +307,11 @@ static void test_init_and_static_isolation(void)
     C2837xBlock_Init(&instance_a);
 
     assert(instance_a.config == saved_config);
+    assert(instance_a.runtime.state == C2837X_BLOCK_STATE_WAIT_CONNECTION);
+    assert(instance_a.runtime.protocol_phase ==
+           C2837X_BLOCK_PROTOCOL_WAIT_SIM_START);
+    assert(C2837xBlock_GetLastError(&instance_a) ==
+           C2837X_BLOCK_ERROR_NONE);
     assert(channel_a.init_calls == 1u && channel_b.init_calls == 0u);
     assert(adapter_context_a.reset_calls == 1u);
     assert(adapter_context_b.reset_calls == 0u);
@@ -336,7 +341,7 @@ static void test_static_instance_initializer(void)
 {
     assert(probe_instance.config == NULL);
     assert(probe_instance.runtime.state ==
-           C2837X_BLOCK_STATE_WAIT_CONNECTION);
+           C2837X_BLOCK_STATE_INERT);
     assert(probe_instance.runtime.protocol_phase ==
            C2837X_BLOCK_PROTOCOL_WAIT_SIM_START);
     assert(probe_instance.runtime.rx_phase == C2837X_BLOCK_RX_HEADER);
@@ -357,6 +362,9 @@ static void test_static_instance_initializer(void)
     assert(probe_instance.runtime.primary_error_latched == 0u);
     assert(probe_instance.runtime.normal_end_pending == 0u);
     assert(probe_instance.runtime.response_error == 0u);
+    assert(probe_instance.runtime.last_error == C2837X_BLOCK_ERROR_NONE);
+    C2837xBlock_Run(&probe_instance);
+    assert(probe_instance.runtime.state == C2837X_BLOCK_STATE_INERT);
     assert(probe_instance.runtime.last_error == C2837X_BLOCK_ERROR_NONE);
 }
 
@@ -447,11 +455,17 @@ static void assert_invalid_config(C2837xBlock_Config config)
     Uint16 init_calls_b = channel_b.init_calls;
     Uint16 reset_calls_a = adapter_context_a.reset_calls;
     Uint16 reset_calls_b = adapter_context_b.reset_calls;
+    Uint16 run;
 
     C2837xBlock_Init(&instance);
     assert(C2837xBlock_GetLastError(&instance) ==
            C2837X_BLOCK_ERROR_INVALID_ARGUMENT);
-    C2837xBlock_Run(&instance);
+    assert(instance.runtime.state == C2837X_BLOCK_STATE_INERT);
+    for (run = 0u; run < 3u; run++)
+        C2837xBlock_Run(&instance);
+    assert(instance.runtime.state == C2837X_BLOCK_STATE_INERT);
+    assert(C2837xBlock_GetLastError(&instance) ==
+           C2837X_BLOCK_ERROR_INVALID_ARGUMENT);
     assert(channel_a.init_calls == init_calls_a);
     assert(channel_b.init_calls == init_calls_b);
     assert(adapter_context_a.reset_calls == reset_calls_a);

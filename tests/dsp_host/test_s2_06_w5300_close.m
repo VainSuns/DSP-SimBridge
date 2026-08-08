@@ -24,6 +24,27 @@ core = fileread(fullfile(root, 'dsp', 'src', 'c2837x_block.c'));
 verifyEmpty(testCase, regexp(core, 'C2837X_W5300_CLOSE_', 'once'));
 end
 
+function testSteadyDataPathsDoNotSynchronizePlatformGeneration(testCase)
+root = repository_root();
+channel = fileread(fullfile(root, 'dsp', 'src', ...
+    'c2837x_w5300_channel.c'));
+receive = regexp(channel, ...
+    'static int32 receive\([\s\S]*?(?=\nstatic int32 send\()', ...
+    'match', 'once');
+send = regexp(channel, ...
+    'static int32 send\([\s\S]*?(?=\nstatic int16 close_fault\()', ...
+    'match', 'once');
+verifyNotEmpty(testCase, receive);
+verifyNotEmpty(testCase, send);
+for body = {receive, send}
+    verifyNotEmpty(testCase, regexp(body{1}, ...
+        '\<runtime_operation_allowed\s*\(', 'once'));
+    verifyEmpty(testCase, regexp(body{1}, ...
+        '\<(sync_platform_generation|c2837x_block_platform_generation)\s*\(', ...
+        'once'));
+end
+end
+
 function [status, output, executable] = compile_binary()
 root = repository_root();
 folder = fileparts(mfilename('fullpath'));

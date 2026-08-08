@@ -35,6 +35,24 @@ classdef test_s2_07_core_protocol < matlab.unittest.TestCase
                 'C2837X_BLOCK_PROTOCOL_WAIT_SIM_START')); %#ok<STREMP>
             testCase.verifyNotEmpty(strfind(source, 'close_pending')); %#ok<STREMP>
         end
+
+        function testRunDoesNotRepeatStaticConfigValidation(testCase)
+            root = test_s2_07_core_protocol.repositoryRoot();
+            source = fileread(fullfile(root, 'dsp', 'src', ...
+                'c2837x_block.c'));
+            init = regexp(source, ...
+                'void C2837xBlock_Init\([\s\S]*?(?=\nvoid C2837xBlock_Run\()', ...
+                'match', 'once');
+            run = regexp(source, ...
+                'void C2837xBlock_Run\([\s\S]*?(?=\nC2837xBlock_Error C2837xBlock_GetLastError\()', ...
+                'match', 'once');
+            testCase.verifyNotEmpty(init);
+            testCase.verifyNotEmpty(run);
+            testCase.verifyNotEmpty(regexp(init, ...
+                'c2837x_block_config_is_valid\s*\(', 'once'));
+            testCase.verifyEmpty(regexp(run, ...
+                'c2837x_block_config_is_valid\s*\(', 'once'));
+        end
     end
 
     methods (Static, Access = private)

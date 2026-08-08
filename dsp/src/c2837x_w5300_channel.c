@@ -28,6 +28,13 @@ static void sync_platform_generation(C2837xW5300Channel *channel)
     }
 }
 
+static int16 runtime_operation_allowed(
+    const C2837xW5300Channel *channel)
+{
+    return ((channel->faulted == 0u) &&
+            (channel->close_state == C2837X_W5300_CLOSE_IDLE)) ? 1 : 0;
+}
+
 static void channel_init(void *channel_ref)
 {
     C2837xW5300Channel *channel = (C2837xW5300Channel *)channel_ref;
@@ -37,18 +44,17 @@ static void channel_init(void *channel_ref)
         c2837x_block_platform_generation();
 }
 
-static int16 operation_allowed(C2837xW5300Channel *channel)
+static int16 control_operation_allowed(C2837xW5300Channel *channel)
 {
     sync_platform_generation(channel);
-    return ((channel->faulted == 0u) &&
-            (channel->close_state == C2837X_W5300_CLOSE_IDLE)) ? 1 : 0;
+    return runtime_operation_allowed(channel);
 }
 
 static int16 open_channel(void *channel_ref)
 {
     C2837xW5300Channel *channel = (C2837xW5300Channel *)channel_ref;
 
-    if (!operation_allowed(channel))
+    if (!control_operation_allowed(channel))
         return -1;
     return c2837x_w5300_socket_open(&channel->socket, Sn_MR_TCP,
                                      channel->tcp_port, Sn_MR_ALIGN);
@@ -58,7 +64,7 @@ static int16 listen_channel(void *channel_ref)
 {
     C2837xW5300Channel *channel = (C2837xW5300Channel *)channel_ref;
 
-    if (!operation_allowed(channel))
+    if (!control_operation_allowed(channel))
         return -1;
     return c2837x_w5300_socket_listen(&channel->socket);
 }
@@ -68,7 +74,7 @@ static C2837xBlock_IoConnectionState get_connection_state(void *channel_ref)
     C2837xW5300Channel *channel = (C2837xW5300Channel *)channel_ref;
     Uint16 status;
 
-    if (!operation_allowed(channel))
+    if (!control_operation_allowed(channel))
         return C2837X_IODEVICE_CONNECTION_ERROR;
     status = c2837x_w5300_get_sn_ssr(channel->socket.sn);
     if (status != SOCK_ESTABLISHED)
@@ -107,7 +113,7 @@ static int32 receive(void *channel_ref, Uint16 *data_words,
 {
     C2837xW5300Channel *channel = (C2837xW5300Channel *)channel_ref;
 
-    if (!operation_allowed(channel))
+    if (!runtime_operation_allowed(channel))
         return -1;
     capacity_octets &= ~1u;
     if (capacity_octets == 0u)
@@ -127,7 +133,7 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
     Uint16 ir;
     Uint16 clear_mask;
 
-    if (!operation_allowed(channel))
+    if (!runtime_operation_allowed(channel))
         return -1;
     if (channel->send_state == C2837X_W5300_SEND_PENDING)
     {

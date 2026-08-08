@@ -592,35 +592,33 @@ void C2837xBlock_Init(C2837xBlock *instance)
         return;
 
     memset(&instance->runtime, 0, sizeof(instance->runtime));
-    instance->runtime.state = C2837X_BLOCK_STATE_WAIT_CONNECTION;
-    instance->runtime.protocol_phase =
-        C2837X_BLOCK_PROTOCOL_WAIT_SIM_START;
+    instance->runtime.state = C2837X_BLOCK_STATE_INERT;
     if (!c2837x_block_config_is_valid(instance->config))
     {
         instance->runtime.last_error = C2837X_BLOCK_ERROR_INVALID_ARGUMENT;
         return;
     }
 
+    instance->runtime.protocol_phase =
+        C2837X_BLOCK_PROTOCOL_WAIT_SIM_START;
     instance->config->iodevice_ops->channel_init(
         instance->config->iodevice_channel);
     instance->config->algorithm->reset_io(
         instance->config->algorithm_context,
         instance->config->input_object,
         instance->config->output_object);
+    instance->runtime.state = C2837X_BLOCK_STATE_WAIT_CONNECTION;
 }
 
 void C2837xBlock_Run(C2837xBlock *instance)
 {
     if (instance == NULL)
         return;
-    if (!c2837x_block_config_is_valid(instance->config))
-    {
-        instance->runtime.last_error = C2837X_BLOCK_ERROR_INVALID_ARGUMENT;
-        return;
-    }
 
     switch (instance->runtime.state)
     {
+    case C2837X_BLOCK_STATE_INERT:
+        return;
     case C2837X_BLOCK_STATE_WAIT_CONNECTION:
         c2837x_block_service_wait_connection(instance);
         break;
