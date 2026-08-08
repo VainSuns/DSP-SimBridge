@@ -32,9 +32,7 @@ typedef struct
     Uint16 encode_calls;
     Uint16 stop_calls;
     Uint16 fail_start;
-    Uint16 fail_decode;
     Uint16 fail_step;
-    Uint16 fail_encode;
 } FakeAlgorithm;
 
 static FakeChannel channel;
@@ -137,16 +135,12 @@ static int16 algorithm_start(void *context)
     return (fake->fail_start != 0u) ? -1 : 0;
 }
 
-static int16 algorithm_decode(void *context, void *input,
-                              const Uint16 *data, Uint16 count)
+static void algorithm_decode(void *input, const Uint16 *data)
 {
-    FakeAlgorithm *fake = (FakeAlgorithm *)context;
+    FakeAlgorithm *fake = &algorithm_context;
     fake->decode_calls++;
-    if ((fake->fail_decode != 0u) || (count != 4u))
-        return -1;
     ((Uint16 *)input)[0] = data[0];
     ((Uint16 *)input)[1] = data[1];
-    return 0;
 }
 
 static int16 algorithm_step(void *context, const void *input, void *output)
@@ -160,16 +154,12 @@ static int16 algorithm_step(void *context, const void *input, void *output)
     return 0;
 }
 
-static int16 algorithm_encode(void *context, const void *output,
-                              Uint16 *data, Uint16 count)
+static void algorithm_encode(const void *output, Uint16 *data)
 {
-    FakeAlgorithm *fake = (FakeAlgorithm *)context;
+    FakeAlgorithm *fake = &algorithm_context;
     fake->encode_calls++;
-    if ((fake->fail_encode != 0u) || (count != 4u))
-        return -1;
     data[0] = ((const Uint16 *)output)[0];
     data[1] = ((const Uint16 *)output)[1];
-    return 0;
 }
 
 static void algorithm_stop(void *context)
@@ -294,6 +284,7 @@ static void assert_header(Uint16 running, Uint16 type, Uint16 length,
         assert(tx_frame[0] == C2837X_MSG_RESPONSE);
         assert(tx_frame[1] == 2u && tx_frame[2] == expected_error);
         assert(channel.rx_offset == 4u);
+        assert(algorithm_context.decode_calls == 0u);
     }
 }
 
@@ -383,11 +374,14 @@ static void test_input_and_step_commit(void)
 
     reset_fixture();
     enter_running();
+    input_object[0] = 0xaaaau;
+    input_object[1] = 0xbbbbu;
     load_frame(C2837X_MSG_INPUT_DATA, 8u, input);
     drive_to_frame_ready();
     C2837xBlock_Run(&instance);
     assert(algorithm_context.decode_calls == 0u);
     assert(algorithm_context.step_calls == 0u);
+    assert(input_object[0] == 0xaaaau && input_object[1] == 0xbbbbu);
     assert(tx_frame[2] == C2837X_ERR_STEP_INDEX);
 
     reset_fixture();
@@ -474,7 +468,7 @@ static void test_stop_and_error_paths(void)
     assert(channel.send_calls == 0u);
 }
 
-static void test_algorithm_failure_uses_error_response(void)
+static void test_step_failure_uses_error_response(void)
 {
     Uint16 input[] = { 0u, 0u, 5u, 6u };
 
@@ -496,30 +490,6 @@ static void test_algorithm_failure_uses_error_response(void)
     assert(instance.runtime.last_error == C2837X_BLOCK_ERROR_ALGORITHM_STEP);
     assert(algorithm_context.stop_calls == 1u);
 
-    reset_fixture();
-    enter_running();
-    algorithm_context.fail_decode = 1u;
-    load_frame(C2837X_MSG_INPUT_DATA, 8u, input);
-    drive_to_frame_ready();
-    C2837xBlock_Run(&instance);
-    assert(algorithm_context.decode_calls == 1u);
-    assert(algorithm_context.step_calls == 0u);
-    assert(tx_frame[0] == C2837X_MSG_RESPONSE);
-    assert(tx_frame[2] == C2837X_ERR_INTERNAL);
-    assert(instance.runtime.last_error == C2837X_BLOCK_ERROR_INTERNAL);
-
-    reset_fixture();
-    enter_running();
-    algorithm_context.fail_encode = 1u;
-    load_frame(C2837X_MSG_INPUT_DATA, 8u, input);
-    drive_to_frame_ready();
-    C2837xBlock_Run(&instance);
-    assert(algorithm_context.decode_calls == 1u);
-    assert(algorithm_context.step_calls == 1u);
-    assert(algorithm_context.encode_calls == 1u);
-    assert(tx_frame[0] == C2837X_MSG_RESPONSE);
-    assert(tx_frame[2] == C2837X_ERR_INTERNAL);
-    assert(instance.runtime.last_error == C2837X_BLOCK_ERROR_INTERNAL);
 }
 
 static void test_invalid_iodevice_progress(void)
@@ -567,7 +537,7 @@ int main(void)
     test_sim_start_boundaries();
     test_input_and_step_commit();
     test_stop_and_error_paths();
-    test_algorithm_failure_uses_error_response();
+    test_step_failure_uses_error_response();
     test_invalid_iodevice_progress();
     return 0;
 }

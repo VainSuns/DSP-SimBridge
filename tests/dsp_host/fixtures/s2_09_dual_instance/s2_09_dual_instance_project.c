@@ -58,19 +58,16 @@ static int16 s2_09_on_start(void *context)
     return 0;
 }
 
-static int16 s2_09_decode(void *context, void *input, const Uint16 *words,
-                          Uint16 octets)
+static void s2_09_decode_current(void *input, const Uint16 *words)
 {
-    S2_09_AlgorithmContext *algorithm = (S2_09_AlgorithmContext *)context;
-    S2_09_Data decoded = {{ 0u, 0u }};
+    ((S2_09_Data *)input)->values[0] = words[0];
+}
 
-    if (octets != algorithm->data_octets)
-        return -1;
-    decoded.values[0] = words[0];
-    if (octets == 4u)
-        decoded.values[1] = words[1];
-    *(S2_09_Data *)input = decoded;
-    return 0;
+static void s2_09_decode_voltage(void *input, const Uint16 *words)
+{
+    S2_09_Data *typed_input = (S2_09_Data *)input;
+    typed_input->values[0] = words[0];
+    typed_input->values[1] = words[1];
 }
 
 static int16 s2_09_on_step(void *context, const void *input, void *output)
@@ -85,19 +82,19 @@ static int16 s2_09_on_step(void *context, const void *input, void *output)
     return 0;
 }
 
-static int16 s2_09_encode(void *context, const void *output, Uint16 *words,
-                          Uint16 capacity_octets)
+static void s2_09_encode_current(const void *output, Uint16 *words)
 {
-    const S2_09_AlgorithmContext *algorithm =
-        (const S2_09_AlgorithmContext *)context;
     const S2_09_Data *data = (const S2_09_Data *)output;
 
-    if (capacity_octets != algorithm->data_octets)
-        return -1;
     words[0] = data->values[0];
-    if (capacity_octets == 4u)
-        words[1] = data->values[1];
-    return 0;
+}
+
+static void s2_09_encode_voltage(const void *output, Uint16 *words)
+{
+    const S2_09_Data *data = (const S2_09_Data *)output;
+
+    words[0] = data->values[0];
+    words[1] = data->values[1];
 }
 
 static void s2_09_on_stop(void *context)
@@ -106,12 +103,12 @@ static void s2_09_on_stop(void *context)
 }
 
 static const C2837xBlock_AlgorithmAdapter current_loop_algorithm_adapter = {
-    s2_09_reset_io, s2_09_on_start, s2_09_decode,
-    s2_09_on_step, s2_09_encode, s2_09_on_stop
+    s2_09_reset_io, s2_09_on_start, s2_09_decode_current,
+    s2_09_on_step, s2_09_encode_current, s2_09_on_stop
 };
 static const C2837xBlock_AlgorithmAdapter voltage_loop_algorithm_adapter = {
-    s2_09_reset_io, s2_09_on_start, s2_09_decode,
-    s2_09_on_step, s2_09_encode, s2_09_on_stop
+    s2_09_reset_io, s2_09_on_start, s2_09_decode_voltage,
+    s2_09_on_step, s2_09_encode_voltage, s2_09_on_stop
 };
 
 static const C2837xBlock_Config current_loop_config = {

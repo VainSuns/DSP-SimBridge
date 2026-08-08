@@ -6,10 +6,10 @@
 
 extern AxisX_InputData c2837x_block_axis_x_input_object;
 extern AxisX_OutputData c2837x_block_axis_x_output_object;
-extern int16 c2837x_block_axis_x_decode_input(
-    void *, void *, const Uint16 *, Uint16);
-extern int16 c2837x_block_axis_x_encode_output(
-    void *, const void *, Uint16 *, Uint16);
+extern void c2837x_block_axis_x_decode_input(
+    void *, const Uint16 *);
+extern void c2837x_block_axis_x_encode_output(
+    const void *, Uint16 *);
 
 static const Uint16 golden[] = {
     0xfffeu, 0x1234u,
@@ -44,56 +44,24 @@ int main(void)
 {
     Uint16 frame[48];
     Uint16 unchanged[48];
-    AxisX_InputData original;
     unsigned index;
 
     memset(&c2837x_block_axis_x_input_object, 0x5a,
            sizeof(c2837x_block_axis_x_input_object));
-    original = c2837x_block_axis_x_input_object;
-    if (c2837x_block_axis_x_decode_input(0, 0, golden,
-            AXIS_X_INPUT_DATA_OCTETS) == 0 ||
-        c2837x_block_axis_x_decode_input(0,
-            &c2837x_block_axis_x_input_object, 0,
-            AXIS_X_INPUT_DATA_OCTETS) == 0 ||
-        c2837x_block_axis_x_decode_input(0,
-            &c2837x_block_axis_x_input_object, golden,
-            AXIS_X_INPUT_DATA_OCTETS - 2u) == 0 ||
-        c2837x_block_axis_x_decode_input(0,
-            &c2837x_block_axis_x_input_object, golden,
-            AXIS_X_INPUT_DATA_OCTETS + 2u) == 0 ||
-        memcmp(&original, &c2837x_block_axis_x_input_object,
-               sizeof(original)) != 0)
-        return 1;
-
-    if (c2837x_block_axis_x_decode_input(0,
-            &c2837x_block_axis_x_input_object, golden,
-            AXIS_X_INPUT_DATA_OCTETS) != 0)
-        return 2;
+    c2837x_block_axis_x_decode_input(
+        &c2837x_block_axis_x_input_object, golden);
     copy_output();
 
     for (index = 0u; index < 48u; ++index) frame[index] = 0xa55au;
     memcpy(unchanged, frame, sizeof(frame));
-    if (c2837x_block_axis_x_encode_output(0, 0, &frame[2],
-            AXIS_X_OUTPUT_DATA_OCTETS) == 0 ||
-        c2837x_block_axis_x_encode_output(0,
-            &c2837x_block_axis_x_output_object, 0,
-            AXIS_X_OUTPUT_DATA_OCTETS) == 0 ||
-        c2837x_block_axis_x_encode_output(0,
-            &c2837x_block_axis_x_output_object, &frame[2],
-            AXIS_X_OUTPUT_DATA_OCTETS - 2u) == 0 ||
-        c2837x_block_axis_x_encode_output(0,
-            &c2837x_block_axis_x_output_object, &frame[2],
-            AXIS_X_OUTPUT_DATA_OCTETS + 2u) == 0 ||
-        memcmp(frame, unchanged, sizeof(frame)) != 0)
-        return 3;
-
-    if (c2837x_block_axis_x_encode_output(0,
-            &c2837x_block_axis_x_output_object, &frame[2],
-            AXIS_X_OUTPUT_DATA_OCTETS) != 0 ||
+    c2837x_block_axis_x_encode_output(
+        &c2837x_block_axis_x_output_object, &frame[2]);
+    if (frame[0] != unchanged[0] || frame[1] != unchanged[1] ||
+        frame[46] != unchanged[46] || frame[47] != unchanged[47] ||
+        memcmp(&frame[2], golden, sizeof(golden)) != 0 ||
         frame[0] != 0xa55au || frame[1] != 0xa55au ||
-        frame[46] != 0xa55au || frame[47] != 0xa55au ||
-        memcmp(&frame[2], golden, sizeof(golden)) != 0)
-        return 4;
+        frame[46] != 0xa55au || frame[47] != 0xa55au)
+        return 1;
 
     puts("s3_05_wire=ok");
     return 0;

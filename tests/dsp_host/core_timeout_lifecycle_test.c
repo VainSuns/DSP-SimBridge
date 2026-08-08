@@ -24,9 +24,7 @@ typedef struct
     Uint16 encode_calls;
     Uint16 stop_calls;
     Uint16 fail_start;
-    Uint16 fail_decode;
     Uint16 fail_step;
-    Uint16 fail_encode;
     Uint16 advance_start_time;
     Uint16 advance_step_time;
 } FakeAlgorithm;
@@ -97,18 +95,12 @@ static int16 algorithm_start(void *context)
     return (fake->fail_start != 0u) ? -1 : 0;
 }
 
-static int16 algorithm_decode(void *context, void *input,
-                              const Uint16 *data, Uint16 count)
+static void algorithm_decode(void *input, const Uint16 *data)
 {
-    FakeAlgorithm *fake = (FakeAlgorithm *)context;
-    Uint16 decoded[2];
+    FakeAlgorithm *fake = &algorithm_context;
     fake->decode_calls++;
-    decoded[0] = data[0];
-    decoded[1] = data[1];
-    if ((fake->fail_decode != 0u) || (count != 4u))
-        return -1;
-    memcpy(input, decoded, sizeof(decoded));
-    return 0;
+    ((Uint16 *)input)[0] = data[0];
+    ((Uint16 *)input)[1] = data[1];
 }
 
 static int16 algorithm_step(void *context, const void *input, void *output)
@@ -124,16 +116,11 @@ static int16 algorithm_step(void *context, const void *input, void *output)
     return 0;
 }
 
-static int16 algorithm_encode(void *context, const void *output,
-                              Uint16 *data, Uint16 count)
+static void algorithm_encode(const void *output, Uint16 *data)
 {
-    FakeAlgorithm *fake = (FakeAlgorithm *)context;
-    fake->encode_calls++;
-    if ((fake->fail_encode != 0u) || (count != 4u))
-        return -1;
+    algorithm_context.encode_calls++;
     data[0] = ((const Uint16 *)output)[0];
     data[1] = ((const Uint16 *)output)[1];
-    return 0;
 }
 
 static void algorithm_stop(void *context)
@@ -387,8 +374,6 @@ typedef enum
     CASE_START_SEND_FAIL,
     CASE_START_SEND_TIMEOUT,
     CASE_STEP_FAIL,
-    CASE_DECODE_FAIL,
-    CASE_ENCODE_FAIL,
     CASE_STATE_ERROR,
     CASE_TYPE_ERROR,
     CASE_LENGTH_ERROR,
@@ -422,10 +407,6 @@ static const LifecycleCase lifecycle_cases[] = {
       C2837X_BLOCK_ERROR_TIMEOUT },
     { CASE_STEP_FAIL, 1u, 1u, C2837X_ERR_INTERNAL,
       C2837X_BLOCK_ERROR_ALGORITHM_STEP },
-    { CASE_DECODE_FAIL, 1u, 1u, C2837X_ERR_INTERNAL,
-      C2837X_BLOCK_ERROR_INTERNAL },
-    { CASE_ENCODE_FAIL, 1u, 1u, C2837X_ERR_INTERNAL,
-      C2837X_BLOCK_ERROR_INTERNAL },
     { CASE_STATE_ERROR, 1u, 1u, C2837X_ERR_STATE,
       C2837X_BLOCK_ERROR_PROTOCOL },
     { CASE_TYPE_ERROR, 1u, 1u, C2837X_ERR_UNKNOWN_TYPE,
@@ -498,14 +479,10 @@ static void run_lifecycle_case(const LifecycleCase *test)
                            (test->kind == CASE_START_SEND_TIMEOUT) ? 1u : 0u);
         break;
     case CASE_STEP_FAIL:
-    case CASE_DECODE_FAIL:
-    case CASE_ENCODE_FAIL:
     case CASE_STEP_ERROR:
         set_running_frame(C2837X_MSG_INPUT_DATA);
         prepare_input_frame((test->kind == CASE_STEP_ERROR) ? 1u : 0u);
         algorithm_context.fail_step = (test->kind == CASE_STEP_FAIL);
-        algorithm_context.fail_decode = (test->kind == CASE_DECODE_FAIL);
-        algorithm_context.fail_encode = (test->kind == CASE_ENCODE_FAIL);
         C2837xBlock_Run(&instance);
         run_error_response(0x7fffffffL, 0u);
         break;
@@ -670,17 +647,17 @@ static void test_recent_error_normal_end_and_getter(void)
     assert(channel.close_calls == 1u && algorithm_context.stop_calls == 1u);
 }
 
-static void test_decode_atomicity(void)
+static void test_direct_decode_overwrites_input(void)
 {
     reset_fixture();
     input_object[0] = 0xaaaau;
     input_object[1] = 0xbbbbu;
     set_running_frame(C2837X_MSG_INPUT_DATA);
     prepare_input_frame(0u);
-    algorithm_context.fail_decode = 1u;
     C2837xBlock_Run(&instance);
-    assert(input_object[0] == 0xaaaau && input_object[1] == 0xbbbbu);
-    assert(algorithm_context.step_calls == 0u);
+    assert(input_object[0] == 7u && input_object[1] == 8u);
+    assert(algorithm_context.step_calls == 1u);
+    assert(algorithm_context.encode_calls == 1u);
 }
 
 static void test_run_time_budget(void)
@@ -718,7 +695,7 @@ int main(void)
     test_send_boundaries_wrap_and_algorithm_time();
     test_lifecycle_matrix();
     test_recent_error_normal_end_and_getter();
-    test_decode_atomicity();
+    test_direct_decode_overwrites_input();
     test_run_time_budget();
     return 0;
 }

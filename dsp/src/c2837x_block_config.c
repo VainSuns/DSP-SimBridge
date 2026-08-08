@@ -71,19 +71,12 @@ static int16 sample_on_start(void *context)
     return C2837xBlock_OnSimStart();
 }
 
-static int16 sample_decode_input(void *context, void *input,
-                                 const Uint16 *words, Uint16 octets)
+static void sample_decode_input(void *input, const Uint16 *words)
 {
-    C2837xBlock_InputData decoded;
-    (void)context;
-
-    if (octets != C2837X_BLOCK_INPUT_DATA_SIZE_BYTES)
-        return -1;
-    decoded.a = (int16_t)words[0];
-    decoded.b = (int16_t)words[1];
-    decoded.c = (int16_t)words[2];
-    *(C2837xBlock_InputData *)input = decoded;
-    return 0;
+    C2837xBlock_InputData *typed_input = (C2837xBlock_InputData *)input;
+    typed_input->a = (int16_t)words[0];
+    typed_input->b = (int16_t)words[1];
+    typed_input->c = (int16_t)words[2];
 }
 
 static int16 sample_on_step(void *context, const void *input, void *output)
@@ -93,14 +86,11 @@ static int16 sample_on_step(void *context, const void *input, void *output)
                               (C2837xBlock_OutputData *)output);
 }
 
-static int16 sample_encode_output(void *context, const void *output,
-                                  Uint16 *words, Uint16 capacity_octets)
+static void sample_encode_output(const void *output, Uint16 *words)
 {
-    (void)context;
-    if (capacity_octets != C2837X_BLOCK_OUTPUT_DATA_SIZE_BYTES)
-        return -1;
-    words[0] = (Uint16)((const C2837xBlock_OutputData *)output)->sum;
-    return 0;
+    const C2837xBlock_OutputData *typed_output =
+        (const C2837xBlock_OutputData *)output;
+    words[0] = (Uint16)typed_output->sum;
 }
 
 static void sample_on_stop(void *context)

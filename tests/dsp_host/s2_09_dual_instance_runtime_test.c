@@ -182,20 +182,20 @@ static int16 algorithm_start(void *context)
     return 0;
 }
 
-static int16 algorithm_decode(void *context, void *input,
-                              const Uint16 *words, Uint16 octets)
+static void algorithm_decode_a(void *input, const Uint16 *words)
 {
-    AlgorithmContext *algorithm = (AlgorithmContext *)context;
-    TestData decoded = {{ 0u, 0u }};
+    ((TestData *)input)->values[0] = words[0];
+    algorithm_a.decode_calls++;
+    trace(algorithm_a.id, "decode");
+}
 
-    assert(octets == algorithm->data_octets);
-    decoded.values[0] = words[0];
-    if (octets == 4u)
-        decoded.values[1] = words[1];
-    *(TestData *)input = decoded;
-    algorithm->decode_calls++;
-    trace(algorithm->id, "decode");
-    return 0;
+static void algorithm_decode_b(void *input, const Uint16 *words)
+{
+    TestData *typed_input = (TestData *)input;
+    typed_input->values[0] = words[0];
+    typed_input->values[1] = words[1];
+    algorithm_b.decode_calls++;
+    trace(algorithm_b.id, "decode");
 }
 
 static int16 algorithm_step(void *context, const void *input, void *output)
@@ -213,19 +213,23 @@ static int16 algorithm_step(void *context, const void *input, void *output)
     return 0;
 }
 
-static int16 algorithm_encode(void *context, const void *output,
-                              Uint16 *words, Uint16 capacity_octets)
+static void algorithm_encode_a(const void *output, Uint16 *words)
 {
-    AlgorithmContext *algorithm = (AlgorithmContext *)context;
     const TestData *data = (const TestData *)output;
 
-    assert(capacity_octets == algorithm->data_octets);
     words[0] = data->values[0];
-    if (capacity_octets == 4u)
-        words[1] = data->values[1];
-    algorithm->encode_calls++;
-    trace(algorithm->id, "encode");
-    return 0;
+    algorithm_a.encode_calls++;
+    trace(algorithm_a.id, "encode");
+}
+
+static void algorithm_encode_b(const void *output, Uint16 *words)
+{
+    const TestData *data = (const TestData *)output;
+
+    words[0] = data->values[0];
+    words[1] = data->values[1];
+    algorithm_b.encode_calls++;
+    trace(algorithm_b.id, "encode");
 }
 
 static void algorithm_stop(void *context)
@@ -235,9 +239,13 @@ static void algorithm_stop(void *context)
     trace(algorithm->id, "stop");
 }
 
-static const C2837xBlock_AlgorithmAdapter algorithm_adapter = {
-    algorithm_reset, algorithm_start, algorithm_decode,
-    algorithm_step, algorithm_encode, algorithm_stop
+static const C2837xBlock_AlgorithmAdapter algorithm_adapter_a = {
+    algorithm_reset, algorithm_start, algorithm_decode_a,
+    algorithm_step, algorithm_encode_a, algorithm_stop
+};
+static const C2837xBlock_AlgorithmAdapter algorithm_adapter_b = {
+    algorithm_reset, algorithm_start, algorithm_decode_b,
+    algorithm_step, algorithm_encode_b, algorithm_stop
 };
 
 static Uint32 fake_time_us(void)
@@ -247,13 +255,13 @@ static Uint32 fake_time_us(void)
 
 static const C2837xBlock_Config config_a = {
     &fake_ops, &channel_a, rx_a, 10u, tx_a, 10u,
-    &input_a, &output_a, &algorithm_adapter, &algorithm_a,
+    &input_a, &output_a, &algorithm_adapter_a, &algorithm_a,
     0x0001u, 0x11112222u, 6u, 6u, 6u,
     fake_time_us, 5000000u, 1000000u
 };
 static const C2837xBlock_Config config_b = {
     &fake_ops, &channel_b, rx_b, 12u, tx_b, 12u,
-    &input_b, &output_b, &algorithm_adapter, &algorithm_b,
+    &input_b, &output_b, &algorithm_adapter_b, &algorithm_b,
     0x0001u, 0x33334444u, 8u, 8u, 8u,
     fake_time_us, 7000000u, 2000000u
 };

@@ -385,14 +385,7 @@ static void c2837x_block_handle_input_data(C2837xBlock *ctx)
                                           C2837X_ERR_STEP_INDEX);
         return;
     }
-    if (config->algorithm->decode_input(
-            config->algorithm_context, config->input_object, &payload[2],
-            (Uint16)(config->input_payload_octets - 4u)) != 0)
-    {
-        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_INTERNAL,
-                                          C2837X_ERR_INTERNAL);
-        return;
-    }
+    config->algorithm->decode_input(config->input_object, &payload[2]);
     if (config->algorithm->on_step(config->algorithm_context,
             config->input_object, config->output_object) != 0)
     {
@@ -405,14 +398,7 @@ static void c2837x_block_handle_input_data(C2837xBlock *ctx)
     tx[1] = config->output_payload_octets;
     tx[2] = (Uint16)(step_index & 0xffffu);
     tx[3] = (Uint16)(step_index >> 16);
-    if (config->algorithm->encode_output(
-            config->algorithm_context, config->output_object, &tx[4],
-            (Uint16)(config->output_payload_octets - 4u)) != 0)
-    {
-        c2837x_block_start_error_response(ctx, C2837X_BLOCK_ERROR_INTERNAL,
-                                          C2837X_ERR_INTERNAL);
-        return;
-    }
+    config->algorithm->encode_output(config->output_object, &tx[4]);
 
     c2837x_block_start_sending(
         ctx, C2837X_BLOCK_HEADER_SIZE_BYTES + config->output_payload_octets,

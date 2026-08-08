@@ -149,20 +149,18 @@ static int16 adapter_start(void *context)
     return 0;
 }
 
-static int16 adapter_decode(void *context, void *input,
-                            const Uint16 *words, Uint16 octets)
+static void adapter_decode_a(void *input, const Uint16 *words)
 {
-    AdapterContext *adapter = (AdapterContext *)context;
-    TestInput decoded = {{ 0u, 0u }};
+    ((TestInput *)input)->values[0] = words[0];
+    adapter_context_a.decode_calls++;
+}
 
-    if (octets != adapter->input_data_octets)
-        return -1;
-    decoded.values[0] = words[0];
-    if (octets == 4u)
-        decoded.values[1] = words[1];
-    *(TestInput *)input = decoded;
-    adapter->decode_calls++;
-    return 0;
+static void adapter_decode_b(void *input, const Uint16 *words)
+{
+    TestInput *typed_input = (TestInput *)input;
+    typed_input->values[0] = words[0];
+    typed_input->values[1] = words[1];
+    adapter_context_b.decode_calls++;
 }
 
 static int16 adapter_step(void *context, const void *input, void *output)
@@ -179,19 +177,21 @@ static int16 adapter_step(void *context, const void *input, void *output)
     return 0;
 }
 
-static int16 adapter_encode(void *context, const void *output,
-                            Uint16 *words, Uint16 capacity_octets)
+static void adapter_encode_a(const void *output, Uint16 *words)
 {
-    AdapterContext *adapter = (AdapterContext *)context;
     const TestOutput *typed_output = (const TestOutput *)output;
 
-    if (capacity_octets != adapter->output_data_octets)
-        return -1;
     words[0] = typed_output->values[0];
-    if (capacity_octets == 4u)
-        words[1] = typed_output->values[1];
-    adapter->encode_calls++;
-    return 0;
+    adapter_context_a.encode_calls++;
+}
+
+static void adapter_encode_b(const void *output, Uint16 *words)
+{
+    const TestOutput *typed_output = (const TestOutput *)output;
+
+    words[0] = typed_output->values[0];
+    words[1] = typed_output->values[1];
+    adapter_context_b.encode_calls++;
 }
 
 static void adapter_stop(void *context)
@@ -200,12 +200,12 @@ static void adapter_stop(void *context)
 }
 
 static const C2837xBlock_AlgorithmAdapter adapter_a = {
-    adapter_reset, adapter_start, adapter_decode,
-    adapter_step, adapter_encode, adapter_stop
+    adapter_reset, adapter_start, adapter_decode_a,
+    adapter_step, adapter_encode_a, adapter_stop
 };
 static const C2837xBlock_AlgorithmAdapter adapter_b = {
-    adapter_reset, adapter_start, adapter_decode,
-    adapter_step, adapter_encode, adapter_stop
+    adapter_reset, adapter_start, adapter_decode_b,
+    adapter_step, adapter_encode_b, adapter_stop
 };
 
 static Uint32 fake_time_us(void)
@@ -415,6 +415,8 @@ static void test_config_driven_adapter_routing(void)
     load_frame(&channel_b, C2837X_MSG_SIM_START, 6u, start_b);
     run_received_frame(&instance_b);
     C2837xBlock_Run(&instance_b);
+    input_b.values[0] = 0xaaaau;
+    input_b.values[1] = 0xbbbbu;
     load_frame(&channel_b, C2837X_MSG_INPUT_DATA, 8u, input_payload_b);
     C2837xBlock_Run(&instance_b);
     assert(adapter_context_b.decode_calls == 0u);
@@ -509,6 +511,16 @@ static void test_invalid_config_boundaries(void)
     assert_invalid_config(invalid);
     invalid = config_a;
     invalid_adapter.on_step = NULL;
+    invalid.algorithm = &invalid_adapter;
+    assert_invalid_config(invalid);
+    invalid = config_a;
+    invalid_adapter = adapter_a;
+    invalid_adapter.decode_input = NULL;
+    invalid.algorithm = &invalid_adapter;
+    assert_invalid_config(invalid);
+    invalid = config_a;
+    invalid_adapter = adapter_a;
+    invalid_adapter.encode_output = NULL;
     invalid.algorithm = &invalid_adapter;
     assert_invalid_config(invalid);
     invalid = config_a;

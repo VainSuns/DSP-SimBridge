@@ -9,16 +9,16 @@ typedef struct
     void (*reset_io)(void *context, void *input_object,
                      void *output_object);
     int16 (*on_start)(void *context);
-    /* user_data_words starts after step_index; failure must not commit input. */
-    int16 (*decode_input)(void *context, void *input_object,
-                          const Uint16 *user_data_words,
-                          Uint16 user_data_octets);
+    /* Core validates the frame, fixed length, state, and step_index first.
+     * The decoder fully covers the final input object and cannot fail. */
+    void (*decode_input)(void *input_object,
+                         const Uint16 *user_data_words);
     int16 (*on_step)(void *context, const void *input_object,
                      void *output_object);
-    /* Writes only user output data, never Header or step_index. */
-    int16 (*encode_output)(void *context, const void *output_object,
-                           Uint16 *user_data_words,
-                           Uint16 user_data_capacity_octets);
+    /* Encodes only user output data, never Header or step_index. OnStep has
+     * already succeeded when this callback is called. */
+    void (*encode_output)(const void *output_object,
+                          Uint16 *user_data_words);
     void (*on_stop)(void *context);
 } C2837xBlock_AlgorithmAdapter;
 

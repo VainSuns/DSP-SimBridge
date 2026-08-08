@@ -98,14 +98,10 @@ static int16 algorithm_ok(void *context)
     return 0;
 }
 
-static int16 algorithm_decode(void *context, void *input,
-                              const Uint16 *data, Uint16 count)
+static void algorithm_decode(void *input, const Uint16 *data)
 {
-    (void)context;
     (void)input;
     (void)data;
-    (void)count;
-    return 0;
 }
 
 static int16 algorithm_step(void *context, const void *input, void *output)
@@ -116,14 +112,10 @@ static int16 algorithm_step(void *context, const void *input, void *output)
     return 0;
 }
 
-static int16 algorithm_encode(void *context, const void *output,
-                              Uint16 *data, Uint16 count)
+static void algorithm_encode(const void *output, Uint16 *data)
 {
-    (void)context;
     (void)output;
     (void)data;
-    (void)count;
-    return 0;
 }
 
 static void algorithm_stop(void *context)
