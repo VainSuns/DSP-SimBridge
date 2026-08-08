@@ -94,6 +94,13 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket* sk,
  */
 int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket* sk);
 
+/*
+ * Advance only a pending RECV command by one Sn_CR read.
+ * Returns >0 when the RECV command-register phase is complete, 0 while
+ * Sn_CR is nonzero, and negative for an invalid or conflicting command state.
+ */
+int16 c2837x_w5300_socket_advance_recv_command(C2837xW5300Socket* sk);
+
 /**
  * Disconnect a socket.
  * @param sk  Pointer to the socket structure.

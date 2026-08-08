@@ -298,7 +298,9 @@ static void test_send_and_receive(void)
     assert(c2837x_w5300_socket_recv(&sk, data, 4u) == 0);
     assert(read_count == (Uint16)(before + 1u) && write_count == 1u);
     set_register(Sn_CR(3u), 0u);
-    assert(c2837x_w5300_socket_recv(&sk, data, 4u) == 0);
+    before = read_count;
+    assert(c2837x_w5300_socket_advance_recv_command(&sk) > 0);
+    assert(read_count == (Uint16)(before + 1u));
     assert(sk.pending_command == C2837X_W5300_COMMAND_NONE);
     assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
     script_size(Sn_RX_RSR(3u), Sn_RX_RSR2(3u), stable_four, 4u);

@@ -77,6 +77,15 @@ int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket *socket)
     }
     return 1;
 }
+int16 c2837x_w5300_socket_advance_recv_command(C2837xW5300Socket *socket)
+{
+    if ((socket->pending_command != C2837X_W5300_COMMAND_RECV) ||
+        (socket->command_phase != C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR))
+        return -1;
+    socket->pending_command = C2837X_W5300_COMMAND_NONE;
+    socket->command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
+    return 1;
+}
 int16 c2837x_w5300_socket_take_pending(C2837xW5300Socket *socket)
 { (void)socket; return 1; }
 int16 c2837x_w5300_socket_check_close_erratum(

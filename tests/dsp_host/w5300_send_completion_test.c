@@ -269,17 +269,91 @@ static void test_segments_and_socket_isolation(void)
     assert(second.send_state == C2837X_W5300_SEND_IDLE);
 }
 
+static void test_recv_to_send_handoff(void)
+{
+    C2837xW5300Channel channel = make_channel(3u);
+    Uint16 data[2] = {0x1122u, 0x3344u};
+
+    reset_fixture();
+    channel.socket.pending_command = C2837X_W5300_COMMAND_RECV;
+    channel.socket.command_phase =
+        C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
+    set_register(Sn_CR(3u), Sn_CR_RECV);
+    assert(c2837x_w5300_iodevice_ops.send(&channel, data, 4u) == 0);
+    assert(channel.send_state == C2837X_W5300_SEND_IDLE);
+    assert(channel.pending_octets == 0u && channel.faulted == 0u);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_RECV);
+    assert(channel.socket.command_phase ==
+           C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR);
+    assert(reads_of(Sn_CR(3u)) == 1u);
+    assert(writes_of(Sn_CR(3u)) == 0u);
+    assert(writes_of(Sn_TX_FIFOR(3u)) == 0u);
+
+    set_register(Sn_CR(3u), 0u);
+    assert(c2837x_w5300_iodevice_ops.send(&channel, data, 4u) == 0);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(channel.socket.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
+    assert(reads_of(Sn_CR(3u)) == 2u);
+    assert(writes_of(Sn_CR(3u)) == 0u);
+    assert(writes_of(Sn_TX_FIFOR(3u)) == 0u);
+
+    set_register(Sn_SSR(3u), SOCK_ESTABLISHED);
+    set_tx_space(3u, 4u);
+    assert(c2837x_w5300_iodevice_ops.send(&channel, data, 4u) == 0);
+    assert(channel.send_state == C2837X_W5300_SEND_PENDING);
+    assert(channel.pending_octets == 4u);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_SEND);
+    assert(writes_of(Sn_TX_FIFOR(3u)) == 2u);
+    assert(writes_of(Sn_CR(3u)) == 1u);
+
+    assert(c2837x_w5300_iodevice_ops.send(&channel, data, 4u) == 0);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_SEND);
+    assert(channel.pending_octets == 4u);
+    assert(reads_of(Sn_CR(3u)) == 3u);
+    assert(writes_of(Sn_TX_FIFOR(3u)) == 2u);
+
+    set_register(Sn_CR(3u), 0u);
+    assert(c2837x_w5300_iodevice_ops.send(&channel, data, 4u) == 0);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(channel.send_state == C2837X_W5300_SEND_PENDING);
+    assert(channel.pending_octets == 4u);
+    assert(reads_of(Sn_CR(3u)) == 4u);
+    assert(find_register(Sn_IR(3u))->value == 0u);
+
+    set_register(Sn_IR(3u), Sn_IR_SENDOK);
+    assert(c2837x_w5300_iodevice_ops.send(&channel, 0, 0u) == 4);
+    assert(channel.send_state == C2837X_W5300_SEND_IDLE);
+    assert(channel.pending_octets == 0u);
+    assert(find_register(Sn_IR(3u))->value == 0u);
+
+    reset_fixture();
+    channel = make_channel(3u);
+    channel.socket.pending_command = C2837X_W5300_COMMAND_RECV;
+    channel.socket.command_phase =
+        C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE;
+    assert(c2837x_w5300_iodevice_ops.send(&channel, data, 4u) < 0);
+    assert(channel.send_state == C2837X_W5300_SEND_IDLE);
+    assert(channel.pending_octets == 0u && channel.faulted == 0u);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_RECV);
+
+    reset_fixture();
+    channel = make_channel(3u);
+    channel.socket.pending_command = C2837X_W5300_COMMAND_OPEN;
+    channel.socket.command_phase =
+        C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
+    set_register(Sn_CR(3u), Sn_CR_OPEN);
+    assert(c2837x_w5300_iodevice_ops.send(&channel, data, 4u) < 0);
+    assert(channel.send_state == C2837X_W5300_SEND_IDLE);
+    assert(channel.pending_octets == 0u && channel.faulted == 0u);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_OPEN);
+    assert(read_count == 0u && write_count == 0u);
+}
+
 static void test_conflicts_and_init_isolation(void)
 {
     C2837xW5300Channel first = make_channel(1u);
     C2837xW5300Channel second = make_channel(6u);
     Uint16 data[2] = {0u};
-
-    reset_fixture();
-    first.socket.pending_command = C2837X_W5300_COMMAND_RECV;
-    first.socket.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
-    assert(c2837x_w5300_iodevice_ops.send(&first, data, 4u) < 0);
-    assert(read_count == 0u && write_count == 0u);
 
     first = make_channel(1u);
     first.send_state = C2837X_W5300_SEND_PENDING;
@@ -312,6 +386,7 @@ int main(void)
     test_delayed_progress_and_stale_events();
     test_timeout_and_status_priority();
     test_segments_and_socket_isolation();
+    test_recv_to_send_handoff();
     test_conflicts_and_init_isolation();
     return 0;
 }

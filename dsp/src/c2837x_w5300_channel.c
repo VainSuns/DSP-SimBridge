@@ -169,8 +169,18 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
     }
 
     if ((channel->send_state != C2837X_W5300_SEND_IDLE) ||
-        (channel->pending_octets != 0u) ||
-        (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE))
+        (channel->pending_octets != 0u))
+        goto send_error;
+
+    if (channel->socket.pending_command == C2837X_W5300_COMMAND_RECV)
+    {
+        command_result = c2837x_w5300_socket_advance_recv_command(
+            &channel->socket);
+        if (command_result < 0)
+            goto send_error;
+        return 0;
+    }
+    if (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE)
         goto send_error;
 
     count_octets &= ~1u;

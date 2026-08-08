@@ -329,6 +329,18 @@ int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket *sk)
     return advance_pending(sk);
 }
 
+int16 c2837x_w5300_socket_advance_recv_command(C2837xW5300Socket *sk)
+{
+    if (!socket_is_valid(sk))
+        return -1;
+    if (sk->pending_command == C2837X_W5300_COMMAND_NONE)
+        return 1;
+    if ((sk->pending_command != C2837X_W5300_COMMAND_RECV) ||
+        (sk->command_phase != C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR))
+        return -1;
+    return advance_pending(sk);
+}
+
 #if __TI_COMPILER_VERSION__ >= 15009000
     #pragma CODE_SECTION(c2837x_w5300_socket_recv, ".TI.ramfunc");
 #else
