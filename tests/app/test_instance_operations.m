@@ -385,11 +385,15 @@ classdef test_instance_operations < matlab.unittest.TestCase
             session.saveProject(fullfile(testCase.WorkFolder, 'saved.mat'));
             saved = load(fullfile(testCase.WorkFolder, 'saved.mat'), 'project');
 
+            [~, targetHash] = c2837x_block_build_interface_hash(targetProject, 1);
+            targetProject.instances(1).interface_hash = targetHash;
+
             session.loadProject(filePath);
 
             testCase.verifyFalse(isfield(saved.project, 'LegacyFileRisks'));
             testCase.verifyEmpty(session.LegacyFileRisks);
             testCase.verifyEqual(session.Project, targetProject);
+            testCase.verifyTrue(session.Dirty);
         end
     end
 end

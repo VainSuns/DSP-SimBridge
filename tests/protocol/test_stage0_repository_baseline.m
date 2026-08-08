@@ -18,7 +18,9 @@ text = fileread(fullfile(root, 'README.md'));
 verifyNotEmpty(testCase, regexp(text, ...
     'requirements/requirements_multi_iodevice_v1\.0_frozen_rev2\.md', 'once'));
 verifyEmpty(testCase, regexp(text, 'spec_v2_3\.md', 'once'));
-verifyNotEmpty(testCase, regexp(text, '旧单实例', 'once'));
+verifyNotEmpty(testCase, regexp(text, 'V2 多实例项目', 'once'));
+verifyNotEmpty(testCase, regexp(text, '历史参考', 'once'));
+verifyNotEmpty(testCase, regexp(text, '与当前 V2 多实例 App 不一致', 'once'));
 end
 
 function testPlanCoversAllFrNumbers(testCase)
