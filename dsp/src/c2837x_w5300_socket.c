@@ -291,10 +291,19 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket *sk,
     wire_byte_count &= ~1u;
     if (wire_byte_count == 0u)
         return 0;
-    if (!socket_is_valid(sk) || (data_words == 0))
+    if ((sk == 0) || (data_words == 0))
         return -1;
-    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
+    if (sk->pending_command == C2837X_W5300_COMMAND_NONE)
+    {
+        if (sk->command_phase != C2837X_W5300_COMMAND_PHASE_IDLE)
+            return -1;
+    }
+    else
+    {
+        if (sk->command_phase == C2837X_W5300_COMMAND_PHASE_IDLE)
+            return -1;
         return 0;
+    }
 
     status = c2837x_w5300_get_sn_ssr(sk->sn);
     if ((status != SOCK_ESTABLISHED) && (status != SOCK_CLOSE_WAIT))
@@ -319,10 +328,11 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket *sk,
 
 int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket *sk)
 {
-    if (!socket_is_valid(sk))
+    if (sk == 0)
         return -1;
     if (sk->pending_command == C2837X_W5300_COMMAND_NONE)
-        return 1;
+        return (sk->command_phase == C2837X_W5300_COMMAND_PHASE_IDLE) ?
+            1 : -1;
     if ((sk->pending_command != C2837X_W5300_COMMAND_SEND) ||
         (sk->command_phase != C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR))
         return -1;
@@ -331,10 +341,11 @@ int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket *sk)
 
 int16 c2837x_w5300_socket_advance_recv_command(C2837xW5300Socket *sk)
 {
-    if (!socket_is_valid(sk))
+    if (sk == 0)
         return -1;
     if (sk->pending_command == C2837X_W5300_COMMAND_NONE)
-        return 1;
+        return (sk->command_phase == C2837X_W5300_COMMAND_PHASE_IDLE) ?
+            1 : -1;
     if ((sk->pending_command != C2837X_W5300_COMMAND_RECV) ||
         (sk->command_phase != C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR))
         return -1;
@@ -356,10 +367,19 @@ int32 c2837x_w5300_socket_recv(C2837xW5300Socket *sk, Uint16 *data_words,
     wire_capacity_bytes &= ~1u;
     if (wire_capacity_bytes == 0u)
         return 0;
-    if (!socket_is_valid(sk) || (data_words == 0))
+    if ((sk == 0) || (data_words == 0))
         return -1;
-    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
+    if (sk->pending_command == C2837X_W5300_COMMAND_NONE)
+    {
+        if (sk->command_phase != C2837X_W5300_COMMAND_PHASE_IDLE)
+            return -1;
+    }
+    else
+    {
+        if (sk->command_phase == C2837X_W5300_COMMAND_PHASE_IDLE)
+            return -1;
         return (advance_pending(sk) < 0) ? -1 : 0;
+    }
 
     status = c2837x_w5300_get_sn_ssr(sk->sn);
     if ((status != SOCK_ESTABLISHED) && (status != SOCK_CLOSE_WAIT))

@@ -307,6 +307,84 @@ static void test_send_and_receive(void)
     assert(c2837x_w5300_socket_recv(&sk, data, 4u) == 4);
 }
 
+static void test_hot_path_command_state_contracts(void)
+{
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(3u, 8192u, 8192u);
+    Uint16 data[2] = {0x0102u, 0x0304u};
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_NONE;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
+    assert(c2837x_w5300_socket_advance_send_command(&sk) > 0);
+    assert(c2837x_w5300_socket_advance_recv_command(&sk) > 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_NONE;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
+    set_register(Sn_SSR(3u), SOCK_ESTABLISHED);
+    assert(c2837x_w5300_socket_send(&sk, data, 4u) < 0);
+    assert(write_count == 0u && read_count == 0u);
+    assert(c2837x_w5300_socket_advance_send_command(&sk) < 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_SEND;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
+    set_register(Sn_SSR(3u), SOCK_ESTABLISHED);
+    assert(c2837x_w5300_socket_send(&sk, data, 4u) < 0);
+    assert(write_count == 0u && read_count == 0u);
+    assert(c2837x_w5300_socket_advance_send_command(&sk) < 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_NONE;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
+    set_register(Sn_SSR(3u), SOCK_ESTABLISHED);
+    assert(c2837x_w5300_socket_recv(&sk, data, 4u) < 0);
+    assert(read_count == 0u && write_count == 0u);
+    assert(c2837x_w5300_socket_advance_recv_command(&sk) < 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_RECV;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
+    set_register(Sn_SSR(3u), SOCK_ESTABLISHED);
+    assert(c2837x_w5300_socket_recv(&sk, data, 4u) < 0);
+    assert(read_count == 0u && write_count == 0u);
+    assert(c2837x_w5300_socket_advance_recv_command(&sk) < 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_RECV;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
+    set_register(Sn_CR(3u), Sn_CR_RECV);
+    assert(c2837x_w5300_socket_advance_send_command(&sk) < 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_SEND;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE;
+    set_register(Sn_CR(3u), 0u);
+    assert(c2837x_w5300_socket_advance_send_command(&sk) < 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_SEND;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
+    set_register(Sn_CR(3u), Sn_CR_SEND);
+    assert(c2837x_w5300_socket_advance_recv_command(&sk) < 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_RECV;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE;
+    set_register(Sn_CR(3u), 0u);
+    assert(c2837x_w5300_socket_advance_recv_command(&sk) < 0);
+    assert(read_count == 0u && write_count == 0u);
+}
+
 static void test_close_primitives_and_disconnect_state_windows(void)
 {
     C2837xW5300Socket sk =
@@ -498,6 +576,7 @@ int main(void)
     test_stable_size_reads();
     test_open_and_listen_state_windows();
     test_send_and_receive();
+    test_hot_path_command_state_contracts();
     test_close_primitives_and_disconnect_state_windows();
     test_conflicting_operations_do_not_issue();
     test_two_socket_command_phase_isolation();

@@ -27,6 +27,49 @@ verifyNotEmpty(testCase, regexp(hal, ...
 verifyEmpty(testCase, regexp(hal, '\bwhile\s*\(|\bdo\s*\{', 'once'));
 end
 
+function testHotPathDoesNotUseGenericSocketValidation(testCase)
+root = repository_root();
+socket = fileread(fullfile(root, 'dsp', 'src', 'c2837x_w5300_socket.c'));
+hotFunctions = { ...
+    'c2837x_w5300_socket_send', ...
+    'c2837x_w5300_socket_recv', ...
+    'c2837x_w5300_socket_advance_send_command', ...
+    'c2837x_w5300_socket_advance_recv_command'};
+
+for index = 1:numel(hotFunctions)
+    body = extract_c_function_body(socket, hotFunctions{index});
+    verifyEmpty(testCase, regexp(body, 'socket_is_valid\s*\(', 'once'));
+end
+
+openBody = extract_c_function_body(socket, 'c2837x_w5300_socket_open');
+closeBody = extract_c_function_body(socket, ...
+    'c2837x_w5300_socket_complete_close_command');
+verifyNotEmpty(testCase, regexp([openBody closeBody], ...
+    'socket_is_valid\s*\(', 'once'));
+end
+
+function body = extract_c_function_body(source, functionName)
+pattern = ['(?m)^\s*(?:static\s+)?(?:int16|int32|void)\s+' ...
+    functionName '\s*\([^;]*\)\s*\{'];
+[~, signatureEnd] = regexp(source, pattern, 'once');
+assert(~isempty(signatureEnd), ...
+    'C function definition not found: %s', functionName);
+
+depth = 1;
+for index = signatureEnd + 1:numel(source)
+    if source(index) == '{'
+        depth = depth + 1;
+    elseif source(index) == '}'
+        depth = depth - 1;
+        if depth == 0
+            body = source(signatureEnd + 1:index - 1);
+            return;
+        end
+    end
+end
+error('Unbalanced C function body: %s', functionName);
+end
+
 function [status, output, executable] = compile_binary()
 root = repository_root();
 folder = fileparts(mfilename('fullpath'));
