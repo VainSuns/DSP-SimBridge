@@ -76,13 +76,15 @@ int main(int argc, char **argv)
             strcmp(argv[3], "connect_zero_timeout") == 0 ? 0 : 4;
     }
     if (strcmp(argv[3], "golden") == 0) {
-        const uint8_t input[] = {0xaau, 0xbbu};
+        uint8_t input_frame[AXIS_ALPHA_HEADER_SIZE + 2u];
+        input_frame[AXIS_ALPHA_HEADER_SIZE] = 0xaau;
+        input_frame[AXIS_ALPHA_HEADER_SIZE + 1u] = 0xbbu;
         status = axis_alpha_protocol_send_sim_start(&socket, 1u,
             0x12345678u, 500u, &error);
         if (status == 0) status = axis_alpha_protocol_send_sim_stop(
             &socket, 500u, &error);
         if (status == 0) status = axis_alpha_protocol_send_input_data(
-            &socket, input, sizeof(input), 500u, &error);
+            &socket, input_frame, 2u, 500u, &error);
     } else if (strcmp(argv[3], "response") == 0) {
         status = axis_alpha_protocol_wait_response(&socket, 500u, &error);
     } else if (strcmp(argv[3], "response_short_timeout") == 0) {

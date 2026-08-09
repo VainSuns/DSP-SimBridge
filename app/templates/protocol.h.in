@@ -34,9 +34,6 @@ extern "C" {
 #define @MACRO@_SIM_START_PAYLOAD_SIZE 6u
 #define @MACRO@_RESPONSE_PAYLOAD_SIZE 2u
 
-int @NAME@_protocol_send_frame(@TYPED@PcSocket *socket, uint16_t type,
-    uint16_t length, const uint8_t *payload, uint32_t timeout_ms,
-    @TYPED@PcError *error);
 int @NAME@_protocol_recv_frame(@TYPED@PcSocket *socket, uint16_t *type,
     uint16_t *length, uint8_t *payload, uint32_t payload_capacity,
     uint32_t timeout_ms, @TYPED@PcError *error);
@@ -46,7 +43,7 @@ int @NAME@_protocol_send_sim_start(@TYPED@PcSocket *socket,
 int @NAME@_protocol_send_sim_stop(@TYPED@PcSocket *socket,
     uint32_t timeout_ms, @TYPED@PcError *error);
 int @NAME@_protocol_send_input_data(@TYPED@PcSocket *socket,
-    const uint8_t *payload, uint16_t length, uint32_t timeout_ms,
+    uint8_t *frame, uint16_t payload_length, uint32_t timeout_ms,
     @TYPED@PcError *error);
 int @NAME@_protocol_wait_response(@TYPED@PcSocket *socket,
     uint32_t timeout_ms, @TYPED@PcError *error);

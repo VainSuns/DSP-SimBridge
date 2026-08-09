@@ -11,13 +11,31 @@ CLIENT, INSTANCE_DIR, PORT = sys.argv[1], sys.argv[2], int(sys.argv[3])
 START = struct.pack("<HHHI", 1, 6, 1, 0x12345678)
 STOP = struct.pack("<HH", 4, 0)
 INPUT_DATA = bytes.fromhex(
-    "fe ff 34 12 dc fe eb 32 a4 f8 ef cd ab 89 00 00 00 80 "
-    "a5 00 00 00 00 00 f8 7f 00 00 00 00 00 00 f0 3f"
+    "fe ff 34 12 dc fe eb 32 a4 f8 ef cd ab 89"
 )
+INPUT_DATA += b"".join(struct.pack("<I", bits) for bits in (
+    0x00000000, 0x80000000, 0x7f800000, 0xff800000,
+    0x7fc000a5, 0x00000001, 0x3f800000
+))
+INPUT_DATA += b"".join(struct.pack("<Q", bits) for bits in (
+    0x0000000000000000, 0x8000000000000000,
+    0x7ff0000000000000, 0xfff0000000000000,
+    0x7ff80000000000a5, 0x0000000000000001,
+    0x3ff0000000000000
+))
 OUTPUT_DATA = bytes.fromhex(
-    "01 80 cd ab fe ff ff ff 98 ba dc fe 00 00 00 80 01 00 00 00 "
-    "a5 00 00 00 00 00 f8 7f"
+    "01 80 cd ab fe ff ff ff 98 ba dc fe"
 )
+OUTPUT_DATA += b"".join(struct.pack("<I", bits) for bits in (
+    0x00000000, 0x80000000, 0x7f800000, 0xff800000,
+    0x7fc000a5, 0x00000001, 0x3f800000
+))
+OUTPUT_DATA += b"".join(struct.pack("<Q", bits) for bits in (
+    0x0000000000000000, 0x8000000000000000,
+    0x7ff0000000000000, 0xfff0000000000000,
+    0x7ff80000000000a5, 0x0000000000000001,
+    0x3ff0000000000000
+))
 
 
 def frame(message_type, payload=b""):
@@ -141,8 +159,8 @@ run("response_error", lambda c, _s, _i: c.sendall(frame(5, struct.pack("<H", 7))
 run("response_zero", lambda c, _s, _i: c.sendall(frame(5, struct.pack("<H", 0))))
 run("wrong_type", lambda c, _s, _i: c.sendall(frame(4)))
 run("short", lambda c, _s, _i: c.sendall(frame(3, struct.pack("<I", 0) + OUTPUT_DATA[:-2])))
-run("long", lambda c, _s, _i: c.sendall(struct.pack("<HH", 3, 34)))
-run("odd", lambda c, _s, _i: c.sendall(struct.pack("<HH", 3, 31)))
+run("long", lambda c, _s, _i: c.sendall(struct.pack("<HH", 3, 102)))
+run("odd", lambda c, _s, _i: c.sendall(struct.pack("<HH", 3, 99)))
 run("wrong_step", lambda c, _s, _i: c.sendall(output_frame(1)))
 
 
@@ -155,7 +173,7 @@ run("header_truncated", header_truncated)
 
 
 def payload_truncated(connection, _step, _index):
-    connection.sendall(struct.pack("<HH", 3, 32) + output_frame(0)[4:12])
+    connection.sendall(struct.pack("<HH", 3, 100) + output_frame(0)[4:12])
     connection.shutdown(socket.SHUT_WR)
 
 

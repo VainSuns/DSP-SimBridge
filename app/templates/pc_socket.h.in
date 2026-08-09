@@ -67,6 +67,7 @@ typedef struct
     int valid;
     int platform_initialized;
     int last_os_error;
+    uint64_t clock_frequency_hz;
 } @TYPED@PcSocket;
 
 typedef struct
@@ -85,9 +86,11 @@ int @NAME@_pc_socket_send_all(@TYPED@PcSocket *socket, const uint8_t *data,
     uint32_t length, uint32_t timeout_ms, @TYPED@PcError *error);
 int @NAME@_pc_socket_recv_exact(@TYPED@PcSocket *socket, uint8_t *data,
     uint32_t length, uint32_t timeout_ms, @TYPED@PcError *error);
-int @NAME@_pc_deadline_start(uint32_t timeout_ms,
+int @NAME@_pc_deadline_start(const @TYPED@PcSocket *socket,
+    uint32_t timeout_ms,
     @TYPED@PcDeadline *deadline, @TYPED@PcError *error);
-int @NAME@_pc_deadline_remaining(const @TYPED@PcDeadline *deadline,
+int @NAME@_pc_deadline_remaining(const @TYPED@PcSocket *socket,
+    const @TYPED@PcDeadline *deadline,
     uint32_t *remaining_ms, int *expired, @TYPED@PcError *error);
 int @NAME@_pc_socket_send_all_until(@TYPED@PcSocket *socket,
     const uint8_t *data, uint32_t length, const @TYPED@PcDeadline *deadline,

@@ -140,23 +140,26 @@ int @NAME@_pc_error_format(const @TYPED@PcError *error,
     return status == 0 ? 0 : -1;
 }
 
-static int @NAME@_now_ms(uint64_t *value, int *os_error)
+static int @NAME@_now_ms(const @TYPED@PcSocket *socket,
+    uint64_t *value, int *os_error)
 {
-    if (value == NULL || os_error == NULL) return -1;
+    if (socket == NULL || value == NULL || os_error == NULL) return -1;
     *os_error = 0;
 #ifdef _WIN32
     LARGE_INTEGER counter;
-    LARGE_INTEGER frequency;
-    if (!QueryPerformanceCounter(&counter) ||
-            !QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+    if (socket->clock_frequency_hz == 0u ||
+            !QueryPerformanceCounter(&counter)) {
         *os_error = (int)GetLastError();
         if (*os_error == 0) *os_error = -1;
         return -1;
     }
-    *value = (uint64_t)(counter.QuadPart / frequency.QuadPart) * 1000u +
-        (uint64_t)(counter.QuadPart % frequency.QuadPart) * 1000u /
-            (uint64_t)frequency.QuadPart;
+    *value = (uint64_t)(counter.QuadPart /
+        (LONGLONG)socket->clock_frequency_hz) * 1000u +
+        (uint64_t)(counter.QuadPart %
+            (LONGLONG)socket->clock_frequency_hz) * 1000u /
+            socket->clock_frequency_hz;
 #else
+    (void)socket;
     struct timespec time_value;
     if (clock_gettime(CLOCK_MONOTONIC, &time_value) != 0) {
         *os_error = errno;
@@ -181,17 +184,18 @@ static int @NAME@_clock_error(@TYPED@PcError *error, int os_error)
     return -1;
 }
 
-int @NAME@_pc_deadline_start(uint32_t timeout_ms,
+int @NAME@_pc_deadline_start(const @TYPED@PcSocket *socket,
+    uint32_t timeout_ms,
     @TYPED@PcDeadline *deadline, @TYPED@PcError *error)
 {
     uint64_t now;
     int os_error;
-    if (deadline == NULL) {
+    if (socket == NULL || deadline == NULL) {
         @NAME@_pc_error_reset(error, "deadline_start");
         if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
         return -1;
     }
-    if (@NAME@_now_ms(&now, &os_error) != 0) {
+    if (@NAME@_now_ms(socket, &now, &os_error) != 0) {
         return @NAME@_clock_error(error, os_error);
     }
     deadline->expires_at_ms = UINT64_MAX - now < timeout_ms ?
@@ -199,18 +203,20 @@ int @NAME@_pc_deadline_start(uint32_t timeout_ms,
     return 0;
 }
 
-int @NAME@_pc_deadline_remaining(const @TYPED@PcDeadline *deadline,
+int @NAME@_pc_deadline_remaining(const @TYPED@PcSocket *socket,
+    const @TYPED@PcDeadline *deadline,
     uint32_t *remaining_ms, int *expired, @TYPED@PcError *error)
 {
     uint64_t now;
     uint64_t remaining;
     int os_error;
-    if (deadline == NULL || remaining_ms == NULL || expired == NULL) {
+    if (socket == NULL || deadline == NULL || remaining_ms == NULL ||
+            expired == NULL) {
         @NAME@_pc_error_reset(error, "deadline_remaining");
         if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
         return -1;
     }
-    if (@NAME@_now_ms(&now, &os_error) != 0) {
+    if (@NAME@_now_ms(socket, &now, &os_error) != 0) {
         return @NAME@_clock_error(error, os_error);
     }
     *expired = now >= deadline->expires_at_ms;
@@ -270,7 +276,7 @@ static int @NAME@_wait(@TYPED@PcSocket *socket, int writable,
         uint32_t remaining;
         int expired;
         int result;
-        if (@NAME@_pc_deadline_remaining(deadline, &remaining,
+        if (@NAME@_pc_deadline_remaining(socket, deadline, &remaining,
                 &expired, error) != 0) {
             @NAME@_pc_socket_close(socket);
             return -1;
@@ -298,7 +304,7 @@ static int @NAME@_wait(@TYPED@PcSocket *socket, int writable,
         result = poll(&descriptor, 1, poll_timeout);
 #endif
         if (result > 0) {
-            if (@NAME@_pc_deadline_remaining(deadline, &remaining,
+            if (@NAME@_pc_deadline_remaining(socket, deadline, &remaining,
                     &expired, error) != 0) {
                 @NAME@_pc_socket_close(socket);
                 return -1;
@@ -365,6 +371,18 @@ int @NAME@_pc_socket_init(@TYPED@PcSocket *socket, @TYPED@PcError *error)
     }
 #endif
     socket->platform_initialized = 1;
+#ifdef _WIN32
+    {
+        LARGE_INTEGER frequency;
+        int os_error;
+        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+            os_error = (int)GetLastError();
+            if (os_error == 0) os_error = -1;
+            return @NAME@_clock_error(error, os_error);
+        }
+        socket->clock_frequency_hz = (uint64_t)frequency.QuadPart;
+    }
+#endif
     return 0;
 }
 
@@ -431,11 +449,11 @@ int @NAME@_pc_socket_connect(@TYPED@PcSocket *context, const char *ip,
         return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET,
             @MACRO@_LAST_ERROR());
     }
-    if (@NAME@_pc_deadline_start(timeout_ms, &deadline, error) != 0) {
+    if (@NAME@_pc_deadline_start(context, timeout_ms, &deadline, error) != 0) {
         @NAME@_pc_socket_close(context);
         return -1;
     }
-    if (@NAME@_pc_deadline_remaining(&deadline, &remaining, &expired,
+    if (@NAME@_pc_deadline_remaining(context, &deadline, &remaining, &expired,
             error) != 0) {
         @NAME@_pc_socket_close(context);
         return -1;
@@ -459,7 +477,7 @@ int @NAME@_pc_socket_connect(@TYPED@PcSocket *context, const char *ip,
             }
             return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET, os_error);
         }
-        if (@NAME@_pc_deadline_remaining(&deadline, &remaining, &expired,
+        if (@NAME@_pc_deadline_remaining(context, &deadline, &remaining, &expired,
                 error) != 0) {
             @NAME@_pc_socket_close(context);
             return -1;
@@ -475,7 +493,7 @@ int @NAME@_pc_socket_connect(@TYPED@PcSocket *context, const char *ip,
             return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET, os_error);
         }
     }
-    if (@NAME@_pc_deadline_remaining(&deadline, &remaining, &expired,
+    if (@NAME@_pc_deadline_remaining(context, &deadline, &remaining, &expired,
             error) != 0) {
         @NAME@_pc_socket_close(context);
         return -1;
@@ -492,7 +510,6 @@ static int @NAME@_transfer_until(@TYPED@PcSocket *socket, uint8_t *data,
 {
     uint32_t done = 0u;
     @NAME@_native_socket native;
-    @NAME@_pc_error_reset(error, sending ? "send" : "receive");
     if (socket == NULL || !socket->valid ||
             (length != 0u && (data == NULL || deadline == NULL))) {
         if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
@@ -569,7 +586,7 @@ int @NAME@_pc_socket_send_all(@TYPED@PcSocket *socket, const uint8_t *data,
         return @NAME@_pc_socket_send_all_until(socket, data, length,
             NULL, error);
     }
-    if (@NAME@_pc_deadline_start(timeout_ms, &deadline, error) != 0) {
+    if (@NAME@_pc_deadline_start(socket, timeout_ms, &deadline, error) != 0) {
         @NAME@_pc_socket_close(socket);
         return -1;
     }
@@ -586,7 +603,7 @@ int @NAME@_pc_socket_recv_exact(@TYPED@PcSocket *socket, uint8_t *data,
         return @NAME@_pc_socket_recv_exact_until(socket, data, length,
             NULL, error);
     }
-    if (@NAME@_pc_deadline_start(timeout_ms, &deadline, error) != 0) {
+    if (@NAME@_pc_deadline_start(socket, timeout_ms, &deadline, error) != 0) {
         @NAME@_pc_socket_close(socket);
         return -1;
     }

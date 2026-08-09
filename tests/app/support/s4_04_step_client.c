@@ -7,7 +7,7 @@
 
 #ifdef INJECT_DECODE_FAILURE
 static int injected_decode_failure(const uint8_t *payload,
-    uint16_t payload_length, uint32_t expected_step,
+    uint32_t expected_step,
     AxisAlphaSfunOutputTemp *temporary, AxisAlphaPcError *error);
 #define axis_alpha_sfun_decode_output_payload injected_decode_failure
 #endif
@@ -15,10 +15,10 @@ static int injected_decode_failure(const uint8_t *payload,
 #ifdef INJECT_DECODE_FAILURE
 #undef axis_alpha_sfun_decode_output_payload
 static int injected_decode_failure(const uint8_t *payload,
-    uint16_t payload_length, uint32_t expected_step,
+    uint32_t expected_step,
     AxisAlphaSfunOutputTemp *temporary, AxisAlphaPcError *error)
 {
-    if (axis_alpha_sfun_decode_output_payload(payload, payload_length,
+    if (axis_alpha_sfun_decode_output_payload(payload,
             expected_step, temporary, error) != 0) return -1;
     axis_alpha_pc_error_reset(error, "decode_output");
     error->kind = AXIS_ALPHA_PC_ERROR_FIELD_DECODE;
@@ -32,8 +32,8 @@ typedef struct
     uint16_t u16[1];
     int32_t i32[1];
     uint32_t u32[1];
-    float f32[1];
-    double f64[2];
+    float f32[7];
+    double f64[7];
 } Inputs;
 
 typedef struct
@@ -42,8 +42,8 @@ typedef struct
     uint16_t u16[1];
     int32_t i32[1];
     uint32_t u32[1];
-    float f32[2];
-    double f64[1];
+    float f32[7];
+    double f64[7];
 } Outputs;
 
 static int contains(const char *text, const char *token)
@@ -51,19 +51,48 @@ static int contains(const char *text, const char *token)
     return text != NULL && strstr(text, token) != NULL;
 }
 
+static void seed_stale_error(AxisAlphaPcError *error)
+{
+    error->available = AXIS_ALPHA_PC_ERROR_HAS_EXPECTED_TYPE |
+        AXIS_ALPHA_PC_ERROR_HAS_ACTUAL_TYPE |
+        AXIS_ALPHA_PC_ERROR_HAS_EXPECTED_LENGTH |
+        AXIS_ALPHA_PC_ERROR_HAS_ACTUAL_LENGTH |
+        AXIS_ALPHA_PC_ERROR_HAS_EXPECTED_STEP |
+        AXIS_ALPHA_PC_ERROR_HAS_ACTUAL_STEP |
+        AXIS_ALPHA_PC_ERROR_HAS_DSP_ERROR |
+        AXIS_ALPHA_PC_ERROR_HAS_OS_ERROR;
+    error->expected_type = UINT16_MAX - 3u;
+    error->actual_type = UINT16_MAX - 4u;
+    error->expected_length = UINT16_MAX - 5u;
+    error->actual_length = UINT16_MAX - 6u;
+    error->expected_step = UINT32_MAX - 7u;
+    error->actual_step = UINT32_MAX - 8u;
+    error->dsp_error = UINT16_MAX - 9u;
+    error->os_error = -123;
+}
+
 static void initialize_inputs(Inputs *values)
 {
-    const uint32_t negative_zero = UINT32_C(0x80000000);
-    const uint64_t nan_bits = UINT64_C(0x7ff80000000000a5);
-    const uint64_t one_bits = UINT64_C(0x3ff0000000000000);
+    static const uint32_t f32_bits[7] = {
+        UINT32_C(0x00000000), UINT32_C(0x80000000),
+        UINT32_C(0x7f800000), UINT32_C(0xff800000),
+        UINT32_C(0x7fc000a5), UINT32_C(0x00000001),
+        UINT32_C(0x3f800000)};
+    static const uint64_t f64_bits[7] = {
+        UINT64_C(0x0000000000000000), UINT64_C(0x8000000000000000),
+        UINT64_C(0x7ff0000000000000), UINT64_C(0xfff0000000000000),
+        UINT64_C(0x7ff80000000000a5), UINT64_C(0x0000000000000001),
+        UINT64_C(0x3ff0000000000000)};
+    unsigned int index;
     values->i16[0] = -2;
     values->i16[1] = 0x1234;
     values->u16[0] = UINT16_C(0xfedc);
     values->i32[0] = -123456789;
     values->u32[0] = UINT32_C(0x89abcdef);
-    memcpy(&values->f32[0], &negative_zero, sizeof(negative_zero));
-    memcpy(&values->f64[0], &nan_bits, sizeof(nan_bits));
-    memcpy(&values->f64[1], &one_bits, sizeof(one_bits));
+    for (index = 0u; index < 7u; ++index) {
+        memcpy(&values->f32[index], &f32_bits[index], sizeof(f32_bits[index]));
+        memcpy(&values->f64[index], &f64_bits[index], sizeof(f64_bits[index]));
+    }
 }
 
 static void connect_ports(SimStruct *sim, Inputs *inputs, Outputs *outputs)
@@ -84,16 +113,33 @@ static void connect_ports(SimStruct *sim, Inputs *inputs, Outputs *outputs)
 
 static int outputs_match(const Outputs *values)
 {
-    uint32_t f0;
-    uint32_t f1;
-    uint64_t d0;
-    memcpy(&f0, &values->f32[0], sizeof(f0));
-    memcpy(&f1, &values->f32[1], sizeof(f1));
-    memcpy(&d0, &values->f64[0], sizeof(d0));
-    return values->i16[0] == -32767 && values->u16[0] == UINT16_C(0xabcd) &&
-        values->i32[0] == -2 && values->u32[0] == UINT32_C(0xfedcba98) &&
-        f0 == UINT32_C(0x80000000) && f1 == UINT32_C(1) &&
-        d0 == UINT64_C(0x7ff80000000000a5);
+    static const uint32_t expected_f32[7] = {
+        UINT32_C(0x00000000), UINT32_C(0x80000000),
+        UINT32_C(0x7f800000), UINT32_C(0xff800000),
+        UINT32_C(0x7fc000a5), UINT32_C(0x00000001),
+        UINT32_C(0x3f800000)};
+    static const uint64_t expected_f64[7] = {
+        UINT64_C(0x0000000000000000), UINT64_C(0x8000000000000000),
+        UINT64_C(0x7ff0000000000000), UINT64_C(0xfff0000000000000),
+        UINT64_C(0x7ff80000000000a5), UINT64_C(0x0000000000000001),
+        UINT64_C(0x3ff0000000000000)};
+    unsigned int index;
+    if (values->i16[0] == -32767 &&
+            values->u16[0] == UINT16_C(0xabcd) &&
+            values->i32[0] == -2 &&
+            values->u32[0] == UINT32_C(0xfedcba98)) {
+        for (index = 0u; index < 7u; ++index) {
+            uint32_t f32;
+            uint64_t f64;
+            memcpy(&f32, &values->f32[index], sizeof(f32));
+            memcpy(&f64, &values->f64[index], sizeof(f64));
+            if (f32 != expected_f32[index] || f64 != expected_f64[index]) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    return 0;
 }
 
 int main(int argc, char **argv)
@@ -135,6 +181,7 @@ int main(int argc, char **argv)
         initial_step = UINT32_MAX;
     }
     if (strcmp(argv[1], "port_failure") == 0) sim.outputs[1] = NULL;
+    seed_stale_error(&context->error);
     mdlOutputs(&sim, 0);
     if (memcmp(&beta_outputs, &beta_snapshot, sizeof(beta_outputs)) != 0 ||
             memcmp(&beta_context, &beta_context_snapshot,
@@ -169,11 +216,19 @@ int main(int argc, char **argv)
         if ((strcmp(argv[1], "short") == 0 || strcmp(argv[1], "long") == 0 ||
                 strcmp(argv[1], "odd") == 0) &&
                 (!contains(sim.error_status, "category=payload_length") ||
-                 !contains(sim.error_status, "expected_length=32"))) return 10;
+                 !contains(sim.error_status, "expected_length=100"))) return 10;
         if (strcmp(argv[1], "decode_failure") == 0 &&
                 !contains(sim.error_status, "category=field_decode")) return 11;
         if (strcmp(argv[1], "port_failure") == 0 &&
                 !contains(sim.error_status, "category=port_access")) return 12;
+        if (contains(sim.error_status, "expected_type=65532") ||
+                contains(sim.error_status, "actual_type=65531") ||
+                contains(sim.error_status, "expected_length=65530") ||
+                contains(sim.error_status, "actual_length=65529") ||
+                contains(sim.error_status, "expected_step=4294967288") ||
+                contains(sim.error_status, "actual_step=4294967287") ||
+                contains(sim.error_status, "dsp_error=65526") ||
+                contains(sim.error_status, "os_error=-123")) return 15;
     }
     mdlTerminate(&sim);
     if (sim.pwork != NULL) return 13;
