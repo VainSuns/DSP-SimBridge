@@ -155,6 +155,7 @@ def valid(connection, step, _):
 
 run("success", valid, (0, 1))
 run("wrap", valid, (0xFFFFFFFF,))
+run("input_port_failure", lambda _c, _s, _i: None, ())
 run("response_error", lambda c, _s, _i: c.sendall(frame(5, struct.pack("<H", 7))))
 run("response_zero", lambda c, _s, _i: c.sendall(frame(5, struct.pack("<H", 0))))
 run("wrong_type", lambda c, _s, _i: c.sendall(frame(4)))
@@ -194,4 +195,4 @@ def disconnect(connection, _step, _index):
 run("disconnect", disconnect)
 run("decode_failure", valid, injected=True)
 run("port_failure", valid)
-print("SUMMARY passed=15 failed=0")
+print("SUMMARY passed=16 failed=0")

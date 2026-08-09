@@ -28,6 +28,8 @@ classdef test_sfun_step_candidates < matlab.unittest.TestCase
             source = candidate_text(candidates, 'axis_alpha_sfun.c');
             header = candidate_text(candidates, 'axis_alpha_sfun.h');
             io = candidate_text(candidates, 'axis_alpha_sfun_io.c');
+            betaConfig = candidate_text(candidates, 'axis_beta_sfun_config.h');
+            betaIo = candidate_text(candidates, 'axis_beta_sfun_io.c');
             testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_INPUT_PAYLOAD_OCTETS 102u');
             testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_OUTPUT_PAYLOAD_OCTETS 100u');
             testCase.verifySubstring(config, '#define AXIS_ALPHA_SFUN_INPUT_DATA_OCTETS 98u');
@@ -46,6 +48,23 @@ classdef test_sfun_step_candidates < matlab.unittest.TestCase
             testCase.verifySubstring(io, 'ssGetInputPortSignal(S, 0)');
             testCase.verifySubstring(io, 'ssGetOutputPortSignal(S, 0)');
             testCase.verifyEmpty(regexp(io, 'for \([^\n]*(port|element)', 'once'));
+            testCase.verifySubstring(betaConfig, '#define AXIS_BETA_SFUN_INPUT_PAYLOAD_OCTETS 38u');
+            testCase.verifySubstring(betaConfig, '#define AXIS_BETA_SFUN_OUTPUT_PAYLOAD_OCTETS 40u');
+            testCase.verifySubstring(betaConfig, '#define AXIS_BETA_SFUN_INPUT_5_WIRE_OFFSET 30u');
+            testCase.verifySubstring(betaConfig, '#define AXIS_BETA_SFUN_OUTPUT_5_WIRE_OFFSET 32u');
+            testCase.verifySubstring(betaIo, 'ssGetInputPortSignal(S, 5)');
+            testCase.verifySubstring(betaIo, 'ssGetOutputPortSignal(S, 5)');
+            testCase.verifyEmpty(regexp(betaIo, 'for \([^\n]*(port|element)', 'once'));
+            writeLe64 = c_function_text(io, ...
+                'static void axis_alpha_sfun_write_le64');
+            readLe64 = c_function_text(io, ...
+                'static uint64_t axis_alpha_sfun_read_le64');
+            testCase.verifyEmpty(regexp([writeLe64 readLe64], ...
+                '\<(for|while)\s*\(', 'once'));
+            testCase.verifyEmpty(regexp([writeLe64 readLe64], ...
+                '\<index\>', 'once'));
+            testCase.verifySubstring(writeLe64, 'value >> 56');
+            testCase.verifySubstring(readLe64, '(uint64_t)buffer[7] << 56');
             testCase.verifyEmpty(regexp(io, 'memcpy\([^\n]*tx_payload', 'once'));
             outputsStart = strfind(source, 'static void mdlOutputs');
             terminateStart = strfind(source, 'static void mdlTerminate');
@@ -62,7 +81,8 @@ classdef test_sfun_step_candidates < matlab.unittest.TestCase
                 executable, folder, port);
             [status, output] = system(command);
             testCase.verifyEqual(status, 0, output);
-            testCase.verifySubstring(output, 'SUMMARY passed=15 failed=0');
+            testCase.verifySubstring(output, 'BETA_COMPLEMENTARY_IO=PASS');
+            testCase.verifySubstring(output, 'SUMMARY passed=16 failed=0');
         end
     end
 end
@@ -83,6 +103,10 @@ first.inputs = struct('name', inputNames, 'type', types, 'dim', inputDims);
 first.outputs = struct('name', outputNames, 'type', types, 'dim', outputDims);
 first.iodevice.settings.tcp_port = uint16(port);
 second = first; second.display_name = 'Axis Beta'; second.internal_name = 'axis_beta';
+second.inputs = struct('name', inputNames, 'type', types, ...
+    'dim', {1, 2, 2, 2, 1, 1});
+second.outputs = struct('name', outputNames, 'type', types, ...
+    'dim', {2, 2, 2, 2, 1, 1});
 second.iodevice.settings.socket_number = uint16(1);
 second.iodevice.settings.tcp_port = uint16(port + (port < 65535) - (port == 65535));
 project.instances = [first second];
@@ -96,6 +120,15 @@ function text = candidate_text(candidates, name)
 index = find(endsWith({candidates.target_path}, name), 1);
 assert(~isempty(index));
 text = native2unicode(candidates(index).content_bytes, 'UTF-8');
+end
+
+function text = c_function_text(source, signature)
+startPosition = strfind(source, signature);
+assert(isscalar(startPosition));
+tail = source(startPosition:end);
+[~, endPosition] = regexp(tail, '(?m)^\}\n', 'start', 'end', 'once');
+assert(~isempty(endPosition));
+text = tail(1:endPosition);
 end
 
 function port = free_port()
