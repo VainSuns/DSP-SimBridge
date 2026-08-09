@@ -1,553 +1,204 @@
-# DSP-SimBridge — DSP 在环仿真通信模块
+# DSP-SimBridge
 
-[![MATLAB](https://img.shields.io/badge/MATLAB-R2024b%2B-blue)](https://www.mathworks.com/products/matlab.html)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+DSP-SimBridge 是面向算法研发、调试和 Simulink—DSP 联合仿真的多实例通信桥。当前产品使用 V2 项目格式，为一个 TMS320F28377D 裸机工程生成静态多实例 DSP 文件，并为每个实例生成独立的 C MEX S-Function 源码。
 
-## 当前开发状态
+## Current V1 Scope
 
-当前唯一需求入口是 `requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md`，当前唯一实施计划是 `plan.md`。当前 App 已采用 V2 多实例项目、Preview 和 Generate 流程；请从[《App 项目与旧配置迁移指南》](docs/app_project_and_migration_guide.md)开始使用。README 后续保留的单实例操作示例是历史内容，不应作为当前 App 的操作入口。
+- 目标 DSP：TMS320F28377D。
+- 第一版 IoDevice：W5300 TCP；一个项目对应一个物理 W5300。
+- 实例在同一个裸机 `main` 循环中按用户定义的顺序串行轮询。
+- 实例及其 Socket、TCP port、缓冲区、协议状态和算法绑定均在编译期静态确定。
+- 每个 DSP 实例对应一个独立生成、独立构建的 C MEX S-Function。
+- Wire protocol 保持历史 V1 兼容，当前协议版本为 `1`。
+- PC 基线为 MATLAB/Simulink R2024b 或更高版本，使用桌面 Normal mode。
+- 项目级 ABI 支持 `eabi` 和 `coffabi`；用户 CCS 工程必须与 App 项目选择一致。
+- I/O 类型支持 `int16`、`uint16`、`int32`、`uint32`、`single` 和 `double`，每个变量是固定长度的一维标量或向量。
 
-DSP-SimBridge 是一个 DSP 在环仿真（DSP-in-the-Loop）通信模块，用于在 Simulink 仿真环境中验证运行在 TI C2000 DSP 上的控制算法。
+逻辑 `double` 在线缆上固定为 8 wire octet IEEE 754 binary64。DSP 生成代码使用 `long double` 并执行当前需求规定的编译期宽度与表示检查；ABI 不改变 wire 编码。
 
-## 📋 目录
+## Architecture
 
-- [概述](#概述)
-- [特性](#特性)
-- [系统架构](#系统架构)
-- [目录结构](#目录结构)
-- [快速开始](#快速开始)
-- [详细使用说明](#详细使用说明)
-- [协议规范](#协议规范)
-- [配置参数](#配置参数)
-- [故障排除](#故障排除)
-- [开发指南](#开发指南)
+DSP 生成路径：
 
-## 概述
-
-### 问题背景
-
-受到硬件条件的限制，DSP 的控制算法无法在所有运行工况下得到验证。需要一种在环仿真方案，在 Simulink 仿真环境中对运行在 DSP 上的实际控制算法进行验证。
-
-### 解决方案
-
-构建 Simulink ↔ DSP 的双向 TCP/IP 通信链路：
-
-1. **Simulink 端**：S-Function 模块读取仿真输入信号，通过 TCP/IP 将数据发送到 DSP；接收 DSP 处理后的结果，输出到 Simulink 仿真环境中。
-2. **DSP 端**：以库的形式提供通信框架，接收输入数据、调用用户实现的控制算法、将结果返回 Simulink。
-3. **配置工具**：MATLAB App 生成 Simulink 端和 DSP 端的配置文件，统一定义输入输出数据、网络参数和配置签名。
-
-S-Function 仅负责数据转发，不涉及控制算法实现。控制算法完全在 DSP 端运行。
-
-## 特性
-
-- ✅ 支持 `int16`、`uint16`、`int32`、`uint32`、`single` 数据类型
-- ✅ 支持 `double`（仅在 DSP 使用 EABI 且 64-bit double 时）
-- ✅ 支持标量和一维数组
-- ✅ 支持任意数量的输入/输出变量
-- ✅ 自动生成配置文件和序列化代码
-- ✅ 非阻塞通信，支持长时间仿真（step_index 自动回绕）
-- ✅ 完整的错误码报告，便于调试
-- ✅ 跨平台 socket 支持（Windows/POSIX）
-
-## 系统架构
-
-```
-┌─────────────────────────────┐          TCP/IP           ┌─────────────────────────────┐
-│         PC (Simulink)       │ ◄═══════════════════════► │         DSP (C2837x)        │
-│                             │        (W5300)            │                             │
-│  ┌──────────────┐           │                            │           ┌──────────────┐  │
-│  │  S-Function  │ 输入数据 ─►│────── INPUT_DATA ────────►│──► 用户算法 ─►│ 返回结果     │  │
-│  │  数据转发     │◄ 输出数据 │◄──── OUTPUT_DATA ────────│◄────────────│              │  │
-│  └──────────────┘           │                            │           └──────────────┘  │
-│         ▲                   │                            │                   ▲         │
-│         │                   │                            │                   │         │
-│  Simulink端配置文件          │                            │            DSP端配置文件      │
-│  字节级序列化/网络参数        │                            │         word级序列化/网络参数  │
-└─────────────────────────────┘                            └─────────────────────────────┘
+```text
+App
+→ V2 project validation / Preview / Generate
+→ <dsp_root>/inc + <dsp_root>/src
+→ DSP public Core
+→ project-level static bindings
+→ per-instance algorithm / config / typed I/O / W5300 channel
+→ W5300 TCP
 ```
 
-### 通信流程
+Simulink 生成路径：
 
-```
-PC (Simulink)                              DSP
-    │                                        │
-    │──── SIM_START(version, hash) ────────►│  初始化
-    │◄─── RESPONSE(0) ─────────────────────│  成功
-    │                                        │
-    │──── INPUT_DATA(step=0) ─────────────►│  输入
-    │◄─── OUTPUT_DATA(step=0) ────────────│  输出
-    │                                        │
-    │──── INPUT_DATA(step=1) ─────────────►│  输入
-    │◄─── OUTPUT_DATA(step=1) ────────────│  输出
-    │                                        │
-    │         ... 重复 ...                    │
-    │                                        │
-    │──── SIM_STOP ───────────────────────►│  结束
+```text
+App
+→ <sfun_root>/<internal_name>/
+→ build_<internal_name>_sfun.m
+→ <internal_name>_sfun.<mexext>
+→ ordinary Simulink S-Function Block
 ```
 
-## 目录结构
+每个实例独立管理输入/输出对象、RX/TX 软件缓冲区、Socket、TCP port、连接与会话、协议阶段、`step_index`、收发进度、超时状态、算法生命周期、PC context 和最近错误。MAC、IP、gateway、subnet、W5300 公共初始化和 CPU Timer 2 等真正的平台资源只在项目级共享。
 
-```
-DSP-SimBridge/
-├── app/                                # MATLAB App 配置工具
-│   ├── C2837xBlockConfigurator.m       # App 主文件
-│   ├── c2837x_block_build_hash_string.m # Hash 计算
-│   ├── c2837x_block_crc32.m            # CRC32 实现
-│   ├── c2837x_block_generate_dsp_files.m # DSP 文件生成器
-│   ├── c2837x_block_generate_pc_files.m  # PC 文件生成器
-│   └── c2837x_block_validate_name.m      # 变量名验证
-│
-├── dsp/                                # DSP 端源代码（参考实现）
-│   ├── inc/                            # 头文件目录
-│   │   ├── c2837x_block.h              # DSP 主 API
-│   │   ├── c2837x_block_algorithm.h    # 用户算法接口声明
-│   │   ├── c2837x_block_config.h       # DSP 配置（App 生成）
-│   │   ├── c2837x_block_protocol.h     # 协议定义
-│   │   ├── c2837x_w5300_hal.h          # W5300 硬件抽象层
-│   │   ├── c2837x_w5300_regs.h         # W5300 寄存器定义
-│   │   └── c2837x_w5300_socket.h       # Socket 封装
-│   └── src/                            # 源文件目录
-│       ├── c2837x_block.c              # DSP 主实现（状态机）
-│       ├── c2837x_block_config.c       # 配置实现（App 生成）
-│       ├── c2837x_block_global_variable.c # 全局变量（App 生成）
-│       ├── c2837x_block_protocol.c     # 协议实现
-│       ├── c2837x_w5300_hal.c          # W5300 HAL 实现
-│       ├── c2837x_w5300_socket.c       # Socket 实现
-│       └── my_algorithm.c              # 用户算法示例
-│
-├── simulink/                           # Simulink 端源代码
-│   ├── c2837x_block_sfun.c             # C S-Function 主文件
-│   ├── c2837x_block_sfun.h             # S-Function 头文件
-│   ├── c2837x_block_sfun_io.c          # 端口 I/O（App 生成）
-│   ├── c2837x_block_pc_config.h        # PC 配置（App 生成）
-│   ├── c2837x_block_pc_socket.c        # Socket 封装
-│   ├── c2837x_block_pc_socket.h        # Socket 头文件
-│   ├── c2837x_block_protocol.c         # 协议实现
-│   ├── c2837x_block_protocol.h         # 协议头文件
-│   ├── build_c2837x_block_sfun.m       # MEX 编译脚本
-│   ├── c2837x_block_sfun_matlab.m      # MATLAB S-Function（遗留）
-│   └── c2837x_block_test.slx           # 测试模型
-│
-├── requirements/
-│   └── requirements_multi_iodevice_v1.0_frozen_rev2.md # 当前唯一需求入口
-├── plan.md                             # 当前唯一实施计划
-├── tests/                              # MATLAB 测试
-└── README.md                           # 本文件
-```
+## Key Features
 
-## 快速开始
+- V2 `.mat` 项目保存、加载、dirty 状态和旧单实例配置迁移。
+- 多实例 Add、Copy、Delete、命名和资源冲突校验。
+- 强类型 I/O、确定性 wire layout、逐实例 Interface Hash 和内存报告。
+- 不写盘的 Preview、候选文件比较、用户文件保护和快照复核。
+- 确定性生成 DSP Core、项目级绑定、实例文件及自包含 S-Function 目录。
+- 显式实例 DSP API、设备无关的非阻塞 Core、CPU Timer 2 通信超时和 W5300 通道状态机。
+- 同步 Normal-mode step、PC 临时输出解码与原子提交、结构化错误文本。
 
-> 本节及其后续单实例 App 操作步骤保留作历史参考，与当前 V2 多实例 App 不一致。新项目、旧配置迁移、Preview 和 Generate 请使用[当前 App 指南](docs/app_project_and_migration_guide.md)。
+## Requirements
 
-### 前置条件
+[Frozen V1.0 Rev.2 requirements](requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md) 是当前唯一需求事实源。本文、实现、测试和验收材料不得改变其中 FR 的含义。
 
-- MATLAB R2024b 或更高版本（带 Simulink）
-- C 编译器（Windows: MinGW 或 MSVC）
-- TI Code Composer Studio (CCS)
-- TI C2000 DSP（C2837x 系列）
-- W5300 以太网模块
+- [Implementation plan](plan.md) — 任务拆分和阶段门禁计划，不是需求事实源。
+- [Requirements traceability](docs/requirements_traceability.md) — frozen requirements 到实现、文档和验证状态的逐 FR 追踪。
 
-### 步骤 1：配置输入输出变量
+## Quick Start
 
-在 MATLAB 中打开配置工具：
+1. 按 [App 项目与迁移指南](docs/app_project_and_migration_guide.md) 启动 App，并创建或加载 V2 项目。
+2. 配置项目公共网络、ABI、输出根、实例、Socket/TCP port 和 I/O。
+3. 在 App 中执行 Preview，核对 Interface Hash、内存报告和候选动作，再执行 Generate。
+4. 按 [CCS 集成和双实例 main 指南](docs/ccs_integration_and_dual_instance_main.md) 将 `<dsp_root>/inc` 与 `<dsp_root>/src` 集成到用户 CCS 工程。
+5. 按 [Simulink 与 MEX 使用指南](docs/simulink_mex_user_guide.md) 分别运行每个实例的构建脚本。
+6. 将实例目录加入 MATLAB Path，在模型中放置普通 S-Function Block，并把 `FunctionName` 设为 `<internal_name>_sfun`。
+7. 按 App 的 I/O 顺序连接端口，使用 Normal mode；用户执行 Update Diagram 后再联机运行。
+8. 按 [测试方案](docs/test_plan.md) 执行软件、CCS、DSP 和硬件验收，并将真实结果写入验收记录。
 
-```matlab
-app = C2837xBlockConfigurator;
+App 不生成或修改用户 `.slx`，也不自动构建 MEX、创建 CCS 工程、下载 DSP 或执行硬件测试。
+
+## Documentation
+
+- [App 项目与迁移指南](docs/app_project_and_migration_guide.md)
+- [CCS 集成和双实例 main 指南](docs/ccs_integration_and_dual_instance_main.md)
+- [Simulink 与 MEX 使用指南](docs/simulink_mex_user_guide.md)
+- [测试方案](docs/test_plan.md)
+- [问题反馈模板](docs/problem_feedback_template.md)
+- [验收记录模板](docs/acceptance_record_template.md)
+- [需求追踪](docs/requirements_traceability.md)
+
+## Generated Outputs
+
+DSP 输出根固定包含：
+
+```text
+<dsp_root>/inc/   public/generated headers and per-instance headers
+<dsp_root>/src/   public Core, project bindings, per-instance I/O and algorithms
 ```
 
-在 App 界面中：
-1. 添加输入变量（如 `a`, `b`, `c`，类型 `int16`）
-2. 添加输出变量（如 `sum`，类型 `int16`）
-3. 配置网络参数（IP 地址、端口等）
-4. 设置 DSP 和 PC 输出目录（**不能在项目文件夹内**）
+S-Function 输出按实例隔离：
 
-### 步骤 2：生成配置文件
-
-点击 **Generate** 按钮，App 会生成：
-- **DSP 端文件**：配置头文件、序列化代码、全局变量定义
-- **PC 端文件**：配置头文件、端口 I/O 代码
-
-### 步骤 3：在 CCS 中创建 DSP 工程
-
-#### 3.1 创建新工程
-
-1. 打开 Code Composer Studio
-2. 选择 **File → New → CCS Project**
-3. 选择目标器件（如 TMS320F2837xD）
-4. 设置工程名称和位置
-5. 选择编译器版本和配置（建议使用 EABI）
-
-#### 3.2 导入生成的 DSP 文件
-
-将 App 生成的 DSP 文件复制到 CCS 工程目录：
-
-```
-your_ccs_project/
-├── inc/                            # 头文件目录
-│   ├── c2837x_block_algorithm.h    # 生成：用户算法接口
-│   ├── c2837x_block_config.h       # 生成：DSP 配置
-│   ├── c2837x_block.h              # 拷贝：DSP 主 API
-│   ├── c2837x_block_protocol.h     # 拷贝：协议定义
-│   ├── c2837x_w5300_regs.h         # 拷贝：W5300 寄存器
-│   ├── c2837x_w5300_hal.h          # 拷贝：W5300 HAL
-│   └── c2837x_w5300_socket.h       # 拷贝：Socket 封装
-└── src/                            # 源文件目录
-    ├── c2837x_block_config.c       # 生成：配置实现
-    ├── c2837x_block_global_variable.c  # 生成：全局变量
-    ├── my_algorithm.c              # 用户编写：算法实现
-    ├── c2837x_block.c              # 拷贝：DSP 主实现
-    ├── c2837x_block_protocol.c     # 拷贝：协议实现
-    ├── c2837x_w5300_hal.c          # 拷贝：W5300 HAL
-    └── c2837x_w5300_socket.c       # 拷贝：Socket 封装
+```text
+<sfun_root>/<internal_name>/
 ```
 
-#### 3.3 配置 CCS 工程
+每个实例目录包含实例专用 S-Function、typed I/O、PC Socket、V1 protocol、自动配置头、用户配置头和 `build_<internal_name>_sfun.m`。完整文件职责和构建规则见 [App 指南](docs/app_project_and_migration_guide.md)与 [Simulink/MEX 指南](docs/simulink_mex_user_guide.md)。本文是 V2 多实例项目的当前入口；仓库中仍可能物理保留的旧单实例源码或说明与当前 V2 多实例 App 不一致，不作为当前用法或历史参考教程，也不得与 V2 输出混合编译或加载。
 
-1. 在 CCS 中右键工程 → **Properties**
-2. **Build → Include Options**：添加 `inc` 目录到包含路径
-3. **Build → C2000 Compiler → Processor Options**：
-   - Target: `--float_support=fpu64`（如需 double 支持）
-   - ABI: `--abi=eabi`（与配置工具选择一致）
-4. **Build → C2000 Linker → File Search Path**：确保链接所有源文件
+## DSP Public API
 
-### 步骤 4：编写自定义算法函数
-
-编辑 `my_algorithm.c` 文件，实现三个回调函数：
+当前公共原型以 [`dsp/inc/c2837x_block.h`](dsp/inc/c2837x_block.h) 为准：
 
 ```c
-#include "c2837x_block_algorithm.h"
-
-/**
- * @brief 仿真开始回调
- * @return 0 成功，非 0 失败
- */
-int C2837xBlock_OnSimStart(void)
-{
-    // 初始化代码（如外设、变量等）
-    // ...
-    
-    return 0;  // 返回 0 表示成功
-}
-
-/**
- * @brief 每个仿真步回调
- * @return 0 成功，非 0 失败
- */
-int C2837xBlock_OnStep(void)
-{
-    // 读取输入变量（名称由配置工具定义）
-    int16_t a = c2837x_block_input.a;
-    int16_t b = c2837x_block_input.b;
-    int16_t c = c2837x_block_input.c;
-    
-    // 执行控制算法
-    int16_t sum = a + b + c;
-    
-    // 饱和处理（可选）
-    if (sum > 30000) sum = 30000;
-    if (sum < -30000) sum = -30000;
-    
-    // 写入输出变量（名称由配置工具定义）
-    c2837x_block_output.sum = sum;
-    
-    return 0;  // 返回 0 表示成功
-}
-
-/**
- * @brief 仿真结束回调
- */
-void C2837xBlock_OnSimStop(void)
-{
-    // 清理代码（如关闭外设、保存数据等）
-    // ...
-}
+int16 C2837xBlock_PlatformInit(void);
+void C2837xBlock_Init(C2837xBlock *instance);
+void C2837xBlock_Run(C2837xBlock *instance);
+C2837xBlock_Error C2837xBlock_GetLastError(const C2837xBlock *instance);
 ```
 
-**输入输出变量访问**：
+`C2837xBlock` 对用户保持不透明。用户只能传入生成的项目实例，不得自行创建、复制或重新绑定实例对象。
 
-```c
-// 读取输入（结构体字段名由配置工具定义）
-int16_t val = c2837x_block_input.variable_name;
+## Execution Model
 
-// 写入输出（结构体字段名由配置工具定义）
-c2837x_block_output.variable_name = val;
-
-// 数组类型变量
-int16_t elem = c2837x_block_input.array_name[index];
-c2837x_block_output.array_name[index] = elem;
+```text
+C2837xBlock_PlatformInit() once
+→ C2837xBlock_Init(&instance) once for each generated instance
+→ repeatedly call C2837xBlock_Run(&instance) in user-defined order
 ```
 
-**返回值约定**：
-- `C2837xBlock_OnSimStart()` 和 `C2837xBlock_OnStep()` 返回 `0` 表示成功
-- 返回非 `0` 值时，Simulink 端会收到错误码 5（ALGORITHM）并终止仿真
+`PlatformInit()` 失败后不得继续调用实例通信 API。DSP Core 不提供 scheduler、`RunAll()`、RTOS task 或按 sample time 的 DSP 调度；用户裸机主循环的调用顺序就是实例推进顺序。
 
-### 步骤 5：编译并烧录 DSP 程序
+W5300 通道关闭返回 ERROR 时，仅当前 Socket 进入私有 `faulted` 状态，不复位整个 W5300，也不恢复 `open/listen`；该 Socket 只有在后续一次成功的 `C2837xBlock_PlatformInit()` 或 DSP 复位后才可恢复。普通用户重新启动 PC simulation 不解除此门禁。
 
-1. 在 CCS 中编译工程：**Project → Build Project**
-2. 连接 DSP 硬件
-3. 烧录程序：**Run → Debug**
-4. 运行 DSP 程序
+## Simulink Integration
 
-### 步骤 6：编译 PC 端 C S-Function
+每个实例的 S-Function/MEX 基名都是：
 
-在 MATLAB 中切换到 PC 输出目录并编译：
-
-```matlab
-cd <your_pc_output_dir>
-build_c2837x_block_sfun
+```text
+<internal_name>_sfun
 ```
 
-### 步骤 7：运行 Simulink 仿真
+它用于普通 Simulink S-Function Block，当前只保证桌面 Normal mode。`sample_time_sec` 只影响 Simulink simulation-time scheduling；`mdlOutputs()` 同步等待一个完整 DSP step，它不表示 DSP wall-clock 周期。配置变化后按用户指南重新 Generate，并在需要时重建对应 MEX。
 
-1. 打开 Simulink 模型
-2. 添加 S-Function Block，设置 Function name 为 `c2837x_block_sfun`
-3. 连接输入输出端口（端口数量和类型由配置决定）
-4. 运行仿真
+## Protocol
 
-## 详细使用说明
+当前保持 V1 wire protocol：4 wire octet Header，消息 `SIM_START`、`INPUT_DATA`、`OUTPUT_DATA`、`SIM_STOP` 和 `RESPONSE`，little-endian 编码，`step_index` 为 `uint32`。详细行为、固定长度和错误码仍以 frozen requirements、当前 protocol source 和 protocol tests 为准；README 不定义第二份协议规范。
 
-### MATLAB App 配置工具
+## User Editable Files
 
-#### 输入变量配置
+DSP 用户维护：
 
-| 参数 | 说明 | 示例 |
-|------|------|------|
-| Name | 变量名（C 标识符） | `a`, `b`, `input_array` |
-| Type | 数据类型 | `int16`, `single`, `double` |
-| Dim | 数组维度（1 为标量） | `1`, `10` |
-
-#### 网络配置
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| DSP IP | 192.168.1.100 | DSP 的 IP 地址 |
-| Gateway | 192.168.1.1 | 网关地址 |
-| Subnet | 255.255.255.0 | 子网掩码 |
-| TCP Port | 5000 | TCP 端口号 |
-| Socket | 0 | W5300 Socket 编号 |
-
-#### 输出目录规则
-
-- DSP 和 PC 输出目录**不能**是项目文件夹的子目录
-- 可以只生成一侧（留空另一侧）
-- 文件已存在时会提示是否覆盖
-
-### C S-Function
-
-#### 支持的 S-Function 回调
-
-| 回调函数 | 功能 |
-|----------|------|
-| `mdlInitializeSizes` | 配置端口数量、类型、宽度 |
-| `mdlInitializeSampleTimes` | 设置固定离散采样时间 |
-| `mdlStart` | 连接 DSP，执行 SIM_START 握手 |
-| `mdlOutputs` | 每个采样点执行数据交换 |
-| `mdlTerminate` | 发送 SIM_STOP，关闭连接 |
-
-#### 错误码
-
-| 错误码 | 含义 | 说明 |
-|--------|------|------|
-| 0 | 成功 | SIM_START 成功 |
-| 1 | 未知报文类型 | 收到未知消息类型 |
-| 2 | 报文长度错误 | Payload 长度不匹配 |
-| 3 | 配置不匹配 | config_hash 不一致 |
-| 4 | 状态错误 | 协议流程错误 |
-| 5 | 内部错误 | DSP 内部错误 |
-| 6 | 协议版本不匹配 | 协议版本不一致 |
-| 7 | step_index 不匹配 | 仿真步索引错误 |
-| 8 | 不支持的数据类型 | 数据类型或 ABI 不支持 |
-
-## 协议规范
-
-### 帧格式
-
-```
-+--------+--------+-------------------+
-| type   | length | payload           |
-| 2字节  | 2字节  | length字节        |
-+--------+--------+-------------------+
+```text
+<internal_name>_user_config.h
+<internal_name>_algorithm.c
+user main.c
+user CCS project configuration
 ```
 
-- 字节序：little-endian
-- `type`：消息类型
-- `length`：payload 的 wire 字节数（必须为偶数）
+`external_reference` 模式下，算法源由用户在原路径维护并加入 CCS 工程。
 
-### 消息类型
+PC 用户维护：
 
-| 类型 | 值 | 方向 | 说明 |
-|------|-----|------|------|
-| SIM_START | 0x0001 | PC→DSP | 开始仿真 |
-| INPUT_DATA | 0x0002 | PC→DSP | 输入数据 |
-| OUTPUT_DATA | 0x0003 | DSP→PC | 输出数据 |
-| SIM_STOP | 0x0004 | PC→DSP | 结束仿真 |
-| RESPONSE | 0x0005 | DSP→PC | 响应/错误 |
-
-### Payload 格式
-
-**SIM_START** (6 字节)：
-```
-+------------------+------------------+
-| protocol_version | config_hash      |
-| 2字节            | 4字节            |
-+------------------+------------------+
+```text
+<internal_name>_sfun_user_config.h
 ```
 
-**INPUT_DATA** (4 + N 字节)：
-```
-+------------+----------+----------+-----+
-| step_index | input[0] | input[1] | ... |
-| 4字节      | 变长     | 变长     |     |
-+------------+----------+----------+-----+
-```
+其他 generated files、Interface Hash、尺寸、协议副本和构建脚本不应手工维护。DSP 用户配置头只承载 `INTERACTION_TIMEOUT`、`TRANSFER_TIMEOUT`；PC 用户配置头只承载 `CONNECT_TIMEOUT_MS`、`STEP_TIMEOUT_MS`、`TERMINATE_TIMEOUT_MS`。
 
-**OUTPUT_DATA** (4 + N 字节)：
-```
-+------------+-----------+-----------+-----+
-| step_index | output[0] | output[1] | ... |
-| 4字节      | 变长      | 变长      |     |
-+------------+-----------+-----------+-----+
-```
+## Validation Status
 
-**RESPONSE** (2 字节)：
-```
-+------------+
-| error_code |
-| 2字节      |
-+------------+
-```
+当前实现具有 App、protocol、DSP Host、PC Mock、S-Function source/build-path 和 Normal-mode 相关的软件测试基础。软件或 Host 证据只能说明对应机制和生成逻辑，不能替代用户环境中的 TI CCS 编译、DSP 下载或 W5300 实机证据。
 
-## 配置参数
+验证结论必须分层记录：
 
-### config_hash 计算
+- App/protocol/DSP Host/PC 测试按实际 runner 和日志记录。
+- 某一环境没有可用 C MEX compiler 时，MEX rebuild 为 `NOT_EXECUTED / CAPABILITY`；不得推断构建成功或产品失败。
+- 用户手工 Update Diagram 和 Normal-mode 联机仍按实际验收记录填写。
+- EABI 和 COFF CCS build 必须分别由用户实际执行并提供证据。
+- DSP download、W5300 full hardware matrix、dual-instance hardware matrix 和 Erratum hardware matrix 在无用户证据时保持 `USER_VALIDATION_PENDING`。
+- 未执行的项目不表示 PASS；不使用 “fully tested”、“hardware verified” 或 “production ready” 描述当前交付。
 
-config_hash 是配置的 CRC32 签名，用于 PC 和 DSP 端验证配置一致性。
+详细的当前证据边界与逐 FR 状态见 [需求追踪](docs/requirements_traceability.md)。
 
-计算内容包括：
-- 协议版本
-- ABI 类型
-- 网络参数（IP、网关、子网、端口）
-- 采样时间
-- 输入输出变量定义（名称、类型、维度）
-- 数据大小
-- double 模式
+## Unsupported / Not Guaranteed in V1
 
-### 支持的数据类型
+以下能力不在 V1 保证或验收范围；这不表示它们在所有环境中技术上绝对不能工作：
 
-| 类型 | 字节数 | DSP C 类型 | Simulink 类型 |
-|------|--------|------------|---------------|
-| int16 | 2 | int16_t | SS_INT16 |
-| uint16 | 2 | uint16_t | SS_UINT16 |
-| int32 | 4 | int32_t | SS_INT32 |
-| uint32 | 4 | uint32_t | SS_UINT32 |
-| single | 4 | float | SS_SINGLE |
-| double | 8 | double | SS_DOUBLE |
+- dynamic instance creation or registration
+- RTOS scheduling, priorities, threads, or multi-core parallel execution
+- SCI or other first-version IoDevice support
+- 不提供 automatic reconnect、retry、resend、step recovery 或 background step
+- automatic `.slx` generation or modification
+- Accelerator, Rapid Accelerator, or Fast Restart
+- Simulink Coder/Embedded Coder deployment, TLC inline, or model-reference deployment
+- real-time target or parallel simulation
+- CCS project, linker, startup, flashing, or download generation
+- installer, release package, Toolbox, signing, or automatic update
 
-### 序列化函数生成
+## Testing and Feedback
 
-App 会根据输入输出变量类型自动生成对应的序列化函数：
+执行和记录入口：
 
-**PC 端**：
-- 输入类型 → `write_xxx_le()` 函数（打包发送给 DSP）
-- 输出类型 → `read_xxx_le()` 函数（解包从 DSP 接收）
+- [测试方案](docs/test_plan.md)
+- [问题反馈模板](docs/problem_feedback_template.md)
+- [验收记录模板](docs/acceptance_record_template.md)
 
-**DSP 端**：
-- 输入类型 → `read_xxx()` 函数（解包从 PC 接收）
-- 输出类型 → `write_xxx()` 函数（打包发送给 PC）
+未经实际执行及证据支持，不得把测试计划、模板、源码存在或 Host/Mock 结果记录为 DSP/hardware PASS。
 
-## 故障排除
+## License
 
-### 连接失败
-
-**问题**：`C2837xBlock: Failed to connect to DSP`
-
-**可能原因**：
-1. DSP 未运行或未监听指定端口
-2. IP 地址或端口配置错误
-3. 网络连接问题
-4. 防火墙阻止连接
-
-**解决方法**：
-1. 确认 DSP 程序已烧录并运行
-2. 检查 IP 地址和端口配置
-3. 使用 `ping` 测试网络连通性
-4. 临时关闭防火墙测试
-
-### 配置不匹配
-
-**问题**：`DSP error 3 (Config hash mismatch)`
-
-**原因**：PC 和 DSP 的配置不一致
-
-**解决方法**：
-1. 重新运行 App 生成配置文件
-2. 重新编译 DSP 程序
-3. 确保 PC 和 DSP 使用相同的配置
-
-### 协议版本不匹配
-
-**问题**：`DSP error 6 (Protocol version mismatch)`
-
-**原因**：PC 和 DSP 的协议版本不一致
-
-**解决方法**：
-1. 更新 PC 和 DSP 代码到相同版本
-2. 重新生成配置文件
-
-### 超时错误
-
-**问题**：通信超时
-
-**可能原因**：
-1. DSP 处理时间过长
-2. 网络延迟
-3. DSP 程序卡死
-
-**解决方法**：
-1. 增加超时时间配置
-2. 检查 DSP 程序是否有死循环
-3. 检查网络连接质量
-
-## 开发指南
-
-### 添加新的数据类型
-
-1. 在 `c2837x_block_validate_name.m` 中添加类型验证
-2. 更新 `type_wire_bytes()` 函数
-3. 更新 `type_to_c_type()` 函数
-4. 更新 `type_to_simtype()` 函数
-5. 更新序列化函数生成器
-
-### 扩展 S-Function
-
-C S-Function 的端口配置由 `c2837x_block_sfun_io.c` 自动生成。如需自定义：
-
-1. 修改 App 的 `gen_sfun_io_c()` 函数
-2. 重新生成配置文件
-3. 重新编译 MEX 文件
-
-## 版本历史
-
-| 版本 | 日期 | 说明 |
-|------|------|------|
-| V2.3 | 2026-06-20 | C S-Function、完整协议实现、MATLAB App 配置工具 |
-| V2.2 | 2026-06-19 | 协议规范完善、DSP 状态机重构 |
-| V1.0 | 2026-06-19 | 初始版本，MATLAB S-Function |
-
-## 关于本项目
-
-本项目由 AI 辅助生成，包括：
-- DSP 端通信库代码
-- PC 端 C S-Function 代码
-- MATLAB App 配置工具
-- 单元测试和协议测试向量
-
-开发过程中采用人机协作模式：AI 负责代码生成和实现，人工负责需求定义、代码审查和硬件验证。
-
-## 许可证
-
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
-
-## 联系方式
-
-如有问题或建议，请提交 Issue 或 Pull Request。
+本项目采用 [MIT License](LICENSE)。
