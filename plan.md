@@ -1,843 +1,767 @@
-# DSP-SimBridge 多实例实施计划
-> **计划状态：** Approved for Implementation  
-> **生成日期：** 2026-07-19  
-> **唯一需求基线：** `requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md`  
-> **适用分支：** `feature/multi-instance-v1`  
-> **审核时仓库基线：** `8fe0344740592f135e43b84fc364926ad7b9b672`  
-> **实施对象：** DSP-SimBridge / C2837xBlock  
-> **门禁规则：** 阶段1须先通过G0；阶段2及后续阶段按前序门禁依次进入。  
-> **进度记录规则：** 本文件只定义任务、依赖、交付、验证和门禁，不记录当前完成状态、HEAD、测试结果或门禁结论。实际进度统一记录在当前任务批次的事实型移交摘要或动态上下文中，并以 Git 历史和真实测试日志为最终证据。
----
-## 1. 计划目标与执行规则
-本计划将现有单实例 DSP-SimBridge 重构为第一版静态多实例联合仿真系统。实施按一个仓库整理阶段和五个正式产品阶段推进：
-1. 阶段0：仓库基线整理；
-2. 阶段1：App 项目模型与生成框架；
-3. 阶段2：DSP 公共 Core 多实例化；
-4. 阶段3：实例 DSP 代码生成；
-5. 阶段4：独立 S-Function；
-6. 阶段5：文档与验收材料。
-执行时遵守以下规则：
-- 需求文件是唯一外部行为事实源；现有代码只作为可复用实现和现状参考。
-- 每个任务必须完成其验证项后才能标记完成。
-- 每个阶段通过门禁后才能进入下一阶段；发现前置问题时回退修正。
-- 不通过兼容包装、空函数、固定成功返回或伪造测试结果绕过需求。
-- DSP 编译、烧录及实机联机由用户执行；交付方负责源码、MATLAB/PC测试、日志分析和问题修正。
-- 研发输入文件只保留冻结需求和本计划，不向研发分支增加审核报告或审核答复。
-### 1.1 状态术语
+# DSP-SimBridge SCI IoDevice 增量实施计划
 
-以下状态术语供任务批次记录、动态上下文和验收材料使用，不在本计划的任务条目中持续回写项目进度。
+> **计划状态：** Approved for Implementation
+> **生成日期：** 2026-08-10
+> **批准日期：** 2026-08-10
+> **唯一需求基线：** `requirements/requirements_sci_iodevice_v1.0_frozen.md`
+> **适用分支：** `feature/sci-iodevice-v1`
+> **实施基线：** `91135a87160e18999f68b0ac262b8a35b656806f`
+> **历史 V1.0 状态：** 多实例 W5300 的历史 G0～G5 已 PASS / CLOSED，本计划不重新执行，也不把 SCI 追加为旧计划 Stage 6。
+> **V1 wire protocol 基线：** `f209302ce3efc0fa15d217550f6d9b1dc00487fb` / `legacy-v1-protocol-baseline`
+> **实施对象：** DSP-SimBridge / C2837xBlock
+> **计划命名规则：** 本增量周期使用 `SCI-Sx-yy` 和 `SCI-Gx`，与历史 `S0～S5 / G0～G5` 区分。
+> **进度记录规则：** 本文件只定义任务、依赖、产物、最小验证和门禁，不回写实际完成状态。真实 HEAD、工作区、测试、编译、硬件和门禁结果只记录在任务移交摘要、动态上下文、Git 历史和真实日志中。
+
+---
+
+## 1. 计划目标与执行规则
+
+本计划只实现冻结 SCI 增量需求 FR-001～FR-095，目标是在已经完成的静态多实例 W5300 基线上新增 SCI IoDevice，并完成 Project V3、Core API V2、Capability、App、DSP SCI、Windows PC Serial S-Function、生成和必要文档适配。
+
+本计划不重新实现已经关闭的 V1.0 多实例/W5300 基础能力。冻结需求未明确修改的 V1.0 行为继续复用现有实现和既有证据。
+
+执行规则：
+
+1. **一个对话只执行一个边界明确的任务批次。** 每个 `SCI-Sx-yy` 原则上对应一个独立实施/审核批次；每个 `SCI-Gx` 为独立只读门禁批次。
+2. **开始任何实施任务前必须核对 Git。** 至少核对 repository、branch、HEAD、remote HEAD、`git status`、前置任务提交和前置门禁。
+3. **冻结需求优先。** 不得通过计划解释改变 FR 语义，不得恢复旧单实例 Core、shared `g_ctx`、generic S-Function、共享 PC runtime、自动 reconnect/retry/resend、自动 MEX build 或其他废弃方案。
+4. **V1 wire protocol 不变。** SCI 只增加 transport，不改变 Header、消息、错误码、step_index、Interface Hash 线缆语义或 framing。
+5. **测试服务于研发目标。** 只执行证明 SCI 新功能和关键兼容边界所必需的最小验证；不建立多 SCI、全部 Baud、全部 PinGroup/GPIO、half-duplex、mixed 硬件或长期稳定性固定矩阵。
+6. **不伪造环境能力。** 未实际执行的 MATLAB/MEX、DSP/CCS、Simulink 或硬件项目必须记录为 `NOT_EXECUTED` / `CAPABILITY` / `USER_VALIDATION_PENDING`，不得声明 PASS。
+7. **硬件不是开发门禁的默认前提。** 最终 DSP/SCI/Baud/CTRL/mixed/长期稳定性实机验证由用户根据实际研发需要执行；开发侧无真实硬件证据时只能声明“已实现，待用户实机验证”。
+8. **LSPCLK 分两阶段。** 实现与 bring-up 初期使用 `SYSCLK/14 ≈ 14.285714 MHz`；基础 SCI-PC 链路实现后再进行理论量化误差和平台影响评估，并在有条件时结合一个代表性实机结果，确定最终平台级固定 LSPCLK。最终值不预设必须为 200 MHz。
+9. **Codex 不负责 Git 提交和分支操作。** Codex 只形成待审核工作区；提交、推送、分支和 Tag 操作由用户决定。
+10. **本计划批准不代表任何实施或门禁已经通过。**
+
+### 1.1 状态术语
 
 | 状态 | 含义 |
 |---|---|
 | 未开始 | 尚未实施 |
-| 已实现待审核 | 代码完成但未通过阶段审核 |
-| 已通过静态审核 | 结构、职责、编译接口或生成结果已审核 |
-| 已通过 PC 测试 | MATLAB、MEX或PC模拟测试通过 |
-| 待用户 DSP 编译 | 需要用户在实际DSP工具链中编译 |
-| 待用户实机验证 | 需要用户烧录和联机测试 |
-| 已通过用户验证 | 用户提供证据并确认通过 |
-| 阻断 | 存在需求冲突、失败或前置条件缺失 |
+| 已实现待审核 | 代码完成但尚未独立复核 |
+| 已通过静态审核 | 结构、职责、生成合同或源码边界已审核 |
+| 已通过 PC 测试 | MATLAB/MEX/host/mock 的实际测试通过 |
+| 待用户 DSP 编译 | 需要用户在实际 C2000/CCS 环境编译 |
+| 待用户实机验证 | 需要用户连接 TMS320F28377D/SCI/转换器验证 |
+| 已通过用户验证 | 用户提供真实证据并确认通过 |
+| `NOT_EXECUTED / CAPABILITY` | 当前环境缺少执行能力 |
+| 阻断 | 需求冲突、实现失败或前置条件缺失 |
 | 废弃 | 任务取消但编号保留 |
-### 1.2 每个任务的最小交付信息
-每个任务完成时，必须在当前任务批次的事实型移交摘要或动态上下文中记录：任务编号、对应FR、修改文件、验证结果、未验证范围和遗留问题。本计划保持静态，不回写任务完成状态。阶段汇总使用以下格式：
-| 需求编号 | 实现文件 | 状态 | 验证方式 | 备注 |
-|---|---|---|---|---|
----
-## 2. 实施起始仓库基线
-本计划批准时的仓库是旧单实例实现，实施时重点处理以下起始现状：
-- `app/C2837xBlockConfigurator.m` 同时承担 UI、单配置模型、校验、保存加载、预览和生成协调。
-- `app/c2837x_block_build_hash_string.m` 的旧 Hash 包含 ABI、网络、Socket、采样时间和 Double Mode。
-- `app/c2837x_block_generate_dsp_files.m` 生成旧单实例配置、全局输入输出和通用算法接口。
-- `dsp/src/c2837x_block.c` 使用全局 `g_ctx`、无参数 API、软件循环 tick，并直接依赖 W5300。
-- `dsp/src/c2837x_w5300_socket.c` 和 HAL 中存在阻塞等待、固定延时和单 Socket 内存配置逻辑。
-- `simulink/c2837x_block_sfun.c` 使用固定模块名、单实例限制，并在 step_index 校验前直接写入输出端口。
-现有协议消息编号、错误码和线缆结构必须以冻结的旧 V1 协议基线为准；上述单实例结构和旧 Hash 规则不得保留。
----
-## 3. 全局需求覆盖
-| 需求范围 | 计划覆盖位置 |
-|---|---|
-| FR-001～FR-017 | 全阶段架构边界、协议兼容和单位规则 |
-| FR-018～FR-045 | 阶段1项目模型、保存加载和迁移 |
-| FR-046～FR-076 | 阶段3强类型、序列化和缓冲区生成 |
-| FR-077～FR-092 | 阶段1 Hash和版本服务，阶段2 Core API检查 |
-| FR-093～FR-152 | 阶段2公共API、平台、IoDevice、状态机和生命周期 |
-| FR-153～FR-172 | 阶段4 S-Function和PC错误处理 |
-| FR-173～FR-178 | 阶段3算法文件模式 |
-| FR-179～FR-205 | 阶段3/4输出结构、路径和确定性文本 |
-| FR-206～FR-222 | 阶段1生成事务和用户文件保护，阶段3/4用户配置 |
-| FR-223～FR-229 | 阶段2/3旧架构退出和禁止混合编译 |
-| FR-230～FR-245 | 阶段5集成、测试、验收和交付 |
-| FR-246～FR-253 | 本计划阶段与门禁 |
-| FR-254～FR-261 | 全阶段基线、追踪和变更控制 |
-| FR-262～FR-267 | 阶段0、阶段1职责门禁及阶段2 W5300特殊约束 |
----
-## 4. 阶段0：仓库基线整理
-阶段0不实现产品功能，只确保研发输入唯一、协议历史可追溯并生成本计划。
-### S0-01：确认唯一需求入口、目标分支和基线SHA
-- **对应FR：** FR-015、FR-254～FR-256、FR-262
-- **前置任务：** 无
-- **输入文件：** `requirements_multi_iodevice_v1.0_frozen_rev2.md`、当前 `main`
-- **输出文件：** `requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md`、分支基线记录
-- **实现目标：**
-  1. 把Rev.2放入唯一正式路径；
-  2. 确认工作区无未提交修改；
-  3. 从明确的主分支完整SHA创建 `feature/multi-instance-v1`；
-  4. 记录实际 `base_sha` 和目标分支名；
-  5. 仓库中不得存在第二份被标记为当前需求的文件。
-- **非目标：** 不从含未提交修改的工作区创建实施分支；不修改产品代码；不生成计划外审核资料。
-- **验证方式：**
-  - `git status` 显示工作区干净；
-  - 当前分支为 `feature/multi-instance-v1`；
-  - 记录 `git rev-parse HEAD` 和分支起点；
-  - 若主分支已超出审核基线 `8fe0344740592f135e43b84fc364926ad7b9b672`，先审核新增差异再确认新的 `base_sha`；
-  - 搜索仓库中的当前规范引用，只允许指向Rev.2。
 
-### S0-02：固定完整旧V1线缆协议基线
-- **对应FR：** FR-015～FR-017、FR-228、FR-262
-- **前置任务：** S0-01
-- **输入文件：**
-  - Git提交 `f209302ce3efc0fa15d217550f6d9b1dc00487fb`；
-  - `dsp/inc/c2837x_block_protocol.h`；
-  - `dsp/src/c2837x_block_protocol.c`；
-  - `simulink/c2837x_block_protocol.h`；
-  - `simulink/c2837x_block_protocol.c`；
-  - 旧DSP和PC序列化生成代码。
-- **输出文件：**
-  - 只读Tag `legacy-v1-protocol-baseline`；
-  - `tests/protocol/legacy_v1_protocol_baseline.*`；
-  - `tests/protocol/legacy_v1_error_codes.*`；
-  - `tests/protocol/legacy_v1_golden_frames.*`。
-- **实现目标：**
-  1. 固定五种消息类型；
-  2. 对0～8错误码逐项固定数值、DSP历史符号、PC历史符号、固定线缆语义和新架构是否主动产生；
-  3. DSP与PC两端允许保留各自历史宏名称，两端应分别保持指定历史提交中的符号名称，不得为了统一名称而重命名历史宏；
-  4. 即使新架构不再主动产生某个旧错误码，也不得改变其线缆数值、各端历史符号或历史语义；
-  5. 以下情况才属于协议基线冲突：同一错误码数值不同、同一数值的线缆语义不同、某一端缺失历史定义、当前文件与指定历史提交不一致且无法解释；DSP与PC历史宏名称不同本身不属于冲突；
-  6. 固定4 wire octet Header：`type:uint16@0`、`payload_length:uint16@2`；
-  7. 固定little-endian编码；
-  8. 固定SIM_START为6 octet：`protocol_version:uint16@0`、`config_hash:uint32@2`；
-  9. 固定RESPONSE为2 octet：`error_code:uint16@0`；
-  10. 固定INPUT_DATA和OUTPUT_DATA的 `step_index:uint32@0`，其后为实例数据；
-  11. 固定SIM_STOP Payload为0；
-  12. 记录DSP/PC协议文件路径及对应Blob SHA；
-  13. 为五种消息建立至少一组逐octet黄金帧；
-  14. 后续协议重构必须逐字段、逐octet通过兼容测试。
-- **非目标：** Tag和基线夹具不作为旧单实例架构、旧Hash字段、旧API或旧生成结构的恢复依据。
-- **验证方式：**
-  - Tag指向指定Commit；
-  - DSP与PC协议矩阵逐项一致；
-  - 错误码矩阵覆盖0～8，并分别记录DSP与PC历史符号；两端数值和固定线缆语义一致，宏名称差异不作为协议冲突；
-  - DSP与PC两端定义分别与指定历史提交一致；若存在数值差异、语义差异、定义缺失或无法解释的提交偏差，阶段0停止；
-  - 对新架构不主动产生的错误码8仍保留两端兼容定义和解析语义；
-  - 五种消息黄金帧均能被DSP和PC基线解析器正确解析；
-  - 重构后的构造/解析结果与黄金帧逐octet一致；
-  - 不存在未解决的字段长度、偏移、字节序或错误码语义歧义。
+### 1.2 每个任务批次的最小交付信息
 
-### S0-03：清理旧需求和旧计划入口
-- **对应FR：** FR-224、FR-227～FR-229、FR-254、FR-262
-- **前置任务：** S0-01
-- **输入文件：** 当前仓库、`spec_v2_3.md`、错误旧需求文件、README
-- **输出文件：** 保留本计划 `plan.md`；删除或历史化 `spec_v2_3.md`；README最小状态说明
-- **实现目标：** 确认Rev.2之前的旧计划已经移除，消除Codex同时读取新旧需求的风险；README明确当前代码仍为旧单实例实现。
-- **非目标：** 不删除本计划；阶段0不整体重写README，不增加审核报告和审核答复。
-- **验证方式：** 仓库搜索错误旧需求、旧计划内容和“spec_v2_3 current”等引用；当前唯一计划必须是本 `plan.md`。
+每个任务完成后必须记录：
 
-### S0-04：建立计划内FR追踪骨架
-- **对应FR：** FR-246～FR-253、FR-259～FR-262
-- **前置任务：** S0-01
-- **输入文件：** Rev.2需求、本 `plan.md`
-- **输出文件：** `plan.md`中的任务表、阶段门禁和静态FR覆盖矩阵
-- **实现目标：** 建立FR到计划任务的静态映射。后续实施、审核和测试通过任务编号及FR编号追踪；实际完成状态、提交和测试证据记录在任务批次移交摘要或动态上下文中。
-- **非目标：** 不在 `plan.md` 中预填或持续更新项目进度；不把计划文件当作状态台账。
-- **验证方式：** 自动检查FR-001～FR-267均至少在本计划的全局覆盖或任务中被引用。
+- 任务编号与对应 FR；
+- 实际修改文件；
+- 关键设计决定；
+- 实际执行的测试/检查、命令和真实结果；
+- 未执行或无法验证项目；
+- 当前 branch、HEAD、remote HEAD、`git status`；
+- 已知问题；
+- 下一批次允许和禁止执行的内容。
 
-### S0-05：建立统一测试目录、执行入口和结果格式
-- **对应FR：** FR-230～FR-245、FR-248～FR-253、FR-259～FR-262
-- **前置任务：** S0-01
-- **输入文件：** 当前仓库测试脚本、S0-02协议夹具规划、本计划阶段门禁
-- **输出文件：**
-  - `tests/protocol/`；
-  - `tests/app/`；
-  - `tests/dsp_host/`；
-  - `tests/pc/`；
-  - `tests/run_all_tests.m`或仓库根目录等价统一入口；
-  - 阶段测试结果结构和记录模板。
-- **实现目标：**
-  1. 建立统一测试目录骨架，不提前伪造后续产品实现；
-  2. `tests/protocol/`承载V1基线矩阵、错误码矩阵、黄金帧和DSP/PC wire兼容测试；
-  3. `tests/app/`承载项目模型、迁移、校验、Hash、候选、快照和提交事务测试；
-  4. `tests/dsp_host/`承载Fake IoDevice、W5300寄存器桩、Core生命周期、pending SEND、Erratum close和双实例隔离测试；
-  5. `tests/pc/`承载Mock endpoint、S-Function协议、输出原子提交、超时和断线测试；
-  6. 统一入口允许按全部测试或阶段/类别执行；
-  7. 每次门禁记录执行命令、实际环境、总数、通过数、失败数、跳过数、未验证范围、日志路径、对应FR和任务编号。
-- **非目标：** 阶段0只建立基础设施和空夹具接口，不提前实现阶段1～4的产品功能或伪造通过结果。
-- **验证方式：**
-  - 四个测试子目录和统一入口存在；
-  - 统一入口能够发现并报告当前已有测试，空类别明确显示为未实现而非通过；
-  - 结果格式可机器读取或稳定解析；
-  - 测试失败时统一入口返回失败状态；
-  - G1前所有阶段1测试可通过同一入口执行。
-
-### 阶段0门禁 G0
-- Rev.2已位于唯一正式路径；
-- 错误旧需求和旧计划入口已清理；
-- README不再把旧规范或旧计划标为当前入口；
-- `feature/multi-instance-v1` 从明确完整SHA创建，`base_sha`已记录；
-- 当前工作区干净；
-- 旧V1协议Tag指向指定Commit；
-- V1协议基线矩阵已完成；
-- 错误码0～8的数值、DSP历史符号、PC历史符号、固定线缆语义和新架构产生策略矩阵已完成；两端宏名差异不作为冲突，数值或线缆语义差异必须阻断；
-- DSP/PC协议文件路径及Blob SHA已记录；
-- 五种消息均具有逐octet黄金帧；
-- DSP与PC两端基线不存在未解决歧义；
-- `tests/protocol/`、`tests/app/`、`tests/dsp_host/`、`tests/pc/`及统一执行入口已建立；
-- 新 `plan.md` 已提交。
+计划文件保持静态，不在任务完成后把任务状态逐项写回本文件。
 
 ---
 
-## 5. 阶段1：App 项目模型与生成框架
-阶段1先建立可独立测试的项目、Hash、候选和提交服务，再接入多实例UI。使用固定候选文件夹具，不提前伪造DSP Core或S-Function正式模板。
-### S1-01：建立项目模型和默认项目
-- **对应FR：** FR-018～FR-024、FR-036～FR-038、FR-090
-- **前置任务：** G0
-- **输入文件：** `app/C2837xBlockConfigurator.m`、旧 `config` 结构
-- **输出文件：** App项目模型服务及默认项目构造函数；必要的值对象/结构定义
-- **实现目标：** 实现 `format_version=2`、公共配置、实例数组和两个输出根目录；Hash仅保存为辅助值并可重算。
-- **非目标：** 不在项目模型中保存MEX、运行状态、生成文件内容、用户超时值或实例级ABI。
-- **验证方式：** MATLAB测试验证默认项目字段、数据类型、无重复输出路径字段和保存数据范围。
+## 2. SCI 增量实施起始基线
 
-### S1-02：实现项目保存、加载、dirty和关闭流程
-- **对应FR：** FR-036～FR-045、FR-039～FR-042
-- **前置任务：** S1-01
-- **输入文件：** `app/C2837xBlockConfigurator.m`、S1-01项目模型
-- **输出文件：** 项目持久化/dirty服务及UI保存加载协调逻辑
-- **实现目标：** 保存 `project` 变量；支持Save/Don’t Save/Cancel；Generate不清dirty；拒绝高版本和损坏项目。
-- **非目标：** 不保存旧 `config` 作为新格式，不让Generate隐式保存项目。
-- **验证方式：** 往返保存比较；修改后dirty；保存后清dirty；加载损坏/高版本文件失败且不破坏当前项目。
-
-### S1-03：实现旧单实例项目迁移
-- **对应FR：** FR-024、FR-043～FR-045、FR-224、FR-227
-- **前置任务：** S1-02
-- **输入文件：** 旧 `.mat` 配置样例、S1-01/S1-02服务
-- **输出文件：** 项目迁移服务和迁移测试样例
-- **实现目标：** 旧单配置迁移为一个实例；ABI按规则迁移；忽略Double Mode；迁移后项目标记dirty。
-- **非目标：** 不生成旧运行文件、不保留旧API兼容层、不修改原旧文件，除非用户主动保存覆盖。
-- **验证方式：** 覆盖eabi/coff/coffabi/缺失/非法ABI；验证默认名称、Socket、端口、I/O顺序和dirty。
-
-### S1-04：实现实例操作和名称规则
-- **对应FR：** FR-025～FR-035、FR-046～FR-048
-- **前置任务：** S1-01
-- **输入文件：** S1-01项目模型、`app/c2837x_block_validate_name.m`
-- **输出文件：** 实例新增/复制/重命名/删除服务及名称校验更新
-- **实现目标：** 实现display/internal分离、唯一Socket/端口、复制规则、外部路径清空、遗留文件提示。
-- **非目标：** 不扫描或删除旧磁盘文件；不允许仅大小写不同或下划线开头的名称。
-- **验证方式：** 测试复制、重命名、删除、保留I/O顺序、冲突检测和遗留文件提示。
-
-### S1-05：实现完整项目校验和绝对路径服务
-- **对应FR：** FR-029～FR-030、FR-046～FR-052、FR-067～FR-069、FR-195～FR-200、FR-206～FR-208
-- **前置任务：** S1-01、S1-04
-- **输入文件：** 项目模型、现有名称/IP/路径校验代码
-- **输出文件：** 可绕过UI调用的完整校验服务、路径规范化服务和问题列表结构
-- **实现目标：**
-  1. 统一校验名称、类型、维度、Payload、Socket/端口、MAC单播、网络参数、ABI和算法路径；
-  2. 用户选择路径后立即转换为规范绝对路径，项目模型只保存规范绝对路径；
-  3. 不再根据当前 `pwd` 重新解释路径；
-  4. 删除旧的“输出目录不得位于仓库内部”限制；
-  5. 校验两个输出根目录不得相同、不得互相包含；
-  6. 校验 `.`/`..`、尾分隔符、Windows大小写、`/`与`\`、路径不存在、文件占用目录位置、必需子目录类型冲突和候选文件大小写冲突；
-  7. 路径不存在允许作为可创建目录，但其父路径和冲突必须可验证；
-  8. 外部算法源仅接受存在、可读、普通的C源文件，其扩展名必须与字面 `.c` 按当前平台文件系统的实际大小写语义等价；大小写不敏感文件系统上的 `.c` 与 `.C` 可视为同一扩展名，大小写敏感文件系统上的 `.C` 不等同于 `.c`；
-  9. 扩展名判断不得使用与实际文件系统语义不一致的无条件 `lower()`、`upper()` 或其他强制大小写归一化；
-  10. 预览时确认外部源可读，正式提交前再次确认，任意字节变化均使快照失效。
-- **非目标：** 不支持相对项目路径；不在校验服务中写盘；不用首个错误立即返回替代完整问题列表；App不解析完整C语法，也不检查回调符号是否实际存在。
-- **验证方式：**
-  - 错误/警告/信息分级测试；
-  - 同一输入返回确定顺序的问题列表；
-  - 仓库内部合法输出路径通过；
-  - 两根目录相同或父子包含时失败；
-  - 不同路径写法规范化后产生相同结果；
-  - 当前工作目录变化不改变已保存路径含义；
-  - 在大小写不敏感文件系统上分别验证 `.c` 与 `.C` 按文件系统语义接受；在大小写敏感文件系统上验证 `.c` 接受而 `.C` 拒绝；
-  - 验证实现未通过无条件 `lower()` 后缀比较掩盖平台差异；目录、`.h`、其他扩展名、不存在、不可读或非普通文件继续被拒绝。
-
-### S1-06：重建Interface Hash服务
-- **对应FR：** FR-077～FR-088、FR-013、FR-064～FR-069
-- **前置任务：** S1-01、S1-05
-- **输入文件：** `app/c2837x_block_build_hash_string.m`、`app/c2837x_block_crc32.m`
-- **输出文件：** 新的规范文本生成和CRC32服务；旧Hash函数删除或改为仅转发到新服务的薄包装
-- **实现目标：** 严格生成固定键、固定顺序、LF、末行无LF、UTF-8规范文本；只包含FR-078字段。
-- **非目标：** 不得包含ABI、路由、采样时间、超时、路径、Socket或算法文件；不得保留旧字段集合、旧规范文本、旧Hash行为或按项目版本切换两套Hash。
-- **验证方式：** 黄金向量长度392 octet且CRC32=`0xE45D900C`；改变线缆字段会变Hash，改变排除字段不变。
-
-### S1-07：建立候选文件模型和固定夹具
-- **对应FR：** FR-202～FR-213、FR-236、FR-247、FR-267
-- **前置任务：** S1-05、S1-06
-- **输入文件：** S1-05/S1-06服务、内部固定候选模板
-- **输出文件：** 候选构建、文件分类和比较服务；阶段1测试夹具
-- **实现目标：** 候选文件在内存中生成，分类为自动生成/Core/用户文件，并比较不存在、相同和不同状态。
-- **非目标：** 不依赖阶段2～4正式模板，不写目标磁盘，不建立长期manifest。
-- **验证方式：** 固定夹具验证create/skip/replace/keep、强制项和用户文件默认Keep。
-
-### S1-08：实现预览快照和失效检测
-- **对应FR：** FR-178、FR-209～FR-215
-- **前置任务：** S1-07
-- **输入文件：** S1-07候选服务
-- **输出文件：** 预览快照服务和快照摘要
-- **实现目标：** 快照绑定项目配置、模板、外部算法文件和目标文件状态；任一变化后禁止直接生成。
-- **非目标：** 不写磁盘，不使用长期manifest判断所有权。
-- **验证方式：** 修改配置、外部源、模板或目标文件后快照失效；无变化时可继续生成。
-
-### S1-09：实现安全提交和结果汇总
-- **对应FR：** FR-212～FR-218、FR-202～FR-205
-- **前置任务：** S1-08
-- **输入文件：** 有效预览快照、S1-07/S1-08服务
-- **输出文件：** 文件提交服务、创建目录逻辑和提交结果结构
-- **实现目标：** 写入前复核；临时文件后替换；报告创建、替换、跳过、保留以及部分失败。
-- **非目标：** 不全局回滚已成功替换的文件；不覆盖未选择替换的用户文件。
-- **验证方式：** 模拟写入失败、目录冲突、强制项取消和目标外部变化；验证结果列表准确。
-
-### S1-10：重构多实例App UI并接入服务
-- **对应FR：** FR-018～FR-035、FR-039～FR-040、FR-084、FR-206～FR-218、FR-267
-- **前置任务：** S1-01～S1-09
-- **输入文件：** `app/C2837xBlockConfigurator.m`、S1-01～S1-09服务
-- **输出文件：** 多实例UI及薄协调回调
-- **实现目标：** 提供公共配置区、实例列表、实例详情、问题列表、Hash/内存预览和候选文件预览；UI只协调服务；字段或表格编辑后执行轻量即时校验，生成预览、正式生成以及保存前需要提示时执行完整校验。
-- **非目标：** 不在UI回调中重新实现项目、Hash、比较和写入逻辑；不自动构建MEX。
-- **验证方式：** 绕过UI测试核心服务；验证即时校验覆盖名称、类型、维度、Socket、端口、重复项和基础网络格式；验证完整校验覆盖输出根目录关系、外部算法及其文件系统感知的 `.c` 扩展名规则、Payload、候选路径冲突、文件/目录类型冲突和用户文件替换决策；人工UI走查新增/复制/重命名/删除/保存/加载/预览/生成。
-
-### 阶段1门禁 G1
-- 项目格式2可往返保存；旧单实例项目按规则迁移；
-- Hash黄金向量通过，排除字段不会改变Hash；
-- 预览完全不写盘，且配置、外部源、模板或目标文件变化会失效；
-- 用户文件默认Keep，Core和自动生成文件差异时必须Replace；
-- 项目只保存规范绝对路径，不再按 `pwd` 解释；
-- 已删除“禁止输出到仓库内部”的旧限制；
-- 两个输出根目录相同、父子包含和文件/目录冲突在写入前发现；
-- 项目模型、迁移、校验、Hash、候选、快照和提交均可绕过UI独立测试；
-- UI回调未继续承担全部项目、比较和磁盘提交逻辑；
-- 固定候选夹具测试通过；
-- 即时校验和完整校验的触发边界固定，UI回调不重复实现校验规则；
-- 外部算法源的存在、可读、普通文件及文件系统感知的 `.c` 扩展名规则测试通过；不得以无条件大小写转换替代实际文件系统语义；
-- `tests/protocol/`、`tests/app/`、`tests/dsp_host/`、`tests/pc/`及统一测试入口已建立并可执行。
-
----
-
-## 6. 阶段2：DSP 公共 Core 多实例化
-阶段2只重构公共Core、W5300和IoDevice，使用手写静态双实例夹具，不等待正式生成器。
-### S2-01：建立公共API、不透明实例和Core版本检查
-- **对应FR：** FR-089～FR-101、FR-225～FR-229
-- **前置任务：** G1
-- **输入文件：** `dsp/inc/c2837x_block.h`、`dsp/src/c2837x_block.c`
-- **输出文件：** 新公共头、内部结构头和显式多实例API实现
-- **实现目标：** 实现PlatformInit/Init/Run/GetLastError；实例由生成代码静态定义；Core API Version固定为1。
-- **非目标：** 不保留无参数API、默认实例、Legacy包装或用户可见结构定义。
-- **验证方式：** 源码搜索确认旧API和全局 `g_ctx` 退出；错误版本产生编译期错误。
-
-### S2-02：实现平台共享资源初始化
-- **对应FR：** FR-100～FR-111、FR-118～FR-120、FR-263
-- **前置任务：** S2-01
-- **输入文件：** W5300 HAL、Timer2寄存器资料、旧网络配置代码
-- **输出文件：** Platform层初始化、Timer2微秒计时、稳定错误检测
-- **实现目标：** 一次初始化固定硬件连接、W5300复位时序、网络参数和共享Timer2；W5300全部8个Socket均配置为TX=8KB/Socket、RX=8KB/Socket。
-- **非目标：** 不在实例Init中重复平台初始化；DSP软件版本不固定；初始化失败后不继续实例通信；未使用Socket不执行LISTEN、不生成占位实例，也不分配DSP协议RX/TX缓冲区。
-- **验证方式：** 静态审核复位低电平≥2µs、释放后等待≥10ms；每个平台错误有唯一检测点；读回并检查全部8个Socket的TX/RX内存配置；未使用Socket保持CLOSED且不执行LISTEN。
-
-### S2-03：定义通用IoDevice接口和W5300通道对象
-- **对应FR：** FR-102～FR-117、FR-128、FR-266
-- **前置任务：** S2-01、S2-02
-- **输入文件：** W5300 Socket/HAL头文件、S2-01内部结构
-- **输出文件：** `c2837x_block_iodevice.h`或等价接口、W5300通道私有结构
-- **实现目标：** 提供 `channel_init/open/listen/get_connection_state/receive/send/close`；公共Core不含W5300常量；通道对象拥有独立Socket、pending SEND、closing和faulted子状态。
-- **非目标：** 不增加动态注册、void*用户接口或公共W5300 closing状态。
-- **验证方式：** 依赖扫描确认Core不include W5300寄存器头；两个通道对象的命令、发送和关闭状态完全独立。
-
-### S2-03A：冻结Core内部静态配置与绑定契约
-- **对应FR：** FR-004～FR-007、FR-046～FR-076、FR-088～FR-098、FR-102～FR-117、FR-181
-- **前置任务：** S2-01、S2-03
-- **输入文件：** 公共Core内部结构、IoDevice接口、协议和算法适配需求
-- **输出文件：** `C2837xBlock_Config`、`C2837xBlock_AlgorithmAdapter`及相关内部只读绑定定义
-- **实现目标：** 在阶段2冻结供手写夹具和阶段3生成器共同使用的契约，至少包含：
-  - IoDevice Ops指针和通道对象指针；
-  - RX/TX word缓冲区指针及wire octet容量；
-  - 最终输入/输出对象指针；
-  - 协议版本和Interface Hash；
-  - 固定输入/输出Payload长度和max payload；
-  - 算法适配器；
-  - DSP用户超时配置入口；
-  - 其他必需的实例只读配置。
-- **非目标：** 不暴露配置结构给普通用户；不允许阶段3为接入生成器而重新设计Core绑定接口。
-- **验证方式：**
-  - 手写双实例夹具只通过该契约绑定；
-  - Core运行代码不读取生成器私有全局变量；
-  - 编译期Core API Version检查覆盖契约变化；
-  - 阶段3计划评审确认其输出可直接初始化该结构。
-
-### S2-04：审计并改造全部Run可达W5300操作为有界调用
-- **对应FR：** FR-103～FR-117、FR-130～FR-131、FR-264
-- **前置任务：** S2-03、S2-03A
-- **输入文件：** `dsp/src/c2837x_w5300_hal.c`、`dsp/src/c2837x_w5300_socket.c`及其完整调用链
-- **输出文件：** 有界寄存器访问清单、单次命令发出/查询接口、非阻塞open/listen/connection逻辑
-- **实现目标：**
-  1. 枚举 `C2837xBlock_Run()` 可到达的全部HAL/Socket函数；
-  2. 记录每个函数单次调用的最大寄存器读写次数；
-  3. 将命令操作拆分为 `issue_command_once()` 与 `poll_command_once()` 或等价接口；
-  4. 移除等待 `Sn_CR`、`Sn_SSR`、SEND_OK、TIMEOUT、TX空间、RX数据或网络状态的内部循环；
-  5. 将 `get_sn_tx_fsr()`、`get_sn_rx_rsr()` 的双读一致性检查改为有限次数重试；
-  6. 达到寄存器重试上限时返回明确错误，由当前通道/实例处理；
-  7. 每次IoDevice调用只完成一个有界动作。
-- **非目标：** 不删除PlatformInit中数据手册要求的一次性等待；不在运行期复位整个W5300；不以源码关键字扫描代替调用链审核。
-- **验证方式：**
-  - 形成Run可达调用链和最大操作次数表；
-  - 桩模拟寄存器始终不一致、Sn_CR不清零、状态不变化等故障，单次调用仍有界返回；
-  - 源码扫描无运行期DELAY和网络等待循环；
-  - 手写通道测试覆盖CLOSED/INIT/LISTEN/ESTABLISHED及底层重试失败。
-
-### S2-05：实现W5300 pending SEND完成语义
-- **对应FR：** FR-114～FR-115、FR-125、FR-130、FR-137、FR-143、FR-149、FR-265
-- **前置任务：** S2-04
-- **输入文件：** S2-03/S2-04通道、旧send实现
-- **输出文件：** W5300非阻塞send状态机
-- **实现目标：** 首次写FIFO并发SEND返回0；仅收到对应SEND_OK后返回pending_octets；TIMEOUT/失效返回负值。
-- **非目标：** 不重复发送pending分段；Sn_CR清零不等同SEND完成；不提前移动Core发送偏移。
-- **验证方式：** 寄存器桩测试SEND_OK、TIMEOUT、Socket失效、重复轮询和分段累计。
-
-### S2-06：实现Socket私有close、Erratum 1和通道故障终态
-- **对应FR：** FR-116、FR-131、FR-263～FR-266
-- **前置任务：** S2-05
-- **输入文件：** S2-03～S2-05通道实现、W5300 Socket私有寄存器定义
-- **输出文件：** close BUSY/DONE/ERROR状态机和Erratum 1私有处理
-- **实现目标：**
-  1. 必要时按TCP→UDP OPEN→1 octet dummy SEND→CLOSE跨多次Run推进；
-  2. dummy目标IP固定为 `0.0.0.1`，通过当前Socket的 `Sn_DIPR` 设置；
-  3. dummy目标端口使用通道内部固定常量，通过当前Socket的 `Sn_DPORTR` 设置；
-  4. 仅操作当前Socket的 `Sn_MR/Sn_CR/Sn_IR/Sn_SSR/Sn_DIPR/Sn_DPORTR`、当前Socket FIFO和必要Socket私有寄存器；
-  5. 禁止修改公共 `SIPR/SUBR/GAR/SHAR` 和其他项目级网络配置；
-  6. 旧 `c2837x_w5300_socket_send_to()` 不得直接进入新运行路径，应废弃或重构为不修改公共网络寄存器的私有非阻塞实现；
-  7. dummy得到SEND_OK或硬件TIMEOUT后均继续CLOSE；
-  8. close/Erratum开始时记录CPU Timer 2时间戳，并通过通道只读配置取得明确的软件期限；
-  9. UDP OPEN、等待`SOCK_UDP`、dummy SEND、等待SEND_OK/硬件TIMEOUT、CLOSE和等待`SOCK_CLOSED`等每个阶段均受有确定上限的软件期限约束；
-  10. 可以采用整个close流程共享期限或各子阶段独立期限，但不得存在无期限阶段；
-  11. 软件期限不依赖W5300必须产生 `Sn_IR.TIMEOUT`；
-  12. 任一阶段超过软件期限时，close返回ERROR，当前Socket进入faulted并记录IoDevice错误；
-  13. faulted后不得再次执行open/listen，直到重新成功执行PlatformInit或DSP复位；
-  14. close失败或软件超时只影响当前Socket，不阻塞、修改或复位其他Socket。
-- **非目标：** 不等待TX自然清空、不固定延时、不无限重试、不复位W5300、不影响其他Socket；不得以硬件永远会产生TIMEOUT作为退出保证。
-- **验证方式：**
-  - 寄存器桩记录全部写操作，确认公共MAC/IP/Gateway/Subnet寄存器保持不变；
-  - 其他Socket的 `Sn_MR/Sn_SSR`、pending发送和接收状态不变；
-  - 覆盖无需Erratum、需要Erratum、dummy SEND_OK、dummy硬件TIMEOUT、CLOSE成功/失败和faulted后禁止open；
-  - 模拟 `Sn_CR` 永不清零、`Sn_SSR` 永不进入 `SOCK_UDP`、dummy SEND既无SEND_OK也无硬件TIMEOUT、CLOSE命令永不完成及`Sn_SSR`永不进入`SOCK_CLOSED`；
-  - 每种无响应情况均在软件期限内返回ERROR并进入faulted；
-  - 关闭失败或软件超时时其他实例继续运行。
-
-### S2-07：参数化协议Core并分离设备/协议状态
-- **对应FR：** FR-015～FR-017、FR-064～FR-071、FR-117、FR-128～FR-134、FR-146～FR-150
-- **前置任务：** S2-01、S2-03A
-- **输入文件：**
-  - `dsp/inc/c2837x_block_protocol.h`；
-  - `dsp/src/c2837x_block_protocol.c`；
-  - `simulink/c2837x_block_protocol.h`；
-  - `simulink/c2837x_block_protocol.c`；
-  - 旧Core状态机；
-  - S0-02协议矩阵和黄金帧。
-- **输出文件：** 实例化协议状态、协议处理结果和统一清理路径
-- **实现目标：** 保持V1 wire逐octet不变；设备状态与WAIT_SIM_START/SIM_RUNNING分离；Header优先、固定长度和错误响应统一。
-- **非目标：** 不重新设计协议、不增加Magic/CRC/实例ID、不把W5300状态放入协议层。
-- **验证方式：** DSP与PC协议黄金帧测试消息类型、长度、字段偏移、字节序、Hash、版本、step错误和可/不可响应分支。
-
-### S2-08：实现实例超时、完整生命周期矩阵和本地错误
-- **对应FR：** FR-008、FR-118～FR-152
-- **前置任务：** S2-02、S2-06、S2-07
-- **输入文件：** S2-01/S2-02/S2-06/S2-07
-- **输出文件：** 每实例时间戳、用户超时宏绑定、统一OnStop/GetLastError和表驱动生命周期测试
-- **实现目标：**
-  1. 实现INTERACTION/TRANSFER超时和回绕安全；
-  2. 维护 `algorithm_started`，确保所有终止路径OnStop恰好一次；
-  3. 统一会话清理不得清除 `last_error`；只有重新执行实例Init，或一次会话按照需求正常结束后，才允许恢复为 `C2837X_BLOCK_ERROR_NONE`；
-  4. 非法帧在所有帧级检查完成前不得修改最终输入对象；
-  5. 普通成功的open、poll、receive、send或局部状态推进不得自动清除最近错误；
-  6. 错误RESPONSE发送失败时保留原主要错误，不以发送失败覆盖根因；
-  7. close ERROR仅在没有更早主要错误时写入IODEVICE；已有主要错误时不得覆盖根因；
-  8. 新会话 `step_index` 从0开始，其他实例状态不变。
-- **非目标：** 不对用户回调计时、不建立错误历史、不在清理时重置共享Timer2。
-- **验证方式：** 建立以下表驱动终止矩阵并验证OnStop、响应行为和最近错误：
-  - 正常SIM_STOP；
-  - OnStart失败；
-  - SIM_START成功响应发送失败；
-  - OnStep失败；
-  - 状态、长度、step和Payload超限错误；
-  - RX/TX超时；
-  - 对端断开；
-  - receive/send失败；
-  - 错误RESPONSE发送失败；
-  - close ERROR。
-  额外验证清理后输入/输出对象清零、最近错误仍可读、普通成功轮询不清除错误、Init或正常会话结束按规则恢复NONE、错误RESPONSE发送失败及后续close不覆盖根因、OnStep失败不编码正常输出、重连step归零和双实例隔离。
-
-### S2-09：建立手写静态双实例Core夹具
-- **对应FR：** FR-003～FR-008、FR-095～FR-098、FR-104～FR-107、FR-133、FR-248
-- **前置任务：** S2-01～S2-08
-- **输入文件：** 阶段2公共Core和IoDevice接口
-- **输出文件：** 手写双实例配置/通道/算法桩测试夹具
-- **实现目标：** 验证两个实例独立状态、不同Socket/端口、串行轮询和单实例故障不修改另一实例。
-- **非目标：** 不冒充阶段3正式生成输出，不生成CCS工程。
-- **验证方式：** 静态/主机桩测试；生成供用户DSP编译的最小双实例源清单。
-
-### 阶段2门禁 G2
-- 公共API为显式实例参数，`C2837xBlock`对用户不透明；
-- `g_ctx`、无参数API和全局会话状态退出；
-- Core内部静态绑定契约已冻结，手写夹具和阶段3生成器使用同一契约；
-- 公共Core不直接依赖W5300寄存器或状态常量；
-- 每个Run可达HAL/Socket函数具有明确最大寄存器操作次数；
-- `TX_FSR/RX_RSR`一致性读取采用有限重试，无无限循环；
-- 命令发出与完成检查已经分离；
-- open/listen/receive/send/close运行期无固定延时和网络等待长循环；
-- 底层重试超限只影响当前通道或实例；
-- SEND正进度只在SEND_OK后提交；
-- Erratum 1只修改当前Socket私有寄存器，不修改SIPR/SUBR/GAR/SHAR；
-- Erratum关闭跨多次Run推进，close BUSY/DONE/ERROR及faulted覆盖完整；
-- close/Erratum全部等待阶段均具有CPU Timer 2软件期限，且不依赖硬件必须产生`Sn_IR.TIMEOUT`；
-- `Sn_CR`、`Sn_SSR`、SEND_OK/TIMEOUT及CLOSE无响应的桩测试均在软件期限内进入faulted；
-- faulted后禁止重新open/listen，且其他Socket继续运行；
-- 全部8个Socket的TX/RX内存均为8KB/Socket，未使用Socket保持CLOSED且不LISTEN；
-- 生命周期终止矩阵全部通过，OnStop恰好一次，清理后最近错误保留，普通成功推进不清除错误；
-- Timer2和两类超时按实例独立；
-- 手写双实例夹具及局部故障隔离桩测试通过；
-- 状态标记为“待用户DSP编译”，不得宣称实机通过。
-
----
-
-## 7. 阶段3：实例DSP代码生成
-阶段3将正式DSP生成器接入阶段1的候选和提交框架，生成项目级绑定和每实例文件。
-### S3-01：实现DSP输出模型和公共文件候选
-- **对应FR：** FR-179～FR-184、FR-202～FR-205、FR-223～FR-229
-- **前置任务：** G2
-- **输入文件：** `app/c2837x_block_generate_dsp_files.m`、阶段1候选框架、阶段2Core
-- **输出文件：** 新的DSP候选构建器和固定 `inc/src` 输出树
-- **实现目标：** 公共Core文件、项目级文件和实例文件按规定职责进入候选表；旧单例文件不输出。
-- **非目标：** 不直接写盘、不复制旧全局变量文件、不生成main/CCS工程。
-- **验证方式：** 两实例配置的候选路径、类别、名称、包含关系和确定性文本测试。
-
-### S3-02：生成项目级实例导出和静态绑定
-- **对应FR：** FR-018～FR-023、FR-093～FR-098、FR-181、FR-225
-- **前置任务：** S3-01
-- **输入文件：** 项目模型、阶段2内部Config/实例结构
-- **输出文件：** `c2837x_block_project.h/.c`候选生成
-- **实现目标：** 静态定义每个实例、Config、通道和绑定；项目头只向用户导出不透明实例引用。
-- **非目标：** 不提供InitAll/RunAll、动态注册或用户可修改Config。
-- **验证方式：** 生成双实例代码，确认主程序只能通过项目头和公共API访问实例。
-
-### S3-03：生成实例配置和用户超时文件
-- **对应FR：** FR-121～FR-123、FR-166～FR-170、FR-182～FR-183、FR-219～FR-222
-- **前置任务：** S3-01、S3-02
-- **输入文件：** 项目/实例配置、阶段1用户文件保护
-- **输出文件：** `<name>_config.h/.c`、`<name>_user_config.h`候选
-- **实现目标：** 自动配置包含路由、Hash、尺寸、绑定和编译检查；用户文件只保存DSP超时宏并默认Keep。
-- **非目标：** 超时不进入项目文件、Hash或协议；不强制覆盖已有用户文件。
-- **验证方式：** 不存在/相同/不同用户文件测试；非法超时在编译期失败。
-
-### S3-04：生成强类型算法接口和三种算法文件模式
-- **对应FR：** FR-046～FR-063、FR-173～FR-178、FR-219
-- **前置任务：** S3-01
-- **输入文件：** 实例I/O表、算法模式配置
-- **输出文件：** `<name>_algorithm.h`、示例/复制算法源和内部适配器候选
-- **实现目标：**
-  - 生成实例专用Input/Output、OnStart/OnStep/OnStop和void*内部包装；
-  - `generated_example`生成用户文件并遵守Keep/Replace；
-  - `external_copy`逐字节复制为目标算法 `.c`；
-  - `external_reference`不生成算法 `.c`，结果页明确提示需由用户加入原文件；
-  - 外部源只允许存在、可读、普通的C源文件，扩展名与字面 `.c` 的比较遵循当前平台文件系统的实际大小写语义，不得无条件转换后缀大小写；
-  - 在大小写不敏感文件系统上 `.c` 与 `.C` 可按文件系统语义接受，在大小写敏感文件系统上 `.C` 不得被当作 `.c` 接受；预览时和提交前均重新确认；
-  - 外部源任何字节变化使预览快照失效。
-- **非目标：** 不暴露void*给用户、不生成C++、不接受目录/头文件/其他扩展名、不解析完整C语法、不检查回调符号是否存在、不转换external_copy编码/换行/BOM、不补末尾换行、不格式化；复制实例时不保留外部路径。
-- **验证方式：**
-  - 六种类型、标量/向量和同模块多实例不同符号；
-  - external_copy二进制比较覆盖UTF-8 LF、UTF-8 BOM、CRLF、末尾无换行、非ASCII注释、空文件和只读源文件；
-  - 在大小写不敏感与大小写敏感文件系统上分别验证 `.c`/`.C` 行为，并确认未使用无条件 `lower()` 掩盖差异；目录、`.h`、其他扩展名、不可读文件和非普通文件均被拒绝；
-  - external_reference输出列表中无算法 `.c`；
-  - generated_example默认Keep；
-  - 外部源预览后变化时快照失效。
-
-### S3-05：生成wire序列化和C28x word缓冲区
-- **对应FR：** FR-010～FR-014、FR-046～FR-076、FR-150
-- **前置任务：** S3-02、S3-04
-- **输入文件：** 实例I/O表、阶段2已冻结绑定和协议接口
-- **输出文件：** `<name>_io.c`及实例静态RX/TX对象候选
-- **实现目标：** 显式低word优先序列化；完整帧级校验后提交输入；按最大合法消息分配word缓冲区并报告内存；生成结果直接初始化阶段2冻结的配置契约。
-- **非目标：** 不对结构体整体memcpy、不依赖padding、不按max_payload盲目分配、不使用动态内存、不通过别名违规指针转换浮点。
-- **验证方式：**
-  - `sizeof(type) * CHAR_BIT`位宽断言；
-  - `FLT_MANT_DIG/FLT_MAX_EXP/LDBL_MANT_DIG/LDBL_MAX_EXP`检查；
-  - int16/uint16/int32/uint32/single/double黄金序列；
-  - `+0/-0/Infinity/NaN/subnormal`位模式；
-  - 数组元素顺序、step_index、容量和strict-aliasing安全；
-  - EABI和COFFABI用户环境编译检查标记；
-  - 阶段2手写配置替换为生成配置后Core无需改接口。
-
-### S3-06：接入DSP候选预览和提交事务
-- **对应FR：** FR-178、FR-195～FR-218、FR-236
-- **前置任务：** S3-01～S3-05
-- **输入文件：** S3-01～S3-05候选、阶段1预览/提交服务
-- **输出文件：** App DSP生成流程
-- **实现目标：** 正式模板进入候选表；强制Core/自动文件替换，用户算法/配置按Keep/Replace选择。
-- **非目标：** 不绕过预览直接写盘，不保存项目，不自动修改CCS工程。
-- **验证方式：** 重复生成byte-identical；目标外部变化使快照失效；部分写入失败报告准确。
-
-### S3-07：验证DSP生成结果的集成完整性
-- **对应FR：** FR-052、FR-076、FR-091、FR-229～FR-231、FR-249
-- **前置任务：** S3-06
-- **输入文件：** 双实例正式生成输出、阶段2夹具接口
-- **输出文件：** 生成结果静态审核记录（保存在当前任务批次记录或提交说明中，不回写本计划任务状态）
-- **实现目标：** 检查包含路径、源文件唯一性、Core API版本、ABI统一、无旧单例混编和主循环示例可调用。
-- **非目标：** 不生成CCS工程，不宣称用户工具链编译通过。
-- **验证方式：** 静态依赖检查；提供用户编译文件清单；状态置为待用户DSP编译。
-
-### 阶段3门禁 G3
-- 每实例拥有独立Config、通道、强类型对象、RX/TX缓冲区和算法符号；
-- 正式生成配置直接使用阶段2冻结的内部绑定契约；
-- 项目级只导出不透明实例；
-- Wire序列化、payload尺寸、Hash和缓冲区计算一致；
-- `external_copy`在全部测试文件上逐字节保持；
-- `external_reference`不生成算法 `.c`；
-- generated/user配置和算法源遵守Keep/Replace保护规则；
-- 同一项目全部DSP文件ABI一致；
-- 浮点特殊值、数组顺序和strict-aliasing测试通过；
-- 重复生成确定性通过；
-- 不输出旧单例文件、main、CCS工程或链接文件。
-
----
-
-## 8. 阶段4：独立S-Function
-阶段4为每个实例生成完全自包含的同步C MEX S-Function，并完成PC端可执行测试。
-### S4-01：建立实例专用S-Function模板和输出目录
-- **对应FR：** FR-153～FR-159、FR-185～FR-186
-- **前置任务：** G3
-- **输入文件：** `simulink/c2837x_block_sfun.c/.h`、阶段1候选框架
-- **输出文件：** 实例前缀模板和 `<sfun_root>/<name>/` 候选树
-- **实现目标：** 唯一S_FUNCTION_NAME、独立上下文、固定离散采样、直接馈通和每变量端口。
-- **非目标：** 不保留全局单实例计数，不使用Block参数，不支持Coder/Realtime模式。
-- **验证方式：** 生成两个实例，检查文件、宏和所有非static符号无冲突。
-
-### S4-02：生成自包含PC协议和Socket层
-- **对应FR：** FR-015～FR-017、FR-154、FR-166～FR-172、FR-185～FR-186
-- **前置任务：** S4-01
-- **输入文件：** 现有PC协议/Socket实现、V1协议基线
-- **输出文件：** `<name>_protocol.*`、`<name>_pc_socket.*`候选
-- **实现目标：** 每实例独立路由、连接和错误文本；保持V1 wire兼容；PC超时来自用户配置头。
-- **非目标：** 不依赖输出根目录共享运行库、不协商版本、不自动重连。
-- **验证方式：** Mock TCP服务测试连接、部分收发、错误RESPONSE、截断、超时和断线。
-
-### S4-03：实现mdlStart和mdlTerminate生命周期
-- **对应FR：** FR-162～FR-170
-- **前置任务：** S4-02
-- **输入文件：** S4-01/S4-02模板
-- **输出文件：** 实例S-Function生命周期实现
-- **实现目标：** mdlStart连接并完成SIM_START/RESPONSE(0)；mdlTerminate在超时内尽力发SIM_STOP且不等响应。
-- **非目标：** 连接或握手失败不重试；terminate不阻塞超过配置超时。
-- **验证方式：** Mock服务覆盖成功、版本/Hash错误、连接超时、停止发送失败。
-
-### S4-04：实现同步step和输出原子提交
-- **对应FR：** FR-157～FR-161、FR-169、FR-171～FR-172、FR-239
-- **前置任务：** S4-02、S4-03
-- **输入文件：** 实例端口定义、PC协议层
-- **输出文件：** mdlOutputs同步step和临时输出对象/缓冲区
-- **实现目标：** 发送INPUT_DATA，接收完整帧，分支RESPONSE/OUTPUT_DATA，全部校验解码后一次提交端口。
-- **非目标：** 不在step_index或长度校验前写端口；不重发、不重连、不部分更新。
-- **验证方式：** Mock服务测试错误类型、错误长度、错误step、字段解码失败和RESPONSE(error)，输出保持原值。
-
-### S4-05：生成用户配置和自包含MEX构建脚本
-- **对应FR：** FR-166～FR-170、FR-187～FR-194、FR-220
-- **前置任务：** S4-01～S4-04
-- **输入文件：** S4-01～S4-04候选、当前build脚本
-- **输出文件：** `<name>_sfun_config.h`、`<name>_sfun_user_config.h`、`build_<name>_sfun.m`
-- **实现目标：** 脚本从任意cwd执行，显式源列表，预检后删除旧MEX，失败不回退，成功打印协议/Hash/路径。
-- **非目标：** App不自动构建，不修改MATLAB路径或模型，不共享不同实例二进制。
-- **验证方式：** R2024b+支持编译器下构建两个MEX；失败注入后旧MEX不残留。
-
-### S4-06：接入S-Function候选事务并完成可重复PC测试矩阵
-- **对应FR：** FR-178、FR-195～FR-218、FR-232～FR-239、FR-250
-- **前置任务：** S4-05
-- **输入文件：** S4-01～S4-05候选、阶段1提交框架
-- **输出文件：** App S-Function生成流程、`tests/pc/` Mock endpoint和测试脚本
-- **实现目标：**
-  - 生成、预览、用户文件保护和构建行为闭合；
-  - 验证多个独立Simulink模型/进程的配置独立性；
-  - Mock endpoint可重复产生正常OUTPUT_DATA、RESPONSE(error)、错误长度、错误step、截断、字段解码失败、超时和断线。
-- **非目标：** 不要求自动生成 `.slx`，不声明非Normal mode支持，不依赖人工手动网络操作才能复现PC错误用例。
-- **验证方式：**
-  - 确定性生成和两个实例MEX构建；
-  - 正常step及全部错误路径；
-  - 任一验证/解码失败均不修改任何输出端口；
-  - Mock endpoint重复执行结果一致；
-  - 记录实际MATLAB、Simulink、操作系统和MEX编译器版本。
-
-### 阶段4门禁 G4
-- 每实例S-Function目录自包含且名称唯一；
-- 固定离散采样、全输入直接馈通、一次命中对应一次OnStep；
-- mdlStart/mdlOutputs/mdlTerminate超时和失败策略符合需求；
-- RESPONSE(error)、错误长度、错误step、截断和字段解码失败均不修改输出；
-- 构建脚本任意cwd可执行，构建失败不恢复旧MEX；
-- Mock endpoint测试可重复执行；
-- 已记录实际MATLAB、Simulink、操作系统和MEX编译器版本；
-- 在记录的实际环境中完成PC测试，最低验证环境为R2024b；
-- 未实际执行的更高版本不得标记为已通过。
-
----
-
-## 9. 阶段5：文档与验收材料
-阶段5只在实际实现稳定后编写用户文档，不为尚未实现的功能编写“已通过”说明。
-### S5-01：编写App项目和迁移使用说明
-- **对应FR：** FR-025～FR-045、FR-084、FR-206～FR-218、FR-231、FR-251
-- **前置任务：** G4
-- **输入文件：** 阶段1最终UI和项目格式
-- **输出文件：** README中的App使用章节或必要用户文档
-- **实现目标：** 说明新建/复制/重命名/删除、保存加载、旧项目迁移、预览和用户文件选择。
-- **非目标：** 不加入内部审核讨论，不把旧需求作为用户入口。
-- **验证方式：** 按文档从空项目生成双实例，步骤与实际UI一致。
-
-### S5-02：编写CCS集成和双实例main示例
-- **对应FR：** FR-093～FR-101、FR-179～FR-184、FR-229～FR-231、FR-238
-- **前置任务：** G4
-- **输入文件：** 阶段3DSP输出、阶段2公共API
-- **输出文件：** CCS集成清单和双实例main示例代码
-- **实现目标：** 列明inc/src文件、每文件只加入一次、ABI一致、外部算法源处理、PlatformInit失败处理和轮询顺序。
-- **非目标：** 不生成CCS工程、启动文件、链接文件或烧录脚本。
-- **验证方式：** 人工按照清单构造文件列表；用户后续提供实际CCS编译日志。
-
-### S5-03：编写Simulink与MEX使用说明
-- **对应FR：** FR-153～FR-172、FR-185～FR-194、FR-232
-- **前置任务：** G4
-- **输入文件：** 阶段4生成输出和构建脚本
-- **输出文件：** Simulink/MEX使用章节
-- **实现目标：** 说明每实例模块、端口顺序、采样时间、Normal mode、构建、错误文本和终止行为。
-- **非目标：** 不承诺自动模型生成、Coder、Rapid Accelerator或实时目标。
-- **验证方式：** 新环境按文档构建MEX并配置一个最小模型。
-
-### S5-04：编写测试方案和反馈模板
-- **对应FR：** FR-233～FR-245、FR-241、FR-251
-- **前置任务：** G4
-- **输入文件：** 阶段2～4测试结果、用户DSP责任边界
-- **输出文件：** 正常/异常测试步骤、问题反馈模板和验收记录模板
-- **实现目标：** 覆盖单实例、双实例、超时、断线、协议错、step错、重连、多轮会话和Erratum关闭。
-- **非目标：** 不建设复杂自动硬件平台，不把未执行DSP测试标为通过。
-- **验证方式：** 模板能记录工具环境、生成配置、日志、波形、复现步骤和FR/任务编号。
-
-### S5-05：更新README并完成最终追踪
-- **对应FR：** FR-001～FR-009、FR-224～FR-245、FR-251～FR-261
-- **前置任务：** S5-01～S5-04
-- **输入文件：** 所有实现和文档、各阶段任务批次记录和真实验证证据
-- **输出文件：** `README.md`和最终验收材料中的需求追踪表
-- **实现目标：** README从旧单实例描述更新为实际多实例实现；在最终验收材料中汇总FR实现文件、验证状态和未验证范围，不回写本计划的任务状态。
-- **非目标：** 不保留旧计划/旧需求当前入口，不生成正式安装包。
-- **验证方式：** 链接、文件名、API和示例代码与仓库一致；FR覆盖无缺失；用户验证项保持待验证。
-
-### 阶段5门禁 G5
-- 用户仅凭文档可生成项目、构建MEX、集成CCS文件并执行规定测试；
-- README与实际多实例代码一致；
-- 问题反馈和验收模板能够提供足够证据；
-- 所有FR均在最终追踪表中有实现文件和验证状态；
-- 未经用户DSP编译/实机验证的项目仍明确标记待验证。
-
----
-## 10. 建议提交序列
-| 提交组 | 建议提交信息 | 范围 |
-|---|---|---|
-| 0 | `docs: establish rev2 multi-instance baseline` | Rev.2、旧计划清理、最小README状态 |
-| 1A | `app: add project model and migration services` | S1-01～S1-04 |
-| 1B | `app: add validation and interface hash services` | S1-05～S1-06 |
-| 1C | `app: add candidate preview and commit transaction` | S1-07～S1-09 |
-| 1D | `app: add multi-instance configurator UI` | S1-10 |
-| 2A | `dsp: introduce opaque multi-instance core` | S2-01～S2-03A |
-| 2B | `dsp: make w5300 channel operations non-blocking` | S2-04～S2-06 |
-| 2C | `dsp: add protocol lifecycle and timeout state machines` | S2-07～S2-09 |
-| 3A | `generator: add project and instance dsp outputs` | S3-01～S3-03 |
-| 3B | `generator: add typed algorithms and serialization` | S3-04～S3-07 |
-| 4A | `sfun: add instance-specific runtime templates` | S4-01～S4-04 |
-| 4B | `sfun: add deterministic build and pc tests` | S4-05～S4-06 |
-| 5 | `docs: add integration and acceptance guidance` | S5-01～S5-05 |
-每个提交组可以因实现规模进一步拆分，但不得把多个阶段混入一个不可审核的大提交。
----
-## 11. 风险与控制
-| 风险 | 控制措施 |
-|---|---|
-| App重构同时改变过多行为 | 服务优先、UI最后接入；固定夹具测试生成事务 |
-| 多实例状态仍隐藏共享变量 | S2-01源码搜索和S2-09双实例隔离测试 |
-| W5300底层仍存在隐藏阻塞 | S2-04扫描DELAY/while，命令发出与完成分离 |
-| Core提前确认发送完成 | FR-265 pending SEND桩测试，只有SEND_OK返回正进度 |
-| Erratum关闭影响其他Socket | 私有closing/faulted状态，禁止全芯片复位和公共网络寄存器写入 |
-| W5300关闭阶段永久等待 | 每个close/Erratum阶段使用CPU Timer 2软件期限，无响应进入当前Socket faulted |
-| Hash在三端不一致 | 单一MATLAB规范文本服务和固定黄金向量 |
-| 生成器覆盖用户文件 | 候选分类、预览快照和默认Keep |
-| 新旧文件混合编译 | 输出树不生成旧文件，CCS清单明确移除项 |
-| DSP环境差异 | 不固定工具版本；用户实际编译/实机日志为准 |
-| 阶段提前伪造后续功能 | 阶段1固定候选夹具、阶段2手写双实例夹具 |
----
-## 12. 计划完成定义
-第一版计划完成必须同时满足：
-1. G0～G5全部通过；
-2. App、DSP Core、DSP生成和S-Function源码均完成；
-3. PC侧确定性生成、MEX构建和错误路径测试通过；
-4. 用户已获得DSP集成和实机测试材料；
-5. 所有需求具有实现文件和状态记录；
-6. DSP未执行部分明确标记“待用户DSP编译”或“待用户实机验证”；
-7. 仓库中不存在仍被标记为当前依据的旧需求或旧计划。
----
-## 13. V1协议基线矩阵样例
-
-阶段0必须将本节样例转化为机器可执行夹具，并用指定历史Commit的DSP/PC实现逐项确认。
-
-| 消息 | Header type | Payload长度 | Payload字段 |
-|---|---:|---:|---|
-| SIM_START | `0x0001` | 6 octet | `protocol_version:uint16@0`，`config_hash:uint32@2` |
-| INPUT_DATA | `0x0002` | `4 + input_data_octets` | `step_index:uint32@0`，实例输入数据自@4开始 |
-| OUTPUT_DATA | `0x0003` | `4 + output_data_octets` | `step_index:uint32@0`，实例输出数据自@4开始 |
-| SIM_STOP | `0x0004` | 0 | 无 |
-| RESPONSE | `0x0005` | 2 octet | `error_code:uint16@0` |
-
-公共Header固定为：
-
-| 字段 | 类型 | offset | wire octet | 编码 |
-|---|---|---:|---:|---|
-| type | uint16 | 0 | 2 | little-endian |
-| payload_length | uint16 | 2 | 2 | little-endian |
-
-历史错误码矩阵在阶段0必须按指定Commit和DSP/PC文件确认；固定项如下：
-
-| 数值 | DSP历史符号 | PC历史符号 | 固定线缆语义 | 新架构主动产生 |
-|---:|---|---|---|---|
-| 0 | `C2837X_ERR_OK` | `C2837X_BLOCK_ERR_NONE` | 请求成功 | 是 |
-| 1 | `C2837X_ERR_UNKNOWN_TYPE` | `C2837X_BLOCK_ERR_UNKNOWN_TYPE` | 未知消息类型 | 是 |
-| 2 | `C2837X_ERR_PAYLOAD_LENGTH` | `C2837X_BLOCK_ERR_LENGTH` | Payload长度非法或与固定长度不一致 | 是 |
-| 3 | `C2837X_ERR_CONFIG_MISMATCH` | `C2837X_BLOCK_ERR_CONFIG_HASH` | Interface Hash或配置不匹配 | 是 |
-| 4 | `C2837X_ERR_STATE` | `C2837X_BLOCK_ERR_STATE` | 消息不允许出现在当前协议状态 | 是 |
-| 5 | `C2837X_ERR_INTERNAL` | `C2837X_BLOCK_ERR_INTERNAL` | DSP内部处理或算法执行失败 | 是 |
-| 6 | `C2837X_ERR_PROTOCOL_VERSION` | `C2837X_BLOCK_ERR_PROTOCOL_VERSION` | 协议版本不匹配 | 是 |
-| 7 | `C2837X_ERR_STEP_INDEX` | `C2837X_BLOCK_ERR_STEP_INDEX` | `step_index`不匹配 | 是 |
-| 8 | `C2837X_ERR_UNSUPPORTED_TYPE` | `C2837X_BLOCK_ERR_UNSUPPORTED_TYPE` | 数据类型或ABI不受支持 | 否；保留兼容定义，由App或生成期阻止 |
-
-DSP与PC两端允许保留各自历史宏名称，两端应分别保持指定历史提交中的符号名称，不得为了统一名称而重命名历史DSP或PC错误码宏。
-
-以下情况才属于协议基线冲突：
-
-1. 同一错误码的数值不同；
-2. 同一数值对应的线缆语义不同；
-3. 某一端缺失历史定义；
-4. 当前文件与指定历史提交不一致且无法解释。
-
-DSP与PC历史宏名称不同本身不属于冲突。
-
-黄金帧至少包括：
+本增量基于已经完成的 V1.0 多实例 W5300 实现：
 
 ```text
-SIM_STOP:
-04 00 00 00
-
-RESPONSE(OK):
-05 00 02 00 00 00
-
-SIM_START(version=1, hash=0x12345678):
-01 00 06 00 01 00 78 56 34 12
+Repository : VainSuns/DSP-SimBridge
+Base HEAD  : 91135a87160e18999f68b0ac262b8a35b656806f
+New Branch : feature/sci-iodevice-v1
+V1.0 Gates : G0～G5 PASS / CLOSED
+Protocol   : V1 immutable
+Project    : V2
+Core API   : V1
+IoDevice   : W5300 TCP only
 ```
 
-INPUT_DATA和OUTPUT_DATA黄金帧应使用阶段0固定的最小接口样例生成，并同时由历史DSP/PC解析器和重构后解析器验证。
+本计划实施前应把新的 SCI frozen requirements 和本计划切换为当前规范入口；旧 Rev.2 requirements、旧 plan 和旧 267-FR traceability 只保留历史追溯意义。
+
+现有实现中需要保留的关键基线包括：
+
+- 静态多实例 Core，不恢复 default instance/shared `g_ctx`；
+- `PlatformInit()`、`Init(instance)`、`Run(instance)`、`GetLastError(instance)` 公共 API 形态；
+- `C2837xBlock_IoDeviceOps` transport 抽象；
+- V1 wire protocol、Interface Hash 和 step 语义；
+- W5300 已关闭的 non-blocking、pending SEND、close/Erratum 和 faulted 行为；
+- 每实例自包含 S-Function/MEX 生成结构；
+- Preview/Snapshot/Commit 用户文件保护事务；
+- 已关闭 hot-path 优化：DSP `Run()` 不重复完整静态校验、PC 每 step 不恢复 heap/full-copy、固定端口/元素/endian 继续由生成期展开。
 
 ---
+
+## 3. 全局 FR 覆盖矩阵
+
+| 需求范围 | 主要计划覆盖位置 |
+|---|---|
+| FR-001～FR-006 | SCI-S0、SCI-S2、SCI-S3、SCI-S5；架构/版本/兼容非回退 |
+| FR-007～FR-013 | SCI-S1；Project V3、migration、conditional fields、COM 边界 |
+| FR-014～FR-018 | SCI-S1；Capability、Platform Reserved Resources、resource conflict |
+| FR-019～FR-030 | SCI-S1；App IoDevice-aware UI、defaults、copy、capability isolation |
+| FR-031～FR-040 | SCI-S1、SCI-S2、SCI-S5；LSPCLK/BRR、PinMux、PlatformInit、SCI_INIT |
+| FR-041～FR-050 | SCI-S2；公共 SCI driver、RX/TX/session、timeout、有界 Run |
+| FR-051～FR-055 | SCI-S2；可选 half-duplex CTRL 运行合同 |
+| FR-056～FR-070 | SCI-S4；COM 参数、Windows serial、S-Function lifecycle |
+| FR-071～FR-075 | SCI-S4；PcError SERIAL、stage、OS error、cleanup |
+| FR-076～FR-083 | SCI-S4；transport-specific S-Function generation、build、Update Diagram |
+| FR-084～FR-090 | 各阶段最小验证 + SCI-S5 最终证据收敛 |
+| FR-091～FR-095 | SCI-S0、全阶段非目标、SCI-S5 文档/治理 |
+
+---
+
+# 4. SCI Stage 0：规范基线切换与实施入口
+
+Stage 0 不实现 SCI 产品功能，只把新的增量周期从历史 V1.0 周期中干净分离，并建立可以实施的唯一规范入口。
+
+## SCI-S0-01：核对 SCI 分支与 V1.0 完成基线
+
+- **对应 FR：** FR-005、FR-093～FR-095
+- **前置任务：** 无
+- **输入：** `feature/sci-iodevice-v1`、基线 `91135a87160e18999f68b0ac262b8a35b656806f`、V1 protocol tag/commit、当前仓库
+- **目标：**
+  1. 核对新分支确实从完成的 V1.0 基线开始；
+  2. 核对工作区干净、remote 与 local 基线一致；
+  3. 核对历史 `G0～G5` 已关闭且不作为本计划待执行门禁；
+  4. 核对 V1 wire protocol tag/commit 仍存在且未漂移；
+  5. 记录新 SCI 周期的实际起始 HEAD。
+- **非目标：** 不修改产品代码；不实现 Project V3/SCI；不重新执行历史 G0～G5。
+- **最小验证：** Git/remote/branch/HEAD/status、protocol baseline commit/tag、基线祖先关系。
+
+## SCI-S0-02：切换 Repository 当前 requirements / plan 并归档历史入口
+
+- **对应 FR：** FR-093～FR-095
+- **前置任务：** SCI-S0-01
+- **输入：** 新 frozen requirements、本计划、旧 Rev.2 requirements、旧完成 plan、仓库中的 current-spec 引用
+- **Repository 目标：**
+  1. 将 `requirements/requirements_sci_iodevice_v1.0_frozen.md` 作为当前唯一 frozen requirements；
+  2. 用本计划替换根 `plan.md`；
+  3. 旧 Rev.2 requirements、旧完成 plan 和历史 267-FR traceability 进入明确 historical/archive 状态，不再作为 current implementation authority；
+  4. 保留完整 Git 历史和历史 G0～G5 追溯能力；
+  5. 搜索并修正仓库中会让 Codex/开发者误把旧 requirements / old plan 当作 current authority 的必要引用。
+- **固定归档策略：**
+  - `requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md` → `requirements/archive/requirements_multi_iodevice_v1.0_frozen_rev2.md`；
+  - 旧根 `plan.md` → `docs/archive/plan_multi_instance_v1_completed.md`；
+  - `docs/requirements_traceability.md` → `docs/archive/requirements_traceability_multi_instance_v1.md`；
+  - 新当前入口固定为 `requirements/requirements_sci_iodevice_v1.0_frozen.md` 与根 `plan.md`；
+  - 如仓库中现有链接必须同步调整，只做维持历史可追溯和消除 current-authority 歧义所必需的最小修改。
+- **ChatGPT 项目来源维护边界：** `DSP-SimBridge_ChatGPT_Project_Instructions.md`、`DSP-SimBridge_Current_Dynamic_Context.md` 和当前 Stage 0 / SCI-G0 跨对话移交摘要由 ChatGPT/用户在 SCI-G0 关闭时同步维护；这些文件不属于研发仓库，不作为 Codex 修改目标，不进入 repository `git diff`，也不得复制或提交到 `VainSuns/DSP-SimBridge`。如继续维护 `DSP-SimBridge_Codex_Command_Guide.md`，只同步其工作方法示例/事实源路径，不作为产品 Gate。
+- **非目标：** 不重写全部用户文档；不修改产品代码；不删除历史 Git 证据；不让 Codex 修改 ChatGPT Project Source 文件。
+- **最小验证：** repository 搜索 current authority 引用；新 requirements/plan 可读取；固定 archive 路径存在且不再被标记为 current；`git diff --check`。
+
+### SCI Stage 0 Gate：SCI-G0
+
+必须确认：
+
+- 新分支和起始 HEAD 已真实核对；
+- 新 frozen requirements 与新 `plan.md` 是唯一当前研发入口；
+- 历史 Rev.2 requirements / plan 只作历史追溯；
+- V1 wire protocol baseline 未改变；
+- Stage 0 未混入 SCI 产品实现；
+- 本地工作区和实际提交状态记录真实；
+- `SCI-G0` 通过并准备进入 Stage 1 时，分别确认两类证据：Repository 已完成当前规范入口切换与历史归档；ChatGPT/用户已将 `DSP-SimBridge_ChatGPT_Project_Instructions.md`、Dynamic Context 和 Stage 0 / SCI-G0 跨对话移交摘要同步到新分支、新 frozen requirements 和新 plan。ChatGPT Project Source 文件不得提交到研发仓库。
+
+`SCI-G0` 与历史 `G0` 无关，不重新判定历史多实例阶段。
+
+---
+
+# 5. SCI Stage 1：Project V3、Capability 与 App 配置
+
+Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配置边界，使后续 DSP/PC 生成只消费已经归一化和验证的 Project V3 数据。
+
+## SCI-S1-01：建立 TMS320F28377D PTP Capability 与 loader
+
+- **对应 FR：** FR-014～FR-017、FR-030
+- **前置门禁：** SCI-G0
+- **目标：**
+  1. 新增唯一 `TMS320F28377D_PTP.json`；
+  2. 只保存固定器件事实：SCI-A/B/C/D、合法 RX/TX PinGroup、GPIO/PinMux 能力；
+  3. 建立带 `schema_version` 的 MATLAB loader/normalizer；
+  4. 其他 App/validator/generator 只消费 normalized capability，不直接依赖 raw `jsondecode`；
+  5. W5300 EMIF/reset/GPIO 等固定占用保持 Platform Reserved Resources，不污染 capability；
+  6. capability 缺失/损坏时可以明确禁用 SCI，但不得破坏 W5300-only 工作流；
+  7. Capability 中的固定器件事实必须依据 TMS320F28377D PTP 的权威器件资料或当前 TI C2000 device-support 定义核对，并在 capability/维护文档或对应测试夹具中记录可追溯来源；不得根据记忆猜测 PinMux/GPIO 组合。
+- **非目标：** 不支持其他 package/device；不做 `.mat` cache；不加入用户配置。
+- **最小验证：** 正常 schema、unsupported schema、缺失/损坏 capability、W5300-only capability isolation，以及 capability 固定器件事实的来源可追溯性。
+
+## SCI-S1-02：升级 Project V2→V3 与 SCI Instance 模型
+
+- **对应 FR：** FR-007～FR-013、FR-019、FR-023～FR-025、FR-029
+- **前置任务：** SCI-S1-01
+- **目标：**
+  1. `project.format_version = 3`；
+  2. 增加 `project.common.package='PTP'`；
+  3. 保留 Project Network，但仅在存在 W5300 Instance 时参与有效性校验/生成；
+  4. Instance 增加 `IoDevice=W5300 TCP/SCI` 与 SCI 配置字段；
+  5. 新 Instance 默认 W5300；切换到 SCI 使用冻结默认值；
+  6. V2 自动迁移为 V3，全部旧 Instance 保持 W5300 语义且项目 dirty，不覆盖旧 `.mat`；
+  7. COM 不进入 Project；
+  8. SCI Copy 不复制独占 Module/PinGroup/CTRL GPIO，CTRL 仍只有 `None/GPIOxx` 两态。
+- **非目标：** 不实现 DSP/PC SCI runtime；不自动选择 SCI/PinGroup/GPIO。
+- **最小验证：** V3 round-trip、V2 migration、dirty、SCI defaults、copy、Network conditional semantics、COM 不进入 `.mat`。
+
+## SCI-S1-03：建立统一 LSPCLK/BRR/Baud 计算服务
+
+- **对应 FR：** FR-027、FR-031～FR-034
+- **前置任务：** SCI-S1-02
+- **目标：**
+  1. 建立唯一 MATLAB 计算服务，输入项目级 LSPCLK 和 Requested Baud；
+  2. 根据冻结公式在合法整数 BRR 范围内选择绝对 Baud Error 最小的值；若存在完全相同的绝对误差，则选择较小 BRR；实现采用何种数学求解方式由实现者决定；
+  3. 输出 BRR、Actual Baud、Baud Error；
+  4. bring-up 初始平台配置采用 `SYSCLK/14 ≈ 14.285714 MHz`；
+  5. 五个 Baud 均允许 Generate，不建立 error threshold；
+  6. 服务允许后续 SCI-S5-02 替换最终平台 LSPCLK，而无需修改计算公式。
+- **非目标：** 本任务不选择最终 LSPCLK；不根据 Baud 自动修改 timeout。
+- **最小验证：** 五个支持 Baud 的 deterministic 计算、最小误差与 tie rule、非法输入；不验证私有求解步骤，不建立 Baud×LSPCLK 大矩阵。
+
+## SCI-S1-04：实现 IoDevice-aware validation 与资源冲突检查
+
+- **对应 FR：** FR-008～FR-009、FR-018、FR-025、FR-030
+- **前置任务：** SCI-S1-01～SCI-S1-03
+- **目标：**
+  1. validation 合并 normalized capability、Platform Reserved Resources 和全部 Instance；
+  2. 阻断重复 SCI Module；
+  3. 阻断 RX/TX/CTRL GPIO 之间及与 W5300 固定资源的冲突；
+  4. 阻断 capability 中不存在的 Module/PinGroup/GPIO/PinMux 组合；
+  5. SCI-only 项目不因 Network 非法失败；W5300 项目继续执行既有 Network 校验；
+  6. capability 故障只阻断 SCI 项目/SCI 配置，不阻断 W5300-only。
+- **非目标：** 不做运行时资源检测；不探测真实 GPIO 电气状态。
+- **最小验证：** 关键重复/冲突、SCI-only Network bypass、W5300-only capability failure isolation。
+
+## SCI-S1-05：重构 App 为 IoDevice-aware 配置界面
+
+- **对应 FR：** FR-019～FR-030
+- **前置任务：** SCI-S1-02～SCI-S1-04
+- **目标：**
+  1. 保留现有顶层 Project / Instances / Inputs/Outputs / Issues/Interface / Generation Preview；
+  2. Selected Instance 详情形成 `General / IoDevice / Algorithm`；
+  3. IoDevice 页面按 W5300/SCI 显示对应字段；
+  4. PinGroup 和 CTRL GPIO 下拉由 capability 驱动；
+  5. CTRL=None 时相关控件禁用/隐藏；
+  6. 项目存在 SCI 时只读显示当前项目 LSPCLK；SCI Instance 显示 Requested/Actual/Error；
+  7. Instance Table 与其他摘要使用统一 transport summary：`Socket 0 / TCP 5000` 或 `SCI-A / 57600 baud`；
+  8. Module 改变使旧 PinGroup 非法时清空；不自动分配资源。
+- **非目标：** 不测试像素尺寸/颜色/边距；不建立项目级 SCI-A/B/C/D 固定 Panel。
+- **最小验证：** 用户行为和模型状态；UI 动态字段/默认值/summary；不做表现层像素测试。
+
+### SCI Stage 1 Gate：SCI-G1
+
+必须确认：
+
+- V3 model / V2 migration 可独立于 UI 测试；
+- capability/schema/normalizer 边界清晰；
+- W5300 Platform Reserved Resources 未写入器件 capability；
+- 关键 resource conflict 能在 Generate 前发现；
+- SCI-only 不被无效 Network 阻断；W5300-only 不被 SCI capability 故障阻断；
+- App SCI 配置、copy、defaults、summary 与冻结需求一致；
+- bring-up LSPCLK/BRR 计算单一且 deterministic；
+- 未提前实现 DSP SCI 或 PC serial runtime。
+
+---
+
+# 6. SCI Stage 2：Core API V2 与 DSP SCI IoDevice
+
+Stage 2 先用手写/测试 fixture 建立 Core V2 和公共 SCI IoDevice，不依赖正式 generator，从而先闭合 DSP 运行合同，再由 Stage 3 生成实际配置。
+
+## SCI-S2-01：升级 Core API V2 与 PlatformResult
+
+- **对应 FR：** FR-003～FR-006、FR-039
+- **前置门禁：** SCI-G1
+- **目标：**
+  1. `C2837X_BLOCK_CORE_API_VERSION` 升为 2；
+  2. 保留现有 expected-version compile gate，generated side 后续声明 expected=2；
+  3. `C2837X_BLOCK_PLATFORM_ERROR_SCI_INIT = -5` 追加到现有枚举，不重排 0/-1/-2/-3/-4；
+  4. 公共用户 API 形态保持不变；
+  5. V1 wire protocol/Core message behavior 不变。
+- **非目标：** 不实现 SCI peripheral；不修改 wire protocol；不恢复旧 API。
+- **最小验证：** API/enum 静态审核、version mismatch compile fixture、V1 protocol existing evidence/minimal regression。
+
+## SCI-S2-02：建立项目级 Platform SCI 配置合同与条件初始化
+
+- **对应 FR：** FR-031、FR-037～FR-040、FR-042
+- **前置任务：** SCI-S2-01
+- **目标：**
+  1. 为 PlatformInit 建立项目级 `use_w5300` + used SCI descriptors 的静态配置合同；
+  2. bring-up 阶段有 SCI 时设置一次 `SYSCLK/14` LSPCLK；无 SCI 时不为 SCI 修改 LSPCLK；
+  3. SCI-only 不执行 W5300 init；W5300-only 不执行 SCI init；mixed 初始化两者；
+  4. mixed 任一 required resource init 失败则 PlatformInit fail，不要求 rollback；
+  5. Instance `Init()` 不重复初始化 W5300/SCI/LSPCLK/PinMux/Timer2。
+- **非目标：** 不实现 generator；本任务可先使用手写静态配置 fixture。
+- **最小验证：** SCI-only/W5300-only/mixed 的调用边界；PlatformInit failure path；无 SCI 不改 LSPCLK。
+
+## SCI-S2-03：实现公共 SCI descriptor、PinMux、FIFO 与 hardware init
+
+- **对应 FR：** FR-035～FR-039、FR-041～FR-042
+- **前置任务：** SCI-S2-02
+- **目标：**
+  1. 一套公共 SCI implementation 支持 A/B/C/D descriptor；
+  2. const hardware config 与 mutable channel runtime 分离；
+  3. 根据 descriptor 配置 RX/TX PinMux、pull-up、RX qualification、BRR、8N1、FIFO；
+  4. 禁用 autobaud/loopback/interrupt/DMA，FIFO delay=0，polling；
+  5. 可选 CTRL GPIO 初始化为 RX；
+  6. 未使用 SCI/GPIO 不修改；
+  7. `SCI_INIT` 只用于可实际检测的 descriptor/config 不一致，不伪造 register self-test；
+  8. `channel_init()` 只重置当前 SCI Instance 的 mutable Channel Runtime、清理软件 pending 状态并保证 CTRL 回到 RX；不得重新初始化 SCI peripheral、重新设置 BRR/PinMux/LSPCLK，也不得修改其他 SCI Instance。
+- **非目标：** 不做 read-back/loopback/外部设备探测；不增加中断/DMA。
+- **最小验证：** descriptor/config 静态检查、可 host-test 的转换/分支；真实 TI 编译若未执行必须保持 pending。
+
+## SCI-S2-04：实现 SCI logical connection、RX 与 session cleanup
+
+- **对应 FR：** FR-043～FR-047、FR-050
+- **前置任务：** SCI-S2-03
+- **目标：**
+  1. `CLOSED -> OPEN -> LISTENING` 逻辑状态；
+  2. LISTENING 无 RX 时无限等待且不启动通信 timeout；
+  3. 首个 RX octet 使 channel 报 CONNECTED，但不得被 connection probe 消耗；
+  4. adapter 私下完成 8-bit serial octet ↔ C28x `Uint16`；Core 正进度仍为偶数 wire octet；
+  5. 单 byte 可私有暂存并返回 0；
+  6. 进入新 WAIT_SIM_START 前只执行一次 FIFO/error/pending cleanup；
+  7. RXERROR/RXFFOVF 等严重错误结束当前 session，不 resync/retry；
+  8. session close 后回到等待 SIM_START，不重新配置 peripheral/Baud/PinMux；
+  9. SCI `close()` 只结束当前 logical session，并允许后续 `open -> listen -> WAIT_SIM_START`；不得模拟 TCP peer disconnect、产生 TCP-style disconnect semantics，也不得重新初始化 SCI hardware 或重新配置 Baud/PinMux/LSPCLK。
+- **非目标：** 不增加 transport-specific timeout；不做 peer-connect 模拟等待。
+- **最小验证：** 首 byte preservation、odd byte staging、one-time cleanup、RX error、bounded polling。
+
+## SCI-S2-05：实现 SCI TX pending 与物理发送完成语义
+
+- **对应 FR：** FR-048～FR-050
+- **前置任务：** SCI-S2-04
+- **目标：**
+  1. 一个 Core `send(count_octets)` 对应一个完整 pending operation；
+  2. FIFO 可跨多次 Run 填充，不等待 FIFO 空位；
+  3. pending 期间不接受第二个 operation、不重复写入/发送；
+  4. 只有全部 octets 且最后 stop bit 物理发送完成后，`send()>0` 才一次性返回完整 `count_octets`；
+  5. 所有 Run 可达路径有界，不等待 TX/TXEMPTY、不使用 `delay_us()`；
+  6. 继续使用现有 Core transfer timeout，不自动根据 Baud/LSPCLK/Payload 调整。
+- **非目标：** 不增加 SCI-specific TX timeout、自适应 timeout 或 retry。
+- **最小验证：** pending progression、no duplicate、physical-complete gate、bounded calls。
+
+## SCI-S2-06：实现可选 Half-duplex CTRL 状态
+
+- **对应 FR：** FR-051～FR-055
+- **前置任务：** SCI-S2-05
+- **目标：**
+  1. CTRL=None 走普通 SCI；GPIOxx 时启用 DSP half-duplex direction；
+  2. 新 send 首次切 CTRL→TX 并返回 0；
+  3. pending 未完成保持 TX；
+  4. 最后 stop bit 完成后切 RX，再返回正进度；
+  5. receive 仅在 RX 状态；状态矛盾按 IoDevice error；
+  6. abort/error/termination 强制 CTRL→RX；
+  7. PC 不用 RTS/DTR 做方向控制。
+- **非目标：** 不增加 DE setup delay 配置；不要求为该功能建立强制专项测试矩阵。
+- **最小验证：** 必须完成代码合同/源码审核；若现有低成本 host fixture 能自然覆盖关键状态则执行并记录，但不得为了增加覆盖率专门扩建复杂测试框架。硬件保持用户验证。
+
+### SCI Stage 2 Gate：SCI-G2
+
+必须确认：
+
+- Core API=2、expected version compile gate 有效；
+- PlatformResult 旧数值未重排，SCI_INIT=-5；
+- 公共 Core 不增加第二套 transport API；
+- SCI hardware config/runtime 静态独立，无 malloc/shared mutable runtime；
+- SCI-only/W5300-only/mixed PlatformInit 责任边界正确；
+- RX 首 byte、odd-byte staging、session cleanup、TX pending/physical-complete 语义闭合；
+- Run 可达 SCI 路径无固定等待/长轮询；
+- half-duplex 代码合同实现，但不把专项硬件测试升级为门禁；
+- 未实际进行的 CCS/硬件验证真实标记 pending。
+
+---
+
+# 7. SCI Stage 3：DSP 生成与 IoDevice 条件依赖
+
+Stage 3 把 Stage 1 的 Project V3/Capability 和 Stage 2 的 Core/SCI runtime 接入正式 DSP candidate generation。
+
+## SCI-S3-01：扩展 DSP 输出模型与项目级 Platform Config
+
+- **对应 FR：** FR-004、FR-009、FR-012、FR-038～FR-040
+- **前置门禁：** SCI-G2
+- **目标：**
+  1. generator 从 V3 project 计算项目是否使用 W5300、使用哪些 SCI；
+  2. 生成项目级 Platform config/descriptor；
+  3. generated header 声明 `C2837X_BLOCK_EXPECTED_CORE_API_VERSION = 2`；
+  4. generated platform config 包含当前 bring-up LSPCLK/必要 SCI descriptors；
+  5. 不把 COM 写入 DSP generation。
+- **非目标：** 不生成 PC serial；不修改 protocol V1。
+- **最小验证：** SCI-only/W5300-only/mixed output model、expected Core API V2、COM absence。
+
+## SCI-S3-02：生成 SCI Instance 静态绑定与硬件配置
+
+- **对应 FR：** FR-002、FR-009、FR-012、FR-031～FR-037、FR-041
+- **前置任务：** SCI-S3-01
+- **目标：**
+  1. SCI Instance 生成 module、BRR、PinGroup、Pin Type、RX Qualification、CTRL GPIO/polarity 的 const config；
+  2. BRR/Actual/Error 由 Stage 1 单一计算服务提供；DSP runtime 不重新计算；
+  3. Instance IoDevice binding 继续使用现有 ops+channel；
+  4. 每 Instance mutable channel 独立；
+  5. Interface Hash 不因 SCI hardware config 改变。
+- **非目标：** 不在 runtime 切换 transport；不生成 Instance ID 进入 wire。
+- **最小验证：** 一个代表性 SCI generated config、hash invariance、symbol isolation。
+
+## SCI-S3-03：按 IoDevice 收敛 DSP source / dependency
+
+- **对应 FR：** FR-006、FR-038
+- **前置任务：** SCI-S3-01～SCI-S3-02
+- **目标：**
+  1. SCI-only candidate/source list 不要求 W5300 driver/HAL；
+  2. W5300-only 不要求 SCI driver；
+  3. mixed 同时包含两类依赖；
+  4. 不恢复共享或自动扫描源码；
+  5. W5300-only generation 保持既有文件和行为，除本增量明确要求外不改动 hot path。
+- **非目标：** 不要求生成 CCS 工程文件。
+- **最小验证：** 三种 project 类型的 deterministic source/dependency set；无多 SCI组合矩阵。
+
+## SCI-S3-04：接入 Preview/Snapshot/Commit 与关键 deterministic generation
+
+- **对应 FR：** FR-006、FR-012、FR-018、FR-038、FR-084～FR-088
+- **前置任务：** SCI-S3-01～SCI-S3-03
+- **目标：**
+  1. SCI hardware config 变化使相关 candidate/snapshot 失效；
+  2. resource validation 在写盘前阻断冲突；
+  3. SCI-only、W5300-only、mixed 生成结果 deterministic；
+  4. 用户文件 Keep/Replace、Preview no-write、Commit transaction 继续复用 V1.0 服务；
+  5. 不机械重跑未修改的 V1.0 全套测试。
+- **非目标：** 不构建 MEX；不执行硬件。
+- **最小验证：** 三种关键 generation、重复生成一致性、snapshot invalidation、关键 conflict rejection。
+
+### SCI Stage 3 Gate：SCI-G3
+
+必须确认：
+
+- Project V3→generated Platform/SCI config 责任链闭合；
+- Core API expected version=2；
+- SCI-only / W5300-only / mixed 的 DSP source dependency 符合冻结需求；
+- W5300-only 未被无关 SCI dependency/capability 破坏；
+- SCI hardware 配置不进入 Interface Hash；
+- Preview/Snapshot/Commit 继续 deterministic 且无无关回退；
+- 没有恢复 hot-path 全量 validation/heap/full-copy；
+- 未实际执行的 DSP CCS 编译保持 pending。
+
+---
+
+# 8. SCI Stage 4：Windows PC Serial 与 SCI S-Function
+
+Stage 4 在既有 instance-specific S-Function/V1 protocol 基础上新增 self-contained Windows serial transport，不复制第二套 protocol。
+
+## SCI-S4-01：实现 self-contained Windows `pc_serial` transport
+
+- **对应 FR：** FR-059、FR-061～FR-068、FR-071～FR-073、FR-091～FR-092
+- **前置门禁：** SCI-G3
+- **目标：**
+  1. 新建实例前缀 `pc_serial.c/.h` transport；
+  2. 使用 Win32 serial API 或等价 self-contained C 实现 COM open/close/config/purge/read/write；
+  3. 8N1、无 flow control，DTR/RTS 不用于协议/方向控制；
+  4. COM10+ path 在内部处理；
+  5. 实现 write-all/read-exact 与 partial I/O；
+  6. 每个 send/recv operation 使用单一 monotonic deadline，partial progress 不重启 timeout；
+  7. 保留 numeric Windows `os_error` 和可获得的 system text；
+  8. `rtiostream_serial.c` 仅作为可用参考或等价实现依据，不依赖 MathWorks 私有 serial binary；
+  9. 不依赖 Instrument Control Toolbox/Python/pySerial/第三方 serial library；
+  10. `pc_serial` 只提供 raw V1 protocol octet stream，不增加 SOF/Magic/CRC/terminator/SLIP/COBS/额外 length prefix 或第二套 serial framing；Protocol 只请求和消费当前 Header 或当前 Payload 所需的确切 byte 数，不通过 `read all available` 建立第二套 frame parser；
+  11. 禁用 software flow control；DTR/RTS 不承担协议或 RS485 direction，并在平台允许时保持 inactive。
+- **非目标：** 不做 COM 枚举、VID/PID、auto reconnect、RS485 RTS/DTR direction。
+- **最小验证：** 可注入/模拟的 partial read/write、deadline、COM path/error formatting；不需要真实硬件。
+
+## SCI-S4-02：扩展 PcError 与稳定 Serial stage
+
+- **对应 FR：** FR-065、FR-071～FR-075
+- **前置任务：** SCI-S4-01
+- **目标：**
+  1. PcError 追加 `SERIAL`，旧编号不重排；
+  2. 稳定 stage 至少区分 `serial_open / serial_configure / serial_purge / send_frame / recv_header / recv_payload / wait_response / wait_output_data`；
+  3. partial-frame timeout 归 TIMEOUT 并报告 expected/actual length；
+  4. USB/handle/ReadFile/WriteFile failure 归 SERIAL，不伪装 TCP DISCONNECT；
+  5. 主错误不被 terminate cleanup error 覆盖；
+  6. SCI 用户可见错误至少包含 `instance / COM / generated Requested Baud / stage / category`；处于 step 时继续包含 `step_index`；适用时继续包含 `expected_length / actual_length / os_error / Windows system error text`。
+- **非目标：** 不建立长期日志、packet trace 或 history ring buffer。
+- **最小验证：** 在现有 representative error-format focused validation 中验证一个或少量代表性 `SERIAL/TIMEOUT/protocol` 错误的字段、stage、length 与 os_error；不扩张错误组合矩阵。
+
+## SCI-S4-03：生成 SCI S-Function 参数合同与 lifecycle
+
+- **对应 FR：** FR-056～FR-065、FR-068～FR-070、FR-074～FR-078、FR-081～FR-083
+- **前置任务：** SCI-S4-01～SCI-S4-02
+- **目标：**
+  1. W5300 S-Function 保持 0 transport parameter；SCI S-Function 固定 1 个 non-tunable `COM Port Number`；
+  2. Update Diagram 只做 COM 正整数标量和 compile-time port/type/sample-time 校验，不 open/enumerate COM；
+  3. `mdlStart`: validate COM→context→open/configure→purge once→SIM_START→RESPONSE(OK)→step=0；
+  4. `mdlOutputs` 保持同步单 step 与原子输出；
+  5. `mdlTerminate` best-effort SIM_STOP、不等 response、close；
+  6. 不 reconnect/retry/resend/pipeline/thread；
+  7. COM 不编译进 generated config，Baud 编译进去；PC COM 必须配置 generated **Requested/Nominal Baud**，不得使用 DSP 量化后的 Actual Baud；
+  8. 保留现有 `CONNECT_TIMEOUT_MS / STEP_TIMEOUT_MS / TERMINATE_TIMEOUT_MS` 三个 user-config timeout：SCI 不使用 CONNECT_TIMEOUT 虚构 peer-connect 等待；SIM_START send 与 RESPONSE receive、INPUT_DATA send 与 OUTPUT_DATA receive 各自使用独立的 STEP_TIMEOUT operation deadline，partial progress 不重启 deadline；SIM_STOP best-effort send 使用 TERMINATE_TIMEOUT；
+  9. serial open/configure 后不增加固定 sleep，不发送 bootloader `'A'` autobaud handshake；
+  10. 同 COM 冲突依赖 OS exclusive open；不建全局 registry；
+  11. 正常一个 generated instance block 只放一次，可选 per-MEX duplicate guard 但不共享 runtime。
+- **非目标：** 不自动修改 `.slx`；不支持非 Windows/非 Normal mode；不增加 serial-specific timeout 宏。
+- **最小验证：** generated block parameter contract、Requested Baud 配置、三类 timeout/deadline 合同、lifecycle static/host fixture、W5300 0-param regression。
+
+## SCI-S4-04：生成 transport-specific 文件与 MEX build script
+
+- **对应 FR：** FR-076～FR-083
+- **前置任务：** SCI-S4-03
+- **目标：**
+  1. W5300 Instance 只生成/编译 `pc_socket`；SCI Instance 只生成/编译 `pc_serial`；
+  2. protocol 继续使用同一 V1 template/逻辑，不分裂为 TCP/SCI 两份长期实现；
+  3. build script 显式列源文件，不使用 `dir('*.c')`；
+  4. Windows/prerequisite preflight 在删除旧 MEX 前完成；
+  5. App 只生成 build script，不自动运行 mex 或改 Path/模型；
+  6. W5300↔SCI 后 block parameter contract 变化由用户更新 `.slx`。
+- **非目标：** 不自动 Build MEX；不自动安装编译器。
+- **最小验证：** SCI/W5300 candidate file lists、explicit build source list、preflight behavior、deterministic text。
+
+## SCI-S4-05：完成代表性 SCI 软件闭环与独立 MEX build 证据
+
+- **对应 FR：** FR-058～FR-075、FR-084～FR-090
+- **前置任务：** SCI-S4-01～SCI-S4-04
+- **目标 A——代表性 SCI 软件闭环：** 使用一个代表性 SCI 配置，直接执行本阶段实际生产 `protocol + pc_serial` 代码（或 generator 输出的同一实际生产 C 源），完成开发侧最小软件验证：
+  1. serial partial read/write；
+  2. monotonic absolute deadline；
+  3. SIM_START + RESPONSE(OK)；
+  4. 单步 INPUT_DATA→OUTPUT_DATA；
+  5. 与本增量直接相关的关键 serial/protocol error；
+  6. 错误时输出不部分更新、step 不错误增加、session 结束。
+- **目标 B——SCI MEX build：** 若当前 MATLAB 已配置 C MEX compiler，至少真实构建一个 generated SCI MEX，以证明 generated SCI S-Function + `pc_serial` + protocol 能在目标 MATLAB/MEX 环境成功编译和链接；不要求为了 MEX 再重复完整代表性协议闭环。若当前无 C MEX compiler，记录 `SCI_MEX_BUILD = NOT_EXECUTED / CAPABILITY`，不得宣称 PASS。
+- **实现方式边界：** 可以使用低成本 host/mock serial backend、virtual COM、syscall injection、测试桩或 Windows 可控 endpoint 替代外部硬件/OS 对端，但不得另写一套与生产代码平行的 serial/protocol 实现来取得 PASS；mock 只能替代外部环境，不得替代被测产品代码。不得为了测试扩建产品级通信框架。
+- **不要求：** 2×SCI、SCI-A/B/C/D 组合、全部 Baud、全部 PinGroup/GPIO、half-duplex CTRL、长期稳定性或硬件矩阵；MEX build 与代表性 protocol+pc_serial 软件闭环是两个独立证据。
+
+### SCI Stage 4 Gate：SCI-G4
+
+必须确认：
+
+- Windows self-contained serial transport 完成；
+- partial I/O 与 absolute deadline 行为有真实软件证据；
+- SCI S-Function 只有 COM runtime parameter，Baud 来自 generation；
+- `mdlStart/Outputs/Terminate` 与现有 V1 lifecycle 保持一致；
+- `SERIAL/TIMEOUT/protocol` 错误分类和 stage 可诊断；
+- W5300 继续 0-param / pc_socket，protocol 未复制分叉；
+- 一个直接经过生产 `protocol + pc_serial` 的代表性 SCI 软件闭环已完成；
+- SCI MEX build 作为独立证据：只在环境有 capability 时要求真实构建一个，不要求重复完整协议闭环；
+- 不把无硬件条件解释为 Gate failure，也不宣称硬件 PASS。
+
+---
+
+# 9. SCI Stage 5：LSPCLK 收敛、集成文档与最终追踪
+
+Stage 5 在 DSP 和 PC 基本链路实现完成后选择最终平台 LSPCLK，更新最终生成配置与用户文档，并完成 95 条增量需求追踪。
+
+## SCI-S5-01：整理增量集成证据与最终收敛输入
+
+- **对应 FR：** FR-001～FR-006、FR-038、FR-076～FR-090
+- **前置门禁：** SCI-G4
+- **目标：**
+  1. 汇总 SCI-G1～SCI-G4 已有真实测试和审核证据；
+  2. 判断相关代码未修改时哪些既有证据可以直接复用；
+  3. 检查 Stage 4 是否实际修改 Stage 3 generator 或 DSP generation 关键路径；
+  4. 只有相关实现发生变化时，才执行对应 focused regression；
+  5. 整理当前 MEX、DSP/CCS、Simulink、SCI hardware、LSPCLK hardware confirmation 的真实执行或 pending 状态；
+  6. 为 SCI-S5-02 最终 LSPCLK 收敛确定需要重新生成和验证的最小范围。
+- **默认规则：** 不重新执行 SCI-only / W5300-only / mixed 全套 generation；只有存在实际影响时才执行对应必要回归。最终 LSPCLK 修改后的必要 generation/regression 统一在 SCI-S5-02 完成。
+- **非目标：** 不机械重跑 Stage 3 或旧 V1.0 全套；不增加组合矩阵；不把历史 PASS 重新包装成当前新测试。
+- **最小验证：** 证据来源、代码影响判断和 pending 状态与实际仓库/测试记录一致；只有发现真实影响时执行对应 focused regression。
+
+## SCI-S5-02：评估并固定最终项目级 LSPCLK
+
+- **对应 FR：** FR-027、FR-031～FR-034、FR-050、FR-084～FR-090
+- **前置任务：** SCI-S5-01
+- **目标：**
+  1. 以 TMS320F28377D 当前实际 SYSCLK/clock source 为输入，列出合法 LSPCLK prescaler；
+  2. 对五个支持 Baud 计算各候选的理论 BRR/Actual Baud/Error；
+  3. 结合平台共享 LSPCLK 影响，选择最终固定 LSPCLK；
+  4. 若用户此时具备硬件条件，可提供一个代表性 `/14` SCI-PC bring-up 结果作为辅助证据；若无硬件，不阻断理论收敛，但保持实际确认 pending；
+  5. 不建立 Baud×LSPCLK、SCI Module 或硬件组合矩阵；
+  6. 将最终 LSPCLK 同步到 App 只读显示、统一 BRR 服务、generated DSP Platform config 和 PC diagnostics；
+  7. 不根据最终 LSPCLK 自动修改 DSP/PC timeout。
+- **重要边界：** 最终值可以是 200 MHz，也可以是更合适的较低值；不得在评估前预设最大值。
+- **最小验证：** 理论计算可复现；更新后一个代表性 SCI generation/软件路径与 W5300-only focused regression。
+
+## SCI-S5-03：更新 SCI / Project V3 / CCS / Simulink 使用文档
+
+- **对应 FR：** FR-007～FR-013、FR-019～FR-030、FR-031～FR-040、FR-055～FR-070、FR-076～FR-083、FR-089～FR-095
+- **前置任务：** SCI-S5-02
+- **目标：** 更新现有文档而不是建立第二套冲突文档，至少说明：
+  1. Project V3 与 V2 migration；
+  2. SCI capability/Module/PinGroup/CTRL 配置；
+  3. 当前最终 LSPCLK、Baud/Actual/Error 的意义；
+  4. CCS 需要加入的 SCI/W5300 条件 source/HAL 和实际 pin/CTRL 集成责任；
+  5. Simulink SCI Block 的 COM Port Number 参数；
+  6. Windows-only / Normal mode / no auto reconnect；
+  7. timeout 由用户配置，不自动按 Baud/Payload 适配；
+  8. 用户硬件验证边界；
+  9. W5300-only 既有使用路径继续有效。
+- **非目标：** 不把未执行硬件写成 PASS；不要求安装包/CI/自动烧录。
+- **最小验证：** 文档链接/API/字段/文件名与仓库实际实现一致。
+
+## SCI-S5-04：完成 FR-001～FR-095 最终追踪与 SCI Final Audit
+
+- **对应 FR：** FR-084～FR-095 以及全部 FR
+- **前置任务：** SCI-S5-01～SCI-S5-03
+- **目标：**
+  1. 为 95 条 FR 建立逐条实现文件/状态/验证方式/备注；
+  2. 明确哪些为软件 PASS、哪些为待用户 DSP 编译/实机、哪些为 capability 未执行；
+  3. 确认历史 267-FR traceability 只属于 V1.0 历史周期；
+  4. 审核 current normative references 已收敛到新 requirements + 新 plan；
+  5. 审核 V1 wire protocol 与 W5300/hot-path 不发生非授权回退；
+  6. 输出 SCI 周期最终动态上下文/跨对话移交事实，不把 ChatGPT 文件提交到仓库。
+- **非目标：** 不为了让追踪表“全 PASS”而补做未要求的硬件矩阵或伪造结果。
+- **最小验证：** FR count=95、missing=0、duplicate=0；repository paths valid；真实测试与 pending 状态一致；`git diff --check` / final status。
+
+### SCI Stage 5 Gate：SCI-G5
+
+最终 Gate 应确认：
+
+- FR-001～FR-095 全部有实现/状态/证据映射；
+- Project V3、Capability、App、Core API V2、DSP SCI、PC Serial、generation 和文档链闭合；
+- 最终项目级 LSPCLK 已经选择并写入正式平台配置；若未有用户硬件证据，实际 LSPCLK 硬件确认仍明确 pending；
+- 开发侧最小必要 SCI 软件闭环有真实证据；
+- W5300-only / SCI-only / mixed 的 Stage 3 deterministic generation 证据仍有效；若后续相关代码发生变化，则对应必要 focused regression 已真实执行并通过；
+- 无多 SCI、全部 Baud、全部 PinGroup、half-duplex、mixed 实机或长期稳定性矩阵门禁；
+- 未实际执行的 DSP/CCS/MEX/Simulink/hardware 项目均真实标记；
+- 当前规范不再把历史 Rev.2 requirements / 旧 plan 当作 current implementation authority；
+- V1 wire protocol 和已关闭 hot-path 基线未回退。
+
+`SCI-G5 = PASS` 表示本增量的软件实施、文档和证据边界闭合，不等于用户所有 DSP/SCI 硬件验证已经完成。
+
+---
+
+## 10. 建议提交序列
+
+以下仅为建议提交分组；实际可按任务规模继续拆分，但不得把多个 Stage 混成不可审核的大提交。
+
+| 提交组 | 建议提交信息 | 主要范围 |
+|---|---|---|
+| SCI-0 | `docs: establish sci extension baseline` | SCI-S0-01～SCI-S0-02 |
+| SCI-1A | `app: add f28377d capability and project v3` | SCI-S1-01～SCI-S1-02 |
+| SCI-1B | `app: add sci baud validation and configurator` | SCI-S1-03～SCI-S1-05 |
+| SCI-2A | `dsp: add core api v2 and sci platform config` | SCI-S2-01～SCI-S2-03 |
+| SCI-2B | `dsp: add sci polling channel runtime` | SCI-S2-04～SCI-S2-06 |
+| SCI-3 | `generator: add sci dsp generation and dependencies` | SCI-S3-01～SCI-S3-04 |
+| SCI-4A | `sfun: add windows serial transport` | SCI-S4-01～SCI-S4-02 |
+| SCI-4B | `sfun: add sci lifecycle generation and build` | SCI-S4-03～SCI-S4-05 |
+| SCI-5 | `docs: converge sci lspclk and acceptance` | SCI-S5-01～SCI-S5-04 |
+
+提交、推送和 Tag 均由用户审核后执行，Codex 不自动执行。
+
+---
+
+## 11. 关键风险与控制
+
+| 风险 | 控制措施 |
+|---|---|
+| 新 SCI 需求重新扩张为完整 V1.0 重构 | 计划只映射 FR-001～FR-095；历史 V1.0 仅做必要回归 |
+| 历史 G0～G5 与新 Gate 混淆 | 新周期统一使用 `SCI-G0～SCI-G5`、`SCI-Sx-yy` |
+| Capability 混入板级 W5300 占用 | 器件 capability 与 Platform Reserved Resources 分层 |
+| capability 故障破坏 W5300-only | SCI capability failure isolation 为 SCI-G1 必查项 |
+| SCI 配置引入 Runtime 动态切换 | Instance 在 Generate 时静态绑定 IoDevice/Module |
+| LSPCLK 过早写死为 /14 或 200 MHz | /14 只做 bring-up；SCI-S5-02 后再选择最终值 |
+| Baud/timeout 被做成自动可靠性机制 | 冻结禁止 Baud×Payload×Timeout 自动适配；timeout 仍由 user config |
+| C28x 16-bit char 与 serial octet 混淆 | SCI adapter 私有完成 octet↔Uint16，Core 仍以 wire octet 长度工作 |
+| 首个 RX byte 被连接探测消费 | SCI-S2-04 明确 first-byte-preservation fixture |
+| SCI send 过早返回导致 Core step 提前推进 | 只有最后 stop bit 完成后才提交正进度 |
+| Half-duplex 提前切 RX | 物理 TX complete 后才 CTRL→RX；错误强制 RX |
+| 为 half-duplex 扩张测试框架 | 只做低成本自然覆盖；硬件专项不作为强制门禁 |
+| PC serial partial I/O 重启 timeout | 单一 monotonic absolute deadline |
+| USB/serial 错误被错误分类为 TCP disconnect | PcError SERIAL + os_error；partial timeout 仍 TIMEOUT |
+| TCP/SCI 复制成两套 protocol | protocol template/逻辑保持单一实现 |
+| SCI-only 仍被迫链接 W5300 HAL | SCI-S3-03 source/dependency gate |
+| W5300 hot-path 被 SCI 修改回退 | SCI-G3/SCI-G5 做 focused static/regression audit |
+| 测试范围膨胀 | 只要求一个代表性 SCI 软件闭环，不建立组合矩阵 |
+| 无硬件时伪造通过 | 所有 hardware 结果必须来自用户真实证据，否则 pending |
+
+---
+
+## 12. 本计划完成定义
+
+SCI 增量计划完成必须同时满足：
+
+1. `SCI-G0～SCI-G5` 全部通过；
+2. 当前 repository authority 已切换为新 SCI frozen requirements + 新 `plan.md`；
+3. Project V3 和 V2→V3 migration 完成；
+4. TMS320F28377D PTP capability 与 resource validation 完成；
+5. App 完成 IoDevice-aware SCI 配置；
+6. Core API V2、SCI Platform/driver/runtime 完成；
+7. DSP generator 完成 SCI-only/W5300-only/mixed 条件生成与依赖收敛；
+8. Windows `pc_serial` 与 SCI instance-specific S-Function 完成；
+9. 开发侧一个代表性 SCI 软件闭环和关键错误路径具有真实证据；
+10. 若当前 MATLAB 具备 MEX compiler，至少一个 SCI MEX 已真实构建并证明 generated SCI S-Function + `pc_serial` + protocol 可编译链接；否则保持 `NOT_EXECUTED / CAPABILITY`；该 MEX build 不要求重复完整代表性协议闭环；
+11. 最终项目级 LSPCLK 已经过理论/平台必要评估后确定并写入正式配置；硬件确认若未执行保持待用户验证；
+12. FR-001～FR-095 逐条 traceability 无缺失；
+13. W5300/V1 protocol/hot-path 不发生非授权回退；
+14. 未实际执行的 DSP/CCS/Simulink/hardware 项目没有被标记为 PASS；
+15. 不存在被误标为 current authority 的历史旧 plan / Rev.2 requirements。
+
+---
+
+## 13. 明确不进入本计划的内容
+
+本计划不包含：
+
+- CRC、ACK/NAK、frame retry、byte retransmission；
+- 自动 reconnect / resend / resync；
+- watchdog recovery；
+- autobaud；
+- SCI interrupt / DMA；
+- COM 枚举、VID/PID、自动匹配；
+- 软件 RTS/DTR RS485 direction；
+- Linux/macOS serial；
+- ZWT/PZP / 多器件 capability；
+- Baud × Payload × Timeout 自动适配/推荐/Warning/Reject；
+- 多 SCI/2×SCI 固定测试；
+- SCI-A/B/C/D 组合矩阵；
+- 全部 Baud/PinGroup/GPIO 硬件矩阵；
+- half-duplex CTRL 强制专项测试矩阵；
+- mixed IoDevice 硬件门禁；
+- 长期稳定性门禁；
+- 自动 MEX build；
+- 自动改写 Simulink `.slx`；
+- CCS 工程生成、自动烧录、CI 硬件自动化；
+- 安装包、Toolbox、正式 release 系统；
+- 重新执行历史 V1.0 G0～G5。
+
+---
+
+## 14. 计划批准结论
+
+本计划已经完成用户审核和 Final Plan Audit，状态更新为：
+
+```text
+Approved for Implementation
+```
+
+Final Plan Audit 结论：
+
+```text
+FR_NUMBER_COVERAGE              = PASS
+STAGE_DECOMPOSITION             = PASS
+DEPENDENCY_ORDER                = PASS
+PROJECT_V3_COVERAGE             = PASS
+CAPABILITY_COVERAGE             = PASS
+APP_COVERAGE                    = PASS
+CORE_API_V2_COVERAGE            = PASS
+DSP_SCI_RUNTIME_COVERAGE        = PASS
+PC_SERIAL_COVERAGE              = PASS
+GENERATION_COVERAGE             = PASS
+LSPCLK_SEQUENCE                 = PASS
+V1_PROTOCOL_COMPATIBILITY       = PASS
+W5300_NON_REGRESSION_BOUNDARY   = PASS
+USER_HARDWARE_BOUNDARY          = PASS
+MINIMUM_TEST_BOUNDARY           = PASS
+PROJECT_SOURCE_BOUNDARY         = PASS
+
+PLAN_FINAL_AUDIT                = PASS
+PLAN_APPROVAL                   = ALLOWED
+```
+
+批准结论只表示：
+
+- Stage 划分、任务边界、依赖、FR 覆盖和 Gate 定义已经确定；
+- LSPCLK `/14 bring-up → 最终收敛` 顺序已经确定；
+- 开发侧最小必要测试边界已经确定；
+- 历史 V1.0 不作为 Stage 6 或重新实施对象；
+- Repository 与 ChatGPT Project Source 的责任边界已经分离。
+
+批准结论**不表示** `SCI-S0-01` 已执行、`SCI-G0` 已通过，也不表示任何软件测试、DSP/CCS 编译、MEX、Simulink 或 SCI 硬件验证已经通过。
+
+实际实施必须从 `SCI-S0-01` 开始；开始前按项目规则重新核对 repository、branch、HEAD、remote HEAD、`git status`、V1.0 完成基线和当前规范入口。

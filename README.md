@@ -54,10 +54,13 @@ App
 
 ## Requirements
 
-[Frozen V1.0 Rev.2 requirements](requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md) 是当前唯一需求事实源。本文、实现、测试和验收材料不得改变其中 FR 的含义。
+[SCI IoDevice V1.0 frozen requirements](requirements/requirements_sci_iodevice_v1.0_frozen.md) 是当前 SCI 增量需求事实源；[SCI approved implementation plan](plan.md) 是当前任务拆分和阶段门禁入口，不是需求事实源。SCI 功能仍按计划实施，不因规范入口切换而视为已经完成。
 
-- [Implementation plan](plan.md) — 任务拆分和阶段门禁计划，不是需求事实源。
-- [Requirements traceability](docs/requirements_traceability.md) — frozen requirements 到实现、文档和验证状态的逐 FR 追踪。
+已完成 V1.0 周期的规范证据保留为历史资料，不再作为当前 SCI implementation authority：
+
+- [Frozen V1.0 Rev.2 requirements](requirements/archive/requirements_multi_iodevice_v1.0_frozen_rev2.md)
+- [Completed V1.0 implementation plan](docs/archive/plan_multi_instance_v1_completed.md)
+- [Historical V1.0 267-FR traceability](docs/archive/requirements_traceability_multi_instance_v1.md)
 
 ## Quick Start
 
@@ -80,7 +83,7 @@ App 不生成或修改用户 `.slx`，也不自动构建 MEX、创建 CCS 工程
 - [测试方案](docs/test_plan.md)
 - [问题反馈模板](docs/problem_feedback_template.md)
 - [验收记录模板](docs/acceptance_record_template.md)
-- [需求追踪](docs/requirements_traceability.md)
+- [历史 V1.0 267-FR 需求追踪](docs/archive/requirements_traceability_multi_instance_v1.md)
 
 ## Generated Outputs
 
@@ -172,7 +175,7 @@ PC 用户维护：
 - DSP download、W5300 full hardware matrix、dual-instance hardware matrix 和 Erratum hardware matrix 在无用户证据时保持 `USER_VALIDATION_PENDING`。
 - 未执行的项目不表示 PASS；不使用 “fully tested”、“hardware verified” 或 “production ready” 描述当前交付。
 
-详细的当前证据边界与逐 FR 状态见 [需求追踪](docs/requirements_traceability.md)。
+已完成 V1.0 周期的证据边界与逐 FR 状态见[历史 V1.0 267-FR 需求追踪](docs/archive/requirements_traceability_multi_instance_v1.md)；该历史矩阵不代表尚未实施的 SCI FR 状态。
 
 ## Unsupported / Not Guaranteed in V1
 
