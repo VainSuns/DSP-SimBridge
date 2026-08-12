@@ -221,13 +221,21 @@ Capability JSON 缺失、损坏或 schema 不支持时 SCI 功能不可用，已
 
 ### FR-033：BRR 与 Baud 计算
 
-使用：
+TMS320F28377D SCI 的 `SCIHBAUD` 与 `SCILBAUD` 共同组成 16-bit BRR。TI 硬件中 `BRR=0` 为特殊情况，其 Actual Baud 为 `LSPCLK / 16`，与 `BRR=1` 按普通 SCI Baud 公式得到的结果相同。因此 DSP-SimBridge V1 的统一 Baud 计算服务不将 `BRR=0` 作为求解候选；本项目合法候选 BRR 范围固定为：
+
+```text
+1 <= BRR <= 65535
+```
+
+对所有本项目合法候选 BRR，统一使用：
 
 ```text
 ActualBaud = LSPCLK / (8 * (BRR + 1))
 ```
 
-选择绝对 Baud Error 最小的合法整数 BRR；若完全同误差，选择较小 BRR。App Actual Baud/Error、generated DSP BRR 和 PC 诊断必须使用同一计算结果；DSP runtime 不得使用另一套公式重新求 BRR。
+在上述范围内选择绝对 Baud Error 最小的整数 BRR；若完全同误差，选择较小 BRR。App Actual Baud/Error、generated DSP BRR 和 PC 诊断必须使用同一计算结果；DSP runtime 不得使用另一套公式重新求 BRR。`BRR=0` 虽为硬件可编码值，但不属于 DSP-SimBridge V1 的 Baud 求解候选范围，首版 calculator 无需实现其分段公式。
+
+本合同依据 TMS320F2837xD Technical Reference Manual 的 SCI 章节及 TI SCI Reference Guide：`SCIHBAUD + SCILBAUD` 组成 16-bit BRR，`BRR=0` 使用特殊 Baud 定义，普通公式适用于 `BRR>=1`。
 
 ### FR-034：PC Baud
 

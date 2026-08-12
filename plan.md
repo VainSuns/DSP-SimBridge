@@ -210,11 +210,12 @@ Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配�
 - **前置任务：** SCI-S1-02
 - **目标：**
   1. 建立唯一 MATLAB 计算服务，输入项目级 LSPCLK 和 Requested Baud；
-  2. 根据冻结公式在合法整数 BRR 范围内选择绝对 Baud Error 最小的值；若存在完全相同的绝对误差，则选择较小 BRR；实现采用何种数学求解方式由实现者决定；
+  2. 根据冻结公式在 DSP-SimBridge V1 固定合法候选范围 `1..65535` 内选择绝对 Baud Error 最小的整数 BRR；若存在完全相同的绝对误差，则选择较小 BRR；实现采用何种数学求解方式由实现者决定；
   3. 输出 BRR、Actual Baud、Baud Error；
   4. bring-up 初始平台配置采用 `SYSCLK/14 ≈ 14.285714 MHz`；
   5. 五个 Baud 均允许 Generate，不建立 error threshold；
-  6. 服务允许后续 SCI-S5-02 替换最终平台 LSPCLK，而无需修改计算公式。
+  6. 服务允许后续 SCI-S5-02 替换最终平台 LSPCLK，而无需修改计算公式；
+  7. `BRR=0` 是 TI 硬件特殊编码，但不纳入本项目 calculator candidate；首版 calculator 无需实现 `BRR=0` 的分段公式。
 - **非目标：** 本任务不选择最终 LSPCLK；不根据 Baud 自动修改 timeout。
 - **最小验证：** 五个支持 Baud 的 deterministic 计算、最小误差与 tie rule、非法输入；不验证私有求解步骤，不建立 Baud×LSPCLK 大矩阵。
 
