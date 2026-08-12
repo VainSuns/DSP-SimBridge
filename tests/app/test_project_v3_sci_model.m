@@ -157,6 +157,47 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
             testCase.verifyFalse(session.Dirty);
         end
 
+        function testV2MissingDspModelIsRejectedAtomically(testCase)
+            project = v2_fixture(testCase.WorkFolder);
+            project.common = rmfield(project.common, 'dsp_model');
+            path = write_project(testCase.WorkFolder, ...
+                'v2-missing-dsp-model.mat', project);
+            session = saved_dirty_session(testCase.WorkFolder);
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.loadProject(path, 'Don''t Save'), ...
+                'C2837xBlock:Project:InvalidStructure');
+            verify_snapshot(testCase, session, before);
+        end
+
+        function testV2MissingIoDeviceTypeIsRejectedAtomically(testCase)
+            project = v2_fixture(testCase.WorkFolder);
+            project.instances.iodevice = rmfield( ...
+                project.instances.iodevice, 'type');
+            path = write_project(testCase.WorkFolder, ...
+                'v2-missing-iodevice-type.mat', project);
+            session = saved_dirty_session(testCase.WorkFolder);
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.loadProject(path, 'Don''t Save'), ...
+                'C2837xBlock:Project:InvalidStructure');
+            verify_snapshot(testCase, session, before);
+        end
+
+        function testV2MissingAlgorithmModeIsRejectedAtomically(testCase)
+            project = v2_fixture(testCase.WorkFolder);
+            project.instances.algorithm = rmfield( ...
+                project.instances.algorithm, 'mode');
+            path = write_project(testCase.WorkFolder, ...
+                'v2-missing-algorithm-mode.mat', project);
+            session = saved_dirty_session(testCase.WorkFolder);
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.loadProject(path, 'Don''t Save'), ...
+                'C2837xBlock:Project:InvalidStructure');
+            verify_snapshot(testCase, session, before);
+        end
+
         function testSciCopyClearsExclusiveResourcesWhenCtrlNone(testCase)
             source = sci_instance('source', 'None');
             source.iodevice.settings.module = 'SCI-B';
@@ -223,7 +264,7 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
             settings.rx_qualification = 'Sync';
             settings.tx_pin_type = 'Standard';
             settings.ctrl_gpio = 'GPIO12';
-            settings.ctrl_pin_type = 'Open-drain';
+            settings.ctrl_pin_type = 'Pull-up';
             settings.ctrl_tx_active_level = 'Low';
             project.instances.iodevice.settings = settings;
             [~, sciChangedHash] = c2837x_block_build_interface_hash(project, 1);
@@ -259,7 +300,7 @@ instance.iodevice.settings.rx_pin_type = 'Standard';
 instance.iodevice.settings.rx_qualification = 'Sync';
 instance.iodevice.settings.tx_pin_type = 'Standard';
 instance.iodevice.settings.ctrl_gpio = ctrlGpio;
-instance.iodevice.settings.ctrl_pin_type = 'Open-drain';
+instance.iodevice.settings.ctrl_pin_type = 'Pull-up';
 instance.iodevice.settings.ctrl_tx_active_level = 'Low';
 end
 
@@ -334,4 +375,30 @@ function bytes = file_bytes(path)
 file = fopen(path, 'rb');
 cleanup = onCleanup(@() fclose(file));
 bytes = fread(file, Inf, '*uint8');
+end
+
+function path = write_project(folder, name, project)
+path = fullfile(folder, name);
+save(path, 'project');
+end
+
+function session = saved_dirty_session(folder)
+session = c2837x_block_project_session();
+session.saveProject(fullfile(folder, 'current-v3.mat'));
+project = session.Project;
+project.output.dsp_root = c2837x_block_normalize_absolute_path( ...
+    fullfile(folder, 'dirty-dsp'));
+session.updateProject(project);
+end
+
+function value = snapshot(session)
+value = struct('project', session.Project, 'file_path', session.FilePath, ...
+    'dirty', session.Dirty, 'legacy_file_risks', session.LegacyFileRisks);
+end
+
+function verify_snapshot(testCase, session, expected)
+testCase.verifyEqual(session.Project, expected.project);
+testCase.verifyEqual(session.FilePath, expected.file_path);
+testCase.verifyEqual(session.Dirty, expected.dirty);
+testCase.verifyEqual(session.LegacyFileRisks, expected.legacy_file_risks);
 end
