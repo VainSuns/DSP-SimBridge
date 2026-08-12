@@ -52,6 +52,8 @@ resourceClaims = repmat(claimPrototype, 1, 0);
 for instanceIndex = 1:numel(project.instances)
     validate_instance(project.instances(instanceIndex), instanceIndex);
 end
+platformClaims = c2837x_block_get_platform_reserved_resources(project);
+resourceClaims = [platformClaims resourceClaims];
 validate_iodevice_counts();
 validate_unique_resources();
 
