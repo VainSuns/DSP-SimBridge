@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "target": {
+    "device": "TMS320F28377D",
+    "package": "PTP"
+  },
+  "provenance": {
+    "datasheet": {
+      "title": "TMS320F2837xD Dual-Core Real-Time Microcontrollers",
+      "document_number": "SPRS880P",
+      "revision": "P",
+      "tables": ["Table 5-1 Signal Descriptions", "Table 5-3 GPIO Muxed Pins"],
+      "url": "https://www.ti.com/lit/ds/symlink/tms320f28377d.pdf"
+    },
+    "pin_map": {
+      "product": "C2000Ware",
+      "version": "26.01.00.00",
+      "path": "driverlib/f2837xd/driverlib/pin_map.h",
+      "url": "https://raw.githubusercontent.com/TexasInstruments/c2000ware-core-sdk/main/driverlib/f2837xd/driverlib/pin_map.h"
+    },
+    "package_filter": "Every SCI endpoint is present in the SPRS880P Table 5-1 PTP PIN column and has the stated mux in Table 5-3 and C2000Ware pin_map.h. RX and TX endpoints are independent device facts; normalized pin groups are their deterministic Cartesian product within one SCI module."
+  },
+  "sci_modules": [
+    {
+      "id": "SCI-A",
+      "display_name": "SCI-A",
+      "rx_endpoints": [
+        {"gpio": 9, "signal": "SCIRXDA", "mux_selection": 6, "driverlib_macro": "GPIO_9_SCIRXDA", "driverlib_value": "0x00061206U"},
+        {"gpio": 28, "signal": "SCIRXDA", "mux_selection": 1, "driverlib_macro": "GPIO_28_SCIRXDA", "driverlib_value": "0x00081801U"},
+        {"gpio": 35, "signal": "SCIRXDA", "mux_selection": 1, "driverlib_macro": "GPIO_35_SCIRXDA", "driverlib_value": "0x00460601U"},
+        {"gpio": 43, "signal": "SCIRXDA", "mux_selection": 15, "driverlib_macro": "GPIO_43_SCIRXDA", "driverlib_value": "0x0046160FU"},
+        {"gpio": 49, "signal": "SCIRXDA", "mux_selection": 6, "driverlib_macro": "GPIO_49_SCIRXDA", "driverlib_value": "0x00480206U"},
+        {"gpio": 64, "signal": "SCIRXDA", "mux_selection": 6, "driverlib_macro": "GPIO_64_SCIRXDA", "driverlib_value": "0x00860006U"},
+        {"gpio": 85, "signal": "SCIRXDA", "mux_selection": 5, "driverlib_macro": "GPIO_85_SCIRXDA", "driverlib_value": "0x00880A05U"}
+      ],
+      "tx_endpoints": [
+        {"gpio": 8, "signal": "SCITXDA", "mux_selection": 6, "driverlib_macro": "GPIO_8_SCITXDA", "driverlib_value": "0x00061006U"},
+        {"gpio": 29, "signal": "SCITXDA", "mux_selection": 1, "driverlib_macro": "GPIO_29_SCITXDA", "driverlib_value": "0x00081A01U"},
+        {"gpio": 36, "signal": "SCITXDA", "mux_selection": 1, "driverlib_macro": "GPIO_36_SCITXDA", "driverlib_value": "0x00460801U"},
+        {"gpio": 42, "signal": "SCITXDA", "mux_selection": 15, "driverlib_macro": "GPIO_42_SCITXDA", "driverlib_value": "0x0046140FU"},
+        {"gpio": 48, "signal": "SCITXDA", "mux_selection": 6, "driverlib_macro": "GPIO_48_SCITXDA", "driverlib_value": "0x00480006U"},
+        {"gpio": 65, "signal": "SCITXDA", "mux_selection": 6, "driverlib_macro": "GPIO_65_SCITXDA", "driverlib_value": "0x00860206U"},
+        {"gpio": 84, "signal": "SCITXDA", "mux_selection": 5, "driverlib_macro": "GPIO_84_SCITXDA", "driverlib_value": "0x00880805U"}
+      ]
+    },
+    {
+      "id": "SCI-B",
+      "display_name": "SCI-B",
+      "rx_endpoints": [
+        {"gpio": 11, "signal": "SCIRXDB", "mux_selection": 2, "driverlib_macro": "GPIO_11_SCIRXDB", "driverlib_value": "0x00061602U"},
+        {"gpio": 15, "signal": "SCIRXDB", "mux_selection": 2, "driverlib_macro": "GPIO_15_SCIRXDB", "driverlib_value": "0x00061E02U"},
+        {"gpio": 19, "signal": "SCIRXDB", "mux_selection": 2, "driverlib_macro": "GPIO_19_SCIRXDB", "driverlib_value": "0x00080602U"},
+        {"gpio": 23, "signal": "SCIRXDB", "mux_selection": 3, "driverlib_macro": "GPIO_23_SCIRXDB", "driverlib_value": "0x00080E03U"},
+        {"gpio": 55, "signal": "SCIRXDB", "mux_selection": 6, "driverlib_macro": "GPIO_55_SCIRXDB", "driverlib_value": "0x00480E06U"},
+        {"gpio": 71, "signal": "SCIRXDB", "mux_selection": 6, "driverlib_macro": "GPIO_71_SCIRXDB", "driverlib_value": "0x00860E06U"},
+        {"gpio": 87, "signal": "SCIRXDB", "mux_selection": 5, "driverlib_macro": "GPIO_87_SCIRXDB", "driverlib_value": "0x00880E05U"}
+      ],
+      "tx_endpoints": [
+        {"gpio": 9, "signal": "SCITXDB", "mux_selection": 2, "driverlib_macro": "GPIO_9_SCITXDB", "driverlib_value": "0x00061202U"},
+        {"gpio": 10, "signal": "SCITXDB", "mux_selection": 6, "driverlib_macro": "GPIO_10_SCITXDB", "driverlib_value": "0x00061406U"},
+        {"gpio": 14, "signal": "SCITXDB", "mux_selection": 2, "driverlib_macro": "GPIO_14_SCITXDB", "driverlib_value": "0x00061C02U"},
+        {"gpio": 18, "signal": "SCITXDB", "mux_selection": 2, "driverlib_macro": "GPIO_18_SCITXDB", "driverlib_value": "0x00080402U"},
+        {"gpio": 22, "signal": "SCITXDB", "mux_selection": 3, "driverlib_macro": "GPIO_22_SCITXDB", "driverlib_value": "0x00080C03U"},
+        {"gpio": 54, "signal": "SCITXDB", "mux_selection": 6, "driverlib_macro": "GPIO_54_SCITXDB", "driverlib_value": "0x00480C06U"},
+        {"gpio": 70, "signal": "SCITXDB", "mux_selection": 6, "driverlib_macro": "GPIO_70_SCITXDB", "driverlib_value": "0x00860C06U"},
+        {"gpio": 86, "signal": "SCITXDB", "mux_selection": 5, "driverlib_macro": "GPIO_86_SCITXDB", "driverlib_value": "0x00880C05U"}
+      ]
+    },
+    {
+      "id": "SCI-C",
+      "display_name": "SCI-C",
+      "rx_endpoints": [
+        {"gpio": 13, "signal": "SCIRXDC", "mux_selection": 6, "driverlib_macro": "GPIO_13_SCIRXDC", "driverlib_value": "0x00061A06U"},
+        {"gpio": 39, "signal": "SCIRXDC", "mux_selection": 5, "driverlib_macro": "GPIO_39_SCIRXDC", "driverlib_value": "0x00460E05U"},
+        {"gpio": 57, "signal": "SCIRXDC", "mux_selection": 6, "driverlib_macro": "GPIO_57_SCIRXDC", "driverlib_value": "0x00481206U"},
+        {"gpio": 62, "signal": "SCIRXDC", "mux_selection": 1, "driverlib_macro": "GPIO_62_SCIRXDC", "driverlib_value": "0x00481C01U"},
+        {"gpio": 73, "signal": "SCIRXDC", "mux_selection": 6, "driverlib_macro": "GPIO_73_SCIRXDC", "driverlib_value": "0x00861206U"},
+        {"gpio": 90, "signal": "SCIRXDC", "mux_selection": 6, "driverlib_macro": "GPIO_90_SCIRXDC", "driverlib_value": "0x00881406U"}
+      ],
+      "tx_endpoints": [
+        {"gpio": 12, "signal": "SCITXDC", "mux_selection": 6, "driverlib_macro": "GPIO_12_SCITXDC", "driverlib_value": "0x00061806U"},
+        {"gpio": 38, "signal": "SCITXDC", "mux_selection": 5, "driverlib_macro": "GPIO_38_SCITXDC", "driverlib_value": "0x00460C05U"},
+        {"gpio": 56, "signal": "SCITXDC", "mux_selection": 6, "driverlib_macro": "GPIO_56_SCITXDC", "driverlib_value": "0x00481006U"},
+        {"gpio": 63, "signal": "SCITXDC", "mux_selection": 1, "driverlib_macro": "GPIO_63_SCITXDC", "driverlib_value": "0x00481E01U"},
+        {"gpio": 72, "signal": "SCITXDC", "mux_selection": 6, "driverlib_macro": "GPIO_72_SCITXDC", "driverlib_value": "0x00861006U"},
+        {"gpio": 89, "signal": "SCITXDC", "mux_selection": 6, "driverlib_macro": "GPIO_89_SCITXDC", "driverlib_value": "0x00881206U"}
+      ]
+    },
+    {
+      "id": "SCI-D",
+      "display_name": "SCI-D",
+      "rx_endpoints": [
+        {"gpio": 46, "signal": "SCIRXDD", "mux_selection": 6, "driverlib_macro": "GPIO_46_SCIRXDD", "driverlib_value": "0x00461C06U"},
+        {"gpio": 77, "signal": "SCIRXDD", "mux_selection": 6, "driverlib_macro": "GPIO_77_SCIRXDD", "driverlib_value": "0x00861A06U"},
+        {"gpio": 94, "signal": "SCIRXDD", "mux_selection": 6, "driverlib_macro": "GPIO_94_SCIRXDD", "driverlib_value": "0x00881C06U"}
+      ],
+      "tx_endpoints": [
+        {"gpio": 47, "signal": "SCITXDD", "mux_selection": 6, "driverlib_macro": "GPIO_47_SCITXDD", "driverlib_value": "0x00461E06U"},
+        {"gpio": 76, "signal": "SCITXDD", "mux_selection": 6, "driverlib_macro": "GPIO_76_SCITXDD", "driverlib_value": "0x00861806U"},
+        {"gpio": 93, "signal": "SCITXDD", "mux_selection": 6, "driverlib_macro": "GPIO_93_SCITXDD", "driverlib_value": "0x00881A06U"}
+      ]
+    }
+  ],
+  "gpio_capabilities": [
+    {"gpio": 0, "package_pin": 160}, {"gpio": 1, "package_pin": 161}, {"gpio": 2, "package_pin": 162}, {"gpio": 3, "package_pin": 163},
+    {"gpio": 4, "package_pin": 164}, {"gpio": 5, "package_pin": 165}, {"gpio": 6, "package_pin": 166}, {"gpio": 7, "package_pin": 167},
+    {"gpio": 8, "package_pin": 18}, {"gpio": 9, "package_pin": 19}, {"gpio": 10, "package_pin": 1}, {"gpio": 11, "package_pin": 2},
+    {"gpio": 12, "package_pin": 4}, {"gpio": 13, "package_pin": 5}, {"gpio": 14, "package_pin": 6}, {"gpio": 15, "package_pin": 7},
+    {"gpio": 16, "package_pin": 8}, {"gpio": 17, "package_pin": 9}, {"gpio": 18, "package_pin": 10}, {"gpio": 19, "package_pin": 12},
+    {"gpio": 20, "package_pin": 13}, {"gpio": 21, "package_pin": 14}, {"gpio": 22, "package_pin": 22}, {"gpio": 23, "package_pin": 23},
+    {"gpio": 24, "package_pin": 24}, {"gpio": 25, "package_pin": 25}, {"gpio": 26, "package_pin": 27}, {"gpio": 27, "package_pin": 28},
+    {"gpio": 28, "package_pin": 64}, {"gpio": 29, "package_pin": 65}, {"gpio": 30, "package_pin": 63}, {"gpio": 31, "package_pin": 66},
+    {"gpio": 32, "package_pin": 67}, {"gpio": 33, "package_pin": 69}, {"gpio": 34, "package_pin": 70}, {"gpio": 35, "package_pin": 71},
+    {"gpio": 36, "package_pin": 83}, {"gpio": 37, "package_pin": 84}, {"gpio": 38, "package_pin": 85}, {"gpio": 39, "package_pin": 86},
+    {"gpio": 40, "package_pin": 87}, {"gpio": 41, "package_pin": 89}, {"gpio": 42, "package_pin": 130}, {"gpio": 43, "package_pin": 131},
+    {"gpio": 44, "package_pin": 113}, {"gpio": 45, "package_pin": 115}, {"gpio": 46, "package_pin": 128}, {"gpio": 47, "package_pin": 129},
+    {"gpio": 48, "package_pin": 90}, {"gpio": 49, "package_pin": 93}, {"gpio": 50, "package_pin": 94}, {"gpio": 51, "package_pin": 95},
+    {"gpio": 52, "package_pin": 96}, {"gpio": 53, "package_pin": 97}, {"gpio": 54, "package_pin": 98}, {"gpio": 55, "package_pin": 100},
+    {"gpio": 56, "package_pin": 101}, {"gpio": 57, "package_pin": 102}, {"gpio": 58, "package_pin": 103}, {"gpio": 59, "package_pin": 104},
+    {"gpio": 60, "package_pin": 105}, {"gpio": 61, "package_pin": 107}, {"gpio": 62, "package_pin": 108}, {"gpio": 63, "package_pin": 109},
+    {"gpio": 64, "package_pin": 110}, {"gpio": 65, "package_pin": 111}, {"gpio": 66, "package_pin": 112}, {"gpio": 67, "package_pin": 132},
+    {"gpio": 68, "package_pin": 133}, {"gpio": 69, "package_pin": 134}, {"gpio": 70, "package_pin": 135}, {"gpio": 71, "package_pin": 136},
+    {"gpio": 72, "package_pin": 139}, {"gpio": 73, "package_pin": 140}, {"gpio": 74, "package_pin": 141}, {"gpio": 75, "package_pin": 142},
+    {"gpio": 76, "package_pin": 143}, {"gpio": 77, "package_pin": 144}, {"gpio": 78, "package_pin": 145}, {"gpio": 79, "package_pin": 146},
+    {"gpio": 80, "package_pin": 148}, {"gpio": 81, "package_pin": 149}, {"gpio": 82, "package_pin": 150}, {"gpio": 83, "package_pin": 151},
+    {"gpio": 84, "package_pin": 154}, {"gpio": 85, "package_pin": 155}, {"gpio": 86, "package_pin": 156}, {"gpio": 87, "package_pin": 157},
+    {"gpio": 88, "package_pin": 170}, {"gpio": 89, "package_pin": 171}, {"gpio": 90, "package_pin": 172}, {"gpio": 91, "package_pin": 173},
+    {"gpio": 92, "package_pin": 174}, {"gpio": 93, "package_pin": 175}, {"gpio": 94, "package_pin": 176},
+    {"gpio": 99, "package_pin": 17}, {"gpio": 133, "package_pin": 118}
+  ]
+}
