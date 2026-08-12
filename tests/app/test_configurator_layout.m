@@ -133,6 +133,8 @@ classdef test_configurator_layout < matlab.unittest.TestCase
                 'SciModuleField');
             baud = find_one_by_tag(testCase, testCase.App.UIFigure, ...
                 'SciBaudField');
+            actualBaud = find_one_by_tag(testCase, testCase.App.UIFigure, ...
+                'SciActualBaudField');
 
             testCase.verifyEqual(iodevice.Items, {'W5300 TCP', 'SCI'});
             testCase.verifyEqual(iodevice.ItemsData, {'w5300_tcp', 'sci'});
@@ -142,6 +144,7 @@ classdef test_configurator_layout < matlab.unittest.TestCase
                 {'', 'SCI-A', 'SCI-B', 'SCI-C', 'SCI-D'});
             testCase.verifyEqual(baud.ItemsData, ...
                 [9600 19200 38400 57600 115200]);
+            testCase.verifyEqual(actualBaud.ValueDisplayFormat, '%.3f');
         end
 
         function testStableTags(testCase)
