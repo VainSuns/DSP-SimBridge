@@ -1,20 +1,21 @@
 function c2837x_block_validate_project_structure(project)
-%C2837X_BLOCK_VALIDATE_PROJECT_STRUCTURE Validate persisted V2 structure.
+%C2837X_BLOCK_VALIDATE_PROJECT_STRUCTURE Validate persisted V3 structure.
 
 if ~isstruct(project) || ~isscalar(project)
     invalid_project('project must be a scalar struct.');
 end
 require_fields(project, {'format_version', 'common', 'instances', 'output'}, 'project');
-validate_version(project.format_version, uint16(2), 'format_version');
+validate_version(project.format_version, uint16(3), 'format_version');
 
 common = project.common;
 if ~isstruct(common) || ~isscalar(common)
     invalid_project('project.common must be a scalar struct.');
 end
-require_fields(common, {'dsp_model', 'protocol_version', 'abi', 'network'}, ...
+require_fields(common, {'dsp_model', 'package', 'protocol_version', 'abi', 'network'}, ...
     'project.common');
 validate_version(common.protocol_version, uint16(1), 'protocol_version');
 require_text(common.dsp_model, 'project.common.dsp_model');
+require_text(common.package, 'project.common.package');
 require_text(common.abi, 'project.common.abi');
 
 network = common.network;
@@ -68,6 +69,7 @@ require_text(iodevice.type, 'instance.iodevice.type');
 if ~isstruct(iodevice.settings) || ~isscalar(iodevice.settings)
     invalid_project('instance.iodevice.settings must be a scalar struct.');
 end
+validate_known_iodevice_settings(char(iodevice.type), iodevice.settings);
 
 validate_variables(instance.inputs, 'instance.inputs');
 validate_variables(instance.outputs, 'instance.outputs');
@@ -78,6 +80,43 @@ end
 require_fields(algorithm, {'mode', 'source_path'}, 'instance.algorithm');
 require_text(algorithm.mode, 'instance.algorithm.mode');
 require_path(algorithm.source_path, 'instance.algorithm.source_path');
+end
+
+function validate_known_iodevice_settings(type, settings)
+switch type
+    case 'w5300_tcp'
+        require_exact_fields(settings, {'socket_number', 'tcp_port'}, ...
+            'W5300 IoDevice settings');
+        require_numeric_scalar(settings.socket_number, ...
+            'instance.iodevice.settings.socket_number');
+        require_numeric_scalar(settings.tcp_port, ...
+            'instance.iodevice.settings.tcp_port');
+    case 'sci'
+        fields = {'module', 'baud', 'pin_group', 'rx_pin_type', ...
+            'rx_qualification', 'tx_pin_type', 'ctrl_gpio', ...
+            'ctrl_pin_type', 'ctrl_tx_active_level'};
+        require_exact_fields(settings, fields, 'SCI IoDevice settings');
+        require_text(settings.module, 'instance.iodevice.settings.module');
+        require_numeric_scalar(settings.baud, 'instance.iodevice.settings.baud');
+        require_text(settings.pin_group, 'instance.iodevice.settings.pin_group');
+        require_text(settings.rx_pin_type, 'instance.iodevice.settings.rx_pin_type');
+        require_text(settings.rx_qualification, ...
+            'instance.iodevice.settings.rx_qualification');
+        require_text(settings.tx_pin_type, 'instance.iodevice.settings.tx_pin_type');
+        require_text(settings.ctrl_gpio, 'instance.iodevice.settings.ctrl_gpio');
+        require_text(settings.ctrl_pin_type, ...
+            'instance.iodevice.settings.ctrl_pin_type');
+        require_text(settings.ctrl_tx_active_level, ...
+            'instance.iodevice.settings.ctrl_tx_active_level');
+end
+end
+
+function require_exact_fields(value, names, label)
+require_fields(value, names, label);
+unexpected = setdiff(fieldnames(value), names);
+if ~isempty(unexpected)
+    invalid_project('%s contains unexpected field %s.', label, unexpected{1});
+end
 end
 
 function validate_variables(variables, label)

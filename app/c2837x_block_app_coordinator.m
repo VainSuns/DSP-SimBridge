@@ -133,8 +133,14 @@ classdef c2837x_block_app_coordinator < handle
             coordinator.invalidatePreview();
         end
 
-        function copyInstance(coordinator, index, displayName, internalName, socket, port)
-            coordinator.Session.copyInstance(index, displayName, internalName, socket, port);
+        function switchIoDevice(coordinator, index, type)
+            coordinator.Session.switchIoDevice(index, type);
+            coordinator.invalidatePreview();
+        end
+
+        function copyInstance(coordinator, index, displayName, internalName, varargin)
+            coordinator.Session.copyInstance( ...
+                index, displayName, internalName, varargin{:});
             coordinator.invalidatePreview();
         end
 
@@ -357,10 +363,16 @@ end
 
 function project = normalize_integer_types(project)
 for index = 1:numel(project.instances)
-    project.instances(index).iodevice.settings.socket_number = ...
-        uint16(project.instances(index).iodevice.settings.socket_number);
-    project.instances(index).iodevice.settings.tcp_port = ...
-        uint16(project.instances(index).iodevice.settings.tcp_port);
+    type = char(project.instances(index).iodevice.type);
+    if strcmp(type, 'w5300_tcp')
+        project.instances(index).iodevice.settings.socket_number = ...
+            uint16(project.instances(index).iodevice.settings.socket_number);
+        project.instances(index).iodevice.settings.tcp_port = ...
+            uint16(project.instances(index).iodevice.settings.tcp_port);
+    elseif strcmp(type, 'sci')
+        project.instances(index).iodevice.settings.baud = ...
+            uint32(project.instances(index).iodevice.settings.baud);
+    end
     project.instances(index).max_payload_size_bytes = ...
         uint32(project.instances(index).max_payload_size_bytes);
 end

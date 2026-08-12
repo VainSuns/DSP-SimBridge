@@ -22,12 +22,19 @@ if ~strcmp(project.common.dsp_model, 'TMS320F28377D')
     add('Error', 'DSP_MODEL_UNSUPPORTED', 'Unsupported DSP model.', ...
         'project.common.dsp_model', 0, '');
 end
+if ~strcmp(project.common.package, 'PTP')
+    add('Error', 'PACKAGE_UNSUPPORTED', 'Package must be PTP.', ...
+        'project.common.package', 0, '');
+end
 if ~any(strcmp(project.common.abi, {'eabi', 'coffabi'}))
     add('Error', 'ABI_UNSUPPORTED', 'ABI must be eabi or coffabi.', ...
         'project.common.abi', 0, '');
 end
 
-validate_network();
+if any(arrayfun(@(instance) strcmp(char(instance.iodevice.type), ...
+        'w5300_tcp'), project.instances))
+    validate_network();
+end
 validate_output_strings();
 if isempty(project.instances)
     add('Error', 'PROJECT_HAS_NO_INSTANCES', ...

@@ -96,6 +96,16 @@ classdef test_app_coordinator < matlab.unittest.TestCase
             testCase.verifyEqual(coordinator.PreviewStatus, 'stale');
         end
 
+        function testIoDeviceSwitchMakesPreviewStale(testCase)
+            coordinator = previewed(testCase.WorkFolder);
+
+            coordinator.switchIoDevice(1, 'sci');
+
+            testCase.verifyEqual(coordinator.PreviewStatus, 'stale');
+            testCase.verifyEqual(coordinator.Session.Project.instances.iodevice, ...
+                c2837x_block_create_iodevice('sci'));
+        end
+
         function testAddMakesPreviewStale(testCase)
             coordinator = previewed(testCase.WorkFolder);
             coordinator.addInstance(instance_changes(2));
@@ -416,7 +426,7 @@ classdef test_app_coordinator < matlab.unittest.TestCase
         function testHighVersionLoadReturnsStableIssue(testCase)
             coordinator = previewed(testCase.WorkFolder);
             project = valid_project(testCase.WorkFolder);
-            project.format_version = uint16(3);
+            project.format_version = uint16(4);
             path = fullfile(testCase.WorkFolder, 'future.mat');
             save_project(path, project);
             [loaded, issues] = coordinator.loadProject(path);

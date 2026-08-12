@@ -88,20 +88,21 @@ classdef test_project_validation < matlab.unittest.TestCase
             testCase.verifyFalse(any(strcmp({issues.code}, 'PROJECT_STRUCTURE_INVALID')));
         end
 
-        function testMissingW5300FieldsReturnSpecificIssues(testCase)
-            project = valid_project(testCase.WorkFolder);
-            settings = {struct('tcp_port', 5000), ...
-                struct('socket_number', 1), struct()};
-            expected = {{'SOCKET_INVALID'}, {'TCP_PORT_INVALID'}, ...
-                {'SOCKET_INVALID', 'TCP_PORT_INVALID'}};
-            for index = 1:numel(settings)
-                project.instances.iodevice.settings = settings{index};
-                issues = c2837x_block_validate_project(project, 'instant');
-                codes = {issues.code};
-                testCase.verifyEqual(codes(ismember(codes, ...
-                    {'SOCKET_INVALID', 'TCP_PORT_INVALID'})), expected{index});
-                testCase.verifyFalse(any(strcmp(codes, 'PROJECT_STRUCTURE_INVALID')));
-            end
+        function testMissingW5300FieldsViolateCanonicalStructure(testCase)
+            missingSocket = valid_project(testCase.WorkFolder);
+            missingSocket.instances.iodevice.settings = struct('tcp_port', 5000);
+            missingPort = valid_project(testCase.WorkFolder);
+            missingPort.instances.iodevice.settings = struct('socket_number', 1);
+            missingBoth = valid_project(testCase.WorkFolder);
+            missingBoth.instances.iodevice.settings = struct();
+
+            socketIssues = c2837x_block_validate_project(missingSocket, 'instant');
+            portIssues = c2837x_block_validate_project(missingPort, 'instant');
+            bothIssues = c2837x_block_validate_project(missingBoth, 'instant');
+
+            testCase.verifyEqual({socketIssues.code}, {'PROJECT_STRUCTURE_INVALID'});
+            testCase.verifyEqual({portIssues.code}, {'PROJECT_STRUCTURE_INVALID'});
+            testCase.verifyEqual({bothIssues.code}, {'PROJECT_STRUCTURE_INVALID'});
         end
 
         function testW5300InstanceLimitPreservesResourceIssues(testCase)

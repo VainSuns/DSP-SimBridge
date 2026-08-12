@@ -1,5 +1,5 @@
 classdef c2837x_block_project_session < handle
-%C2837X_BLOCK_PROJECT_SESSION Persist a V2 project and track session state.
+%C2837X_BLOCK_PROJECT_SESSION Persist a V3 project and track session state.
 
     properties (Constant)
         DefaultFileName = 'dsp_simbridge_project.mat'
@@ -53,7 +53,8 @@ classdef c2837x_block_project_session < handle
         function updateInstance(session, index, changes)
             index = valid_instance_index(session.Project, index);
             oldName = session.Project.instances(index).internal_name;
-            instance = merge_changes(session.Project.instances(index), changes);
+            instance = merge_instance_changes( ...
+                session.Project.instances(index), changes);
             validate_instance_operation(instance);
             validate_instance_conflicts(instance, session.Project.instances, index);
             project = session.Project;
@@ -65,16 +66,38 @@ classdef c2837x_block_project_session < handle
             end
         end
 
-        function copyInstance(session, index, displayName, internalName, ...
-                socketNumber, tcpPort)
+        function switchIoDevice(session, index, type)
+            session.updateInstance(index, struct('iodevice', struct('type', type)));
+        end
+
+        function copyInstance(session, index, displayName, internalName, varargin)
             index = valid_instance_index(session.Project, index);
             source = session.Project.instances(index);
             instance = c2837x_block_create_default_instance();
             instance.display_name = displayName;
             instance.internal_name = internalName;
             instance.iodevice = source.iodevice;
-            instance.iodevice.settings.socket_number = socketNumber;
-            instance.iodevice.settings.tcp_port = tcpPort;
+            switch char(source.iodevice.type)
+                case 'w5300_tcp'
+                    if numel(varargin) ~= 2
+                        instance_error('CopyResourcesRequired', ...
+                            'W5300 copy requires a new socket number and TCP port.');
+                    end
+                    instance.iodevice.settings.socket_number = varargin{1};
+                    instance.iodevice.settings.tcp_port = varargin{2};
+                case 'sci'
+                    if ~isempty(varargin)
+                        instance_error('InvalidCopyResources', ...
+                            'SCI copy does not accept exclusive resource values.');
+                    end
+                    instance.iodevice.settings.module = '';
+                    instance.iodevice.settings.pin_group = '';
+                    instance.iodevice.settings.ctrl_gpio = 'None';
+                otherwise
+                    instance_error('UnsupportedIoDevice', ...
+                        'Copy is unsupported for IoDevice type %s.', ...
+                        char(source.iodevice.type));
+            end
             instance.sample_time_sec = source.sample_time_sec;
             instance.max_payload_size_bytes = source.max_payload_size_bytes;
             instance.inputs = source.inputs;
@@ -135,6 +158,11 @@ classdef c2837x_block_project_session < handle
             if ismember('project', variables)
                 data = load(filePath, 'project');
                 project = data.project;
+                version = project_version(project);
+                if version == uint16(2)
+                    project = c2837x_block_migrate_project_v2(project);
+                    migrated = true;
+                end
             elseif ismember('config', variables)
                 data = load(filePath, 'config');
                 project = c2837x_block_migrate_legacy_config(data.config);
@@ -195,6 +223,27 @@ classdef c2837x_block_project_session < handle
     end
 end
 
+function version = project_version(project)
+if ~isstruct(project) || ~isscalar(project) || ...
+        ~isfield(project, 'format_version')
+    error('C2837xBlock:Project:InvalidStructure', ...
+        'project must contain format_version.');
+end
+version = project.format_version;
+if ~isa(version, 'uint16') || ~isscalar(version) || version == 0
+    error('C2837xBlock:Project:InvalidVersion', ...
+        'format_version must be a nonzero uint16 scalar.');
+end
+if version > uint16(3)
+    error('C2837xBlock:Project:UnsupportedVersion', ...
+        'format_version %g is newer than supported version 3.', version);
+end
+if version ~= uint16(2) && version ~= uint16(3)
+    error('C2837xBlock:Project:InvalidVersion', ...
+        'format_version must equal 2 or 3.');
+end
+end
+
 function [project, mismatch] = refresh_interface_hashes(project)
 mismatch = false;
 for index = 1:numel(project.instances)
@@ -221,6 +270,22 @@ for index = 1:numel(names)
     else
         instance.(name) = changes.(name);
     end
+end
+end
+
+function instance = merge_instance_changes(instance, changes)
+if isstruct(changes) && isscalar(changes) && isfield(changes, 'iodevice') && ...
+        isstruct(changes.iodevice) && isscalar(changes.iodevice) && ...
+        isfield(changes.iodevice, 'type') && ...
+        ~strcmp(char(string(changes.iodevice.type)), ...
+        char(string(instance.iodevice.type)))
+    iodevice = c2837x_block_create_iodevice(changes.iodevice.type);
+    iodevice = merge_changes(iodevice, changes.iodevice);
+    remaining = rmfield(changes, 'iodevice');
+    instance = merge_changes(instance, remaining);
+    instance.iodevice = iodevice;
+else
+    instance = merge_changes(instance, changes);
 end
 end
 
@@ -292,6 +357,10 @@ if any(strcmpi(instance.internal_name, {instances(indices).internal_name}))
 end
 for index = indices
     other = instances(index);
+    if ~strcmp(char(instance.iodevice.type), 'w5300_tcp') || ...
+            ~strcmp(char(other.iodevice.type), 'w5300_tcp')
+        continue;
+    end
     if numeric_values_equal(instance.iodevice.settings.socket_number, ...
             other.iodevice.settings.socket_number)
         instance_error('DuplicateSocket', 'Socket number is already used.');

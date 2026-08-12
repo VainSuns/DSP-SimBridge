@@ -1,5 +1,5 @@
 function project = c2837x_block_migrate_legacy_config(config)
-%C2837X_BLOCK_MIGRATE_LEGACY_CONFIG Convert one legacy config to V2.
+%C2837X_BLOCK_MIGRATE_LEGACY_CONFIG Convert one legacy config to V3.
 
 if ~isstruct(config) || ~isscalar(config)
     invalid_legacy('config must be a scalar struct.');

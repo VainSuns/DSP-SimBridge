@@ -20,7 +20,7 @@ classdef test_legacy_project_migration < matlab.unittest.TestCase
     end
 
     methods (Test)
-        function testMigratesLegacyConfigToOneV2Instance(testCase)
+        function testMigratesLegacyConfigToOneV3Instance(testCase)
             config = hashable_legacy_config();
             path = write_legacy(testCase.WorkFolder, 'legacy.mat', config);
             session = c2837x_block_project_session();
@@ -30,7 +30,8 @@ classdef test_legacy_project_migration < matlab.unittest.TestCase
             instance = project.instances;
 
             testCase.verifyTrue(loaded);
-            testCase.verifyEqual(project.format_version, uint16(2));
+            testCase.verifyEqual(project.format_version, uint16(3));
+            testCase.verifyEqual(project.common.package, 'PTP');
             testCase.verifyEqual(project.common.protocol_version, uint16(1));
             testCase.verifyEqual(project.common.network.mac, config.mac);
             testCase.verifyEqual(project.common.network.ip, config.dsp_ip);
@@ -144,7 +145,7 @@ classdef test_legacy_project_migration < matlab.unittest.TestCase
         function testLegacyFileIsUnmodifiedAndSaveAsStoresOnlyProject(testCase)
             legacyPath = write_legacy(testCase.WorkFolder, 'legacy.mat', ...
                 hashable_legacy_config());
-            savedPath = fullfile(testCase.WorkFolder, 'saved-v2.mat');
+            savedPath = fullfile(testCase.WorkFolder, 'saved-v3.mat');
             before = file_bytes(legacyPath);
             session = c2837x_block_project_session();
 

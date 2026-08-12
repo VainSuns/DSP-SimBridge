@@ -217,7 +217,7 @@ classdef test_project_session < matlab.unittest.TestCase
 
         function testRejectsUnsupportedFormatVersion(testCase)
             project = c2837x_block_create_default_project();
-            project.format_version = uint16(3);
+            project.format_version = uint16(4);
             filePath = write_project(testCase.WorkFolder, 'high-format.mat', project);
 
             testCase.verifyError(@() load_new_session(filePath), ...
