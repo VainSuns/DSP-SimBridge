@@ -367,7 +367,7 @@ testCase.verifyEqual(copied.max_payload_size_bytes, ...
 testCase.verifyEqual(copied.inputs, source.inputs);
 testCase.verifyEqual(copied.outputs, source.outputs);
 testCase.verifyEqual(copied.algorithm.mode, source.algorithm.mode);
-testCase.verifyEmpty(copied.algorithm.source_path);
+testCase.verifyEqual(copied.algorithm.source_path, source.algorithm.source_path);
 testCase.verifyEqual(copied.interface_hash, uint32(0));
 end
 

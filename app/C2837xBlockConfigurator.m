@@ -11,8 +11,16 @@ classdef C2837xBlockConfigurator < handle
         GenerateButton
         StatusLabel
         CommonFields
+        ProjectSciClockLabel
+        ProjectSciClockField
         InstanceTable
         DetailFields
+        DetailTabGroup
+        GeneralTab
+        IoDeviceTab
+        AlgorithmTab
+        W5300Grid
+        SciGrid
         SourcePathGrid
         InputTable
         OutputTable
@@ -35,6 +43,7 @@ classdef C2837xBlockConfigurator < handle
         InterfaceContextLabel
         InterfaceTab
         GenerationPreviewTab
+        GenerationPreviewInstanceContext
         SelectedInstance = 0
         Updating = false
     end
@@ -107,16 +116,16 @@ classdef C2837xBlockConfigurator < handle
 
         function createProjectTab(app, tab)
             projectGrid = uigridlayout(tab, [2 1]);
-            projectGrid.RowHeight = {260, '1x'};
+            projectGrid.RowHeight = {310, '1x'};
             projectGrid.ColumnWidth = {'1x'};
             projectGrid.Padding = [8 8 8 8];
             projectGrid.RowSpacing = 8;
             projectGrid.ColumnSpacing = 0;
             commonPanel = uipanel(projectGrid, ...
                 'Title', 'Project Common Configuration');
-            common = uigridlayout(commonPanel, [5 4]);
+            common = uigridlayout(commonPanel, [6 4]);
             common.ColumnWidth = {160, '1x', 160, '1x'};
-            common.RowHeight = {36, 36, 36, 36, 36};
+            common.RowHeight = {36, 36, 36, 36, 36, 36};
             common.Padding = [10 10 10 10];
             common.RowSpacing = 8;
             common.ColumnSpacing = 10;
@@ -148,11 +157,16 @@ classdef C2837xBlockConfigurator < handle
             end
             app.CommonFields.dsp_model.Editable = 'off';
             app.CommonFields.protocol_version.Editable = 'off';
+            app.ProjectSciClockLabel = uilabel(common, 'Text', 'SCI LSPCLK', ...
+                'Tag', 'ProjectSciClockLabel', 'Visible', 'off');
+            app.ProjectSciClockField = uieditfield(common, 'text', ...
+                'Editable', 'off', 'Tag', 'ProjectSciClockField', ...
+                'Visible', 'off');
         end
 
         function createInstancesTab(app, tab)
             grid = uigridlayout(tab, [2 1]);
-            grid.RowHeight = {'1x', 250};
+            grid.RowHeight = {'1x', 330};
             grid.ColumnWidth = {'1x'};
             grid.Padding = [8 8 8 8];
             grid.RowSpacing = 8;
@@ -165,8 +179,8 @@ classdef C2837xBlockConfigurator < handle
             listGrid.RowSpacing = 8;
             listGrid.ColumnSpacing = 0;
             app.InstanceTable = uitable(listGrid, 'ColumnName', ...
-                {'Display Name', 'Internal Name', 'IoDevice', 'Socket', ...
-                'TCP Port', 'Sample Time'}, 'ColumnEditable', false(1, 6), ...
+                {'Display Name', 'Internal Name', 'IoDevice', 'Resource', ...
+                'Link', 'Sample Time'}, 'ColumnEditable', false(1, 6), ...
                 'CellSelectionCallback', @(~, event) app.instanceSelected(event));
             buttons = uigridlayout(listGrid, [1 4]);
             buttons.ColumnWidth = {90, 90, 90, '1x'};
@@ -179,67 +193,132 @@ classdef C2837xBlockConfigurator < handle
             app.createButton(buttons, 'Delete', @(~, ~) app.deleteInstance());
 
             detailPanel = uipanel(grid, 'Title', 'Instance Detail');
-            detail = uigridlayout(detailPanel, [5 4]);
-            detail.ColumnWidth = {205, '1x', 140, '1x'};
-            detail.RowHeight = {'1x', '1x', '1x', '1x', '1x'};
-            detail.Padding = [8 8 8 8];
-            detail.RowSpacing = 8;
-            detail.ColumnSpacing = 8;
-            detailKeys = {'display_name', 'internal_name', 'iodevice', ...
-                'socket', 'port', 'sample_time', 'max_payload', ...
-                'algorithm_mode', 'source_path'};
-            detailLabels = {'Display Name', 'Internal Name', 'IoDevice', ...
-                'Socket', 'TCP Port', 'Sample Time', ...
-                'Max Payload Limit (wire octets)', ...
-                'Algorithm Mode', 'External Source Path'};
             app.DetailFields = struct();
-            for index = 1:numel(detailKeys)
-                row = ceil(index / 2);
-                labelColumn = 1 + 2 * mod(index - 1, 2);
-                label = uilabel(detail, 'Text', detailLabels{index});
-                label.Layout.Row = row;
-                label.Layout.Column = labelColumn;
-                key = detailKeys{index};
-                if strcmp(key, 'socket')
-                    field = uidropdown(detail, 'Items', compose('%u', 0:7));
-                elseif strcmp(key, 'algorithm_mode')
-                    field = uidropdown(detail, 'Items', ...
-                        {'generated_example', 'external_copy', 'external_reference'});
-                elseif any(strcmp(key, {'port', 'sample_time', 'max_payload'}))
-                    field = uieditfield(detail, 'numeric');
-                elseif strcmp(key, 'source_path')
-                    pathGrid = uigridlayout(detail, [1 2]);
-                    pathGrid.ColumnWidth = {'1x', 90};
-                    pathGrid.RowHeight = {'1x'};
-                    pathGrid.Padding = [0 0 0 0];
-                    pathGrid.RowSpacing = 0;
-                    pathGrid.ColumnSpacing = 8;
-                    app.SourcePathGrid = pathGrid;
-                    field = uieditfield(pathGrid, 'text');
-                    app.createButton(pathGrid, 'Browse', ...
-                        @(~, ~) app.browseSource());
-                else
-                    field = uieditfield(detail, 'text');
-                end
-                if strcmp(key, 'source_path')
-                    pathGrid.Layout.Row = row;
-                    pathGrid.Layout.Column = [2 4];
-                else
-                    field.Layout.Row = row;
-                    field.Layout.Column = labelColumn + 1;
-                end
-                field.ValueChangedFcn = @(~, ~) app.detailEdited();
-                app.DetailFields.(key) = field;
-                if strcmp(key, 'max_payload')
-                    tooltip = ['Protocol safety limit only. RX/TX buffers ' ...
-                        'use actual legal message lengths.'];
-                    label.Tag = 'MaxPayloadLimitLabel';
-                    label.Tooltip = tooltip;
-                    field.Tag = 'MaxPayloadLimitField';
-                    field.Tooltip = tooltip;
-                end
+            host = uigridlayout(detailPanel, [1 1]);
+            host.Padding = [8 8 8 8];
+            app.DetailTabGroup = uitabgroup(host, 'Tag', 'InstanceDetailTabGroup');
+            app.GeneralTab = uitab(app.DetailTabGroup, 'Title', 'General', ...
+                'Tag', 'InstanceGeneralTab');
+            app.IoDeviceTab = uitab(app.DetailTabGroup, 'Title', 'IoDevice', ...
+                'Tag', 'InstanceIoDeviceTab');
+            app.AlgorithmTab = uitab(app.DetailTabGroup, 'Title', 'Algorithm', ...
+                'Tag', 'InstanceAlgorithmTab');
+            app.createGeneralDetail();
+            app.createIoDeviceDetail();
+            app.createAlgorithmDetail();
+        end
+
+        function createGeneralDetail(app)
+            grid = detail_grid(app.GeneralTab, 3);
+            app.DetailFields.display_name = labeled_field(grid, 1, 1, ...
+                'Display Name', uieditfield(grid, 'text'), 'DisplayNameField');
+            app.DetailFields.internal_name = labeled_field(grid, 1, 3, ...
+                'Internal Name', uieditfield(grid, 'text'), 'InternalNameField');
+            app.DetailFields.iodevice = labeled_field(grid, 2, 1, ...
+                'IoDevice', uidropdown(grid, 'Items', {'W5300 TCP', 'SCI'}, ...
+                'ItemsData', {'w5300_tcp', 'sci'}), 'IoDeviceTypeField');
+            app.DetailFields.sample_time = labeled_field(grid, 2, 3, ...
+                'Sample Time', uieditfield(grid, 'numeric'), 'SampleTimeField');
+            tooltip = ['Protocol safety limit only. RX/TX buffers ' ...
+                'use actual legal message lengths.'];
+            label = uilabel(grid, 'Text', 'Max Payload Limit (wire octets)', ...
+                'Tag', 'MaxPayloadLimitLabel', 'Tooltip', tooltip);
+            label.Layout.Row = 3;
+            label.Layout.Column = 1;
+            field = uieditfield(grid, 'numeric', 'Tag', 'MaxPayloadLimitField', ...
+                'Tooltip', tooltip);
+            field.Layout.Row = 3;
+            field.Layout.Column = 2;
+            app.DetailFields.max_payload = field;
+            app.DetailFields.iodevice.ValueChangedFcn = @(~, ~) app.ioDeviceChanged();
+            keys = {'display_name', 'internal_name', 'sample_time', 'max_payload'};
+            for index = 1:numel(keys)
+                key = keys{index};
+                app.DetailFields.(key).ValueChangedFcn = @(~, ~) app.detailEdited(key);
             end
-            app.DetailFields.iodevice.Editable = 'off';
+        end
+
+        function createIoDeviceDetail(app)
+            host = uigridlayout(app.IoDeviceTab, [1 1]);
+            host.Padding = [8 8 8 8];
+            app.W5300Grid = detail_grid(host, 1);
+            app.DetailFields.socket = labeled_field(app.W5300Grid, 1, 1, ...
+                'Socket', uidropdown(app.W5300Grid, 'Items', compose('%u', 0:7)), ...
+                'W5300SocketField');
+            app.DetailFields.port = labeled_field(app.W5300Grid, 1, 3, ...
+                'TCP Port', uieditfield(app.W5300Grid, 'numeric'), ...
+                'W5300TcpPortField');
+
+            app.SciGrid = detail_grid(host, 6);
+            modules = {'', 'SCI-A', 'SCI-B', 'SCI-C', 'SCI-D'};
+            app.DetailFields.sci_module = labeled_field(app.SciGrid, 1, 1, ...
+                'SCI Module', uidropdown(app.SciGrid, ...
+                'Items', {'Not Selected', 'SCI-A', 'SCI-B', 'SCI-C', 'SCI-D'}, ...
+                'ItemsData', modules), 'SciModuleField');
+            app.DetailFields.sci_baud = labeled_field(app.SciGrid, 1, 3, ...
+                'Requested Baud', uidropdown(app.SciGrid, ...
+                'Items', compose('%u', [9600 19200 38400 57600 115200]), ...
+                'ItemsData', [9600 19200 38400 57600 115200]), 'SciBaudField');
+            app.DetailFields.sci_actual_baud = labeled_field(app.SciGrid, 2, 1, ...
+                'Actual Baud', uieditfield(app.SciGrid, 'numeric', ...
+                'Editable', 'off'), 'SciActualBaudField');
+            app.DetailFields.sci_baud_error = labeled_field(app.SciGrid, 2, 3, ...
+                'Baud Error (Actual - Requested)', ...
+                uieditfield(app.SciGrid, 'numeric', 'Editable', 'off'), ...
+                'SciBaudErrorField');
+            app.DetailFields.sci_pin_group = labeled_field(app.SciGrid, 3, 1, ...
+                'Pin Group', uidropdown(app.SciGrid, 'Items', {'Not Selected'}, ...
+                'ItemsData', {''}), 'SciPinGroupField');
+            app.DetailFields.sci_rx_pin_type = labeled_field(app.SciGrid, 3, 3, ...
+                'RX Pin Type', uidropdown(app.SciGrid, ...
+                'Items', {'Standard', 'Pull-up'}), 'SciRxPinTypeField');
+            app.DetailFields.sci_rx_qualification = labeled_field(app.SciGrid, 4, 1, ...
+                'RX Qualification', uidropdown(app.SciGrid, ...
+                'Items', {'Sync', 'Async'}), 'SciRxQualificationField');
+            app.DetailFields.sci_tx_pin_type = labeled_field(app.SciGrid, 4, 3, ...
+                'TX Pin Type', uidropdown(app.SciGrid, ...
+                'Items', {'Standard', 'Pull-up'}), 'SciTxPinTypeField');
+            app.DetailFields.sci_ctrl_gpio = labeled_field(app.SciGrid, 5, 1, ...
+                'CTRL GPIO', uidropdown(app.SciGrid, 'Items', {'None'}, ...
+                'ItemsData', {'None'}), 'SciCtrlGpioField');
+            app.DetailFields.sci_ctrl_pin_type = labeled_field(app.SciGrid, 5, 3, ...
+                'CTRL Pin Type', uidropdown(app.SciGrid, ...
+                'Items', {'Standard', 'Pull-up'}), 'SciCtrlPinTypeField');
+            app.DetailFields.sci_ctrl_active_level = labeled_field(app.SciGrid, 6, 1, ...
+                'CTRL TX Active Level', uidropdown(app.SciGrid, ...
+                'Items', {'High', 'Low'}), 'SciCtrlActiveLevelField');
+            keys = {'socket', 'port', 'sci_module', 'sci_baud', ...
+                'sci_pin_group', 'sci_rx_pin_type', 'sci_rx_qualification', ...
+                'sci_tx_pin_type', 'sci_ctrl_gpio', 'sci_ctrl_pin_type', ...
+                'sci_ctrl_active_level'};
+            for index = 1:numel(keys)
+                key = keys{index};
+                app.DetailFields.(key).ValueChangedFcn = ...
+                    @(~, ~) app.detailEdited(key);
+            end
+        end
+
+        function createAlgorithmDetail(app)
+            grid = detail_grid(app.AlgorithmTab, 2);
+            app.DetailFields.algorithm_mode = labeled_field(grid, 1, 1, ...
+                'Algorithm Mode', uidropdown(grid, 'Items', ...
+                {'generated_example', 'external_copy', 'external_reference'}), ...
+                'AlgorithmModeField');
+            sourceLabel = uilabel(grid, 'Text', 'External Source Path');
+            sourceLabel.Layout.Row = 2;
+            sourceLabel.Layout.Column = 1;
+            app.SourcePathGrid = uigridlayout(grid, [1 2]);
+            app.SourcePathGrid.ColumnWidth = {'1x', 90};
+            app.SourcePathGrid.Padding = [0 0 0 0];
+            app.SourcePathGrid.Layout.Row = 2;
+            app.SourcePathGrid.Layout.Column = [2 4];
+            app.DetailFields.source_path = uieditfield(app.SourcePathGrid, 'text', ...
+                'Tag', 'ExternalSourcePathField');
+            app.createButton(app.SourcePathGrid, 'Browse', @(~, ~) app.browseSource());
+            app.DetailFields.algorithm_mode.ValueChangedFcn = ...
+                @(~, ~) app.detailEdited('algorithm_mode');
+            app.DetailFields.source_path.ValueChangedFcn = ...
+                @(~, ~) app.detailEdited('source_path');
         end
 
         function createInputsOutputsTab(app, tab)
@@ -339,12 +418,15 @@ classdef C2837xBlockConfigurator < handle
         end
 
         function createCandidatesTab(app, tab)
-            grid = uigridlayout(tab, [2 1]);
-            grid.RowHeight = {'2x', '1x'};
+            grid = uigridlayout(tab, [3 1]);
+            grid.RowHeight = {24, '2x', '1x'};
             grid.ColumnWidth = {'1x'};
             grid.Padding = [8 8 8 8];
             grid.RowSpacing = 8;
             grid.ColumnSpacing = 0;
+            app.GenerationPreviewInstanceContext = uilabel(grid, ...
+                'Text', 'Current Instance: None', ...
+                'Tag', 'GenerationPreviewInstanceContext');
             app.CandidateTable = uitable(grid, 'ColumnName', ...
                 {'Target Path', 'Category', 'Owner', 'Instance', 'State', ...
                 'Selected Action', 'Mandatory', 'Existing Octets', ...
@@ -390,6 +472,7 @@ classdef C2837xBlockConfigurator < handle
             app.CommonFields.subnet.Value = project.common.network.subnet;
             app.CommonFields.dsp_root.Value = project.output.dsp_root;
             app.CommonFields.sfun_root.Value = project.output.sfun_root;
+            app.refreshSciClock();
             app.refreshInstances();
             app.showIssues(app.Coordinator.validateProject('instant'));
             app.refreshReport();
@@ -401,13 +484,15 @@ classdef C2837xBlockConfigurator < handle
         end
 
         function refreshInstances(app)
+            app.refreshSciClock();
             instances = app.ProjectSession.Project.instances;
             data = cell(numel(instances), 6);
             for index = 1:numel(instances)
                 value = instances(index);
+                transport = c2837x_block_build_transport_summary(value);
                 data(index, :) = {value.display_name, value.internal_name, ...
-                    value.iodevice.type, double(value.iodevice.settings.socket_number), ...
-                    double(value.iodevice.settings.tcp_port), value.sample_time_sec};
+                    transport.type_label, transport.resource, ...
+                    transport.link, value.sample_time_sec};
             end
             app.InstanceTable.Data = data;
             if isempty(instances)
@@ -424,10 +509,9 @@ classdef C2837xBlockConfigurator < handle
             app.DetailFields.display_name.Value = value.display_name;
             app.DetailFields.internal_name.Value = value.internal_name;
             app.DetailFields.iodevice.Value = value.iodevice.type;
-            app.DetailFields.socket.Value = sprintf('%u', value.iodevice.settings.socket_number);
-            app.DetailFields.port.Value = double(value.iodevice.settings.tcp_port);
             app.DetailFields.sample_time.Value = value.sample_time_sec;
             app.DetailFields.max_payload.Value = double(value.max_payload_size_bytes);
+            app.showIoDevice(value);
             app.DetailFields.algorithm_mode.Value = value.algorithm.mode;
             app.DetailFields.source_path.Value = value.algorithm.source_path;
             app.SourcePathGrid.Visible = ...
@@ -440,13 +524,15 @@ classdef C2837xBlockConfigurator < handle
         function clearDetail(app)
             app.DetailFields.display_name.Value = '';
             app.DetailFields.internal_name.Value = '';
-            app.DetailFields.iodevice.Value = '';
+            app.DetailFields.iodevice.Value = 'w5300_tcp';
             app.DetailFields.socket.Value = '0';
             app.DetailFields.port.Value = 0;
             app.DetailFields.sample_time.Value = 0;
             app.DetailFields.max_payload.Value = 0;
             app.DetailFields.algorithm_mode.Value = 'generated_example';
             app.DetailFields.source_path.Value = '';
+            app.W5300Grid.Visible = 'off';
+            app.SciGrid.Visible = 'off';
             app.SourcePathGrid.Visible = 'off';
             app.InputTable.Data = cell(0, 3);
             app.OutputTable.Data = cell(0, 3);
@@ -461,8 +547,10 @@ classdef C2837xBlockConfigurator < handle
                 return;
             end
             instance = instances(app.SelectedInstance);
-            text = sprintf('Current Instance: %s [%s]', ...
-                char(instance.display_name), char(instance.internal_name));
+            transport = c2837x_block_build_transport_summary(instance);
+            text = sprintf('Current Instance: %s [%s] | %s', ...
+                char(instance.display_name), char(instance.internal_name), ...
+                transport.summary);
         end
 
         function refreshInstanceContext(app)
@@ -470,6 +558,7 @@ classdef C2837xBlockConfigurator < handle
             app.InputsOutputsContextLabel.Text = text;
             app.IssuesContextLabel.Text = sprintf('%s | Scope: Entire Project', text);
             app.InterfaceContextLabel.Text = text;
+            app.GenerationPreviewInstanceContext.Text = text;
             if strcmp(text, 'Current Instance: None')
                 app.InstanceTable.Selection = [];
             else
@@ -509,7 +598,23 @@ classdef C2837xBlockConfigurator < handle
             end
         end
 
-        function detailEdited(app)
+        function ioDeviceChanged(app)
+            if app.Updating || app.SelectedInstance == 0
+                return;
+            end
+            try
+                app.Coordinator.switchIoDevice(app.SelectedInstance, ...
+                    app.DetailFields.iodevice.Value);
+                app.afterEdit();
+            catch cause
+                app.Updating = true;
+                app.showInstance();
+                app.Updating = false;
+                app.showOperationError(cause);
+            end
+        end
+
+        function detailEdited(app, editedKey)
             if app.Updating || app.SelectedInstance == 0
                 return;
             end
@@ -524,15 +629,140 @@ classdef C2837xBlockConfigurator < handle
             instance = project.instances(app.SelectedInstance);
             instance.display_name = strtrim(app.DetailFields.display_name.Value);
             instance.internal_name = strtrim(app.DetailFields.internal_name.Value);
-            instance.iodevice.settings.socket_number = ...
-                str2double(app.DetailFields.socket.Value);
-            instance.iodevice.settings.tcp_port = app.DetailFields.port.Value;
+            if strcmp(instance.iodevice.type, 'w5300_tcp')
+                instance.iodevice.settings.socket_number = ...
+                    str2double(app.DetailFields.socket.Value);
+                instance.iodevice.settings.tcp_port = app.DetailFields.port.Value;
+            else
+                settings = instance.iodevice.settings;
+                settings.module = app.DetailFields.sci_module.Value;
+                settings.baud = app.DetailFields.sci_baud.Value;
+                if isequal(app.DetailFields.sci_pin_group.Enable, ...
+                        matlab.lang.OnOffSwitchState.on)
+                    settings.pin_group = app.DetailFields.sci_pin_group.Value;
+                end
+                settings.rx_pin_type = app.DetailFields.sci_rx_pin_type.Value;
+                settings.rx_qualification = ...
+                    app.DetailFields.sci_rx_qualification.Value;
+                settings.tx_pin_type = app.DetailFields.sci_tx_pin_type.Value;
+                if isequal(app.DetailFields.sci_ctrl_gpio.Enable, ...
+                        matlab.lang.OnOffSwitchState.on)
+                    settings.ctrl_gpio = app.DetailFields.sci_ctrl_gpio.Value;
+                end
+                settings.ctrl_pin_type = app.DetailFields.sci_ctrl_pin_type.Value;
+                settings.ctrl_tx_active_level = ...
+                    app.DetailFields.sci_ctrl_active_level.Value;
+                if strcmp(editedKey, 'sci_module')
+                    settings = clear_invalid_pin_group(settings);
+                end
+                instance.iodevice.settings = settings;
+            end
             instance.sample_time_sec = app.DetailFields.sample_time.Value;
             instance.max_payload_size_bytes = app.DetailFields.max_payload.Value;
             instance.algorithm = struct('mode', mode, 'source_path', source);
             project.instances(app.SelectedInstance) = instance;
             [applied, issues] = app.Coordinator.updateProjectDraft(project);
             app.finishDraftEdit(applied, issues);
+        end
+
+        function showIoDevice(app, instance)
+            isSci = strcmp(instance.iodevice.type, 'sci');
+            app.W5300Grid.Visible = matlab.lang.OnOffSwitchState(~isSci);
+            app.SciGrid.Visible = matlab.lang.OnOffSwitchState(isSci);
+            if ~isSci
+                settings = instance.iodevice.settings;
+                app.DetailFields.socket.Value = sprintf('%u', settings.socket_number);
+                app.DetailFields.port.Value = double(settings.tcp_port);
+                return;
+            end
+            settings = instance.iodevice.settings;
+            app.DetailFields.sci_module.Value = settings.module;
+            app.DetailFields.sci_baud.Value = double(settings.baud);
+            app.DetailFields.sci_rx_pin_type.Value = settings.rx_pin_type;
+            app.DetailFields.sci_rx_qualification.Value = settings.rx_qualification;
+            app.DetailFields.sci_tx_pin_type.Value = settings.tx_pin_type;
+            app.DetailFields.sci_ctrl_pin_type.Value = settings.ctrl_pin_type;
+            app.DetailFields.sci_ctrl_active_level.Value = ...
+                settings.ctrl_tx_active_level;
+            app.refreshSciCapabilityChoices(settings);
+            app.refreshSciBaud(settings.baud);
+            app.updateCtrlFields();
+        end
+
+        function refreshSciCapabilityChoices(app, settings)
+            result = c2837x_block_load_device_capability();
+            if ~result.available
+                app.DetailFields.sci_pin_group.Items = {'Not Selected'};
+                app.DetailFields.sci_pin_group.ItemsData = {''};
+                app.DetailFields.sci_pin_group.Value = '';
+                app.DetailFields.sci_pin_group.Enable = 'off';
+                app.DetailFields.sci_ctrl_gpio.Items = {'None'};
+                app.DetailFields.sci_ctrl_gpio.ItemsData = {'None'};
+                app.DetailFields.sci_ctrl_gpio.Value = 'None';
+                app.DetailFields.sci_ctrl_gpio.Enable = 'off';
+                return;
+            end
+            capability = result.capability;
+            groups = empty_pin_groups();
+            moduleIndex = find(strcmp({capability.sci_modules.id}, ...
+                settings.module), 1);
+            if ~isempty(moduleIndex)
+                groups = capability.sci_modules(moduleIndex).pin_groups;
+            end
+            app.DetailFields.sci_pin_group.Items = ...
+                [{'Not Selected'}, {groups.display_name}];
+            app.DetailFields.sci_pin_group.ItemsData = ...
+                [{''}, {groups.id}];
+            if any(strcmp(settings.pin_group, {groups.id}))
+                app.DetailFields.sci_pin_group.Value = settings.pin_group;
+            else
+                app.DetailFields.sci_pin_group.Value = '';
+            end
+            app.DetailFields.sci_pin_group.Enable = 'on';
+            gpioItems = compose('GPIO%u', [capability.gpios.number]);
+            app.DetailFields.sci_ctrl_gpio.Items = [{'None'}, cellstr(gpioItems)];
+            app.DetailFields.sci_ctrl_gpio.ItemsData = ...
+                [{'None'}, cellstr(gpioItems)];
+            if any(strcmp(settings.ctrl_gpio, app.DetailFields.sci_ctrl_gpio.ItemsData))
+                app.DetailFields.sci_ctrl_gpio.Value = settings.ctrl_gpio;
+            else
+                app.DetailFields.sci_ctrl_gpio.Value = 'None';
+            end
+            app.DetailFields.sci_ctrl_gpio.Enable = 'on';
+        end
+
+        function refreshSciBaud(app, requestedBaud)
+            clock = c2837x_block_get_sci_clock_config();
+            result = c2837x_block_calculate_sci_baud( ...
+                clock.lspclk_hz, requestedBaud);
+            app.DetailFields.sci_actual_baud.Value = result.actual_baud;
+            app.DetailFields.sci_baud_error.Value = result.signed_error_baud;
+        end
+
+        function updateCtrlFields(app)
+            enabled = ~strcmp(app.DetailFields.sci_ctrl_gpio.Value, 'None') && ...
+                isequal(app.DetailFields.sci_ctrl_gpio.Enable, ...
+                matlab.lang.OnOffSwitchState.on);
+            state = matlab.lang.OnOffSwitchState(enabled);
+            app.DetailFields.sci_ctrl_pin_type.Enable = state;
+            app.DetailFields.sci_ctrl_active_level.Enable = state;
+        end
+
+        function refreshSciClock(app)
+            instances = app.ProjectSession.Project.instances;
+            hasSci = ~isempty(instances) && any(arrayfun( ...
+                @(value) strcmp(value.iodevice.type, 'sci'), instances));
+            state = matlab.lang.OnOffSwitchState(hasSci);
+            app.ProjectSciClockLabel.Visible = state;
+            app.ProjectSciClockField.Visible = state;
+            if hasSci
+                clock = c2837x_block_get_sci_clock_config();
+                app.ProjectSciClockField.Value = sprintf( ...
+                    '%.6f MHz (SYSCLK / %u)', ...
+                    clock.lspclk_hz / 1e6, clock.lspclk_divisor);
+            else
+                app.ProjectSciClockField.Value = 'N/A';
+            end
         end
 
         function browseOutput(app, key)
@@ -553,7 +783,7 @@ classdef C2837xBlockConfigurator < handle
             end
             app.DetailFields.source_path.Value = ...
                 c2837x_block_normalize_absolute_path(fullfile(folder, file));
-            app.detailEdited();
+            app.detailEdited('source_path');
         end
 
         function variablesEdited(app)
@@ -599,18 +829,20 @@ classdef C2837xBlockConfigurator < handle
         end
 
         function addInstance(app)
-            usedSockets = double(arrayfun(@(x) x.iodevice.settings.socket_number, ...
-                app.ProjectSession.Project.instances));
+            instances = app.ProjectSession.Project.instances;
+            w5300 = instances(arrayfun( ...
+                @(value) strcmp(value.iodevice.type, 'w5300_tcp'), instances));
+            usedSockets = double(arrayfun( ...
+                @(value) value.iodevice.settings.socket_number, w5300));
             socket = first_free(0:7, usedSockets);
             if isempty(socket)
                 app.showIssues(app_issue('APP_NO_SOCKET_AVAILABLE', ...
                     'No W5300 socket is available.', 'project.instances', 0, ''));
                 return;
             end
-            usedPorts = double(arrayfun(@(x) x.iodevice.settings.tcp_port, ...
-                app.ProjectSession.Project.instances));
+            usedPorts = double(arrayfun( ...
+                @(value) value.iodevice.settings.tcp_port, w5300));
             port = first_free(5000:65535, usedPorts);
-            instances = app.ProjectSession.Project.instances;
             internalName = c2837x_block_suggest_unique_name( ...
                 'instance', {instances.internal_name});
             displayName = strrep(internalName, 'instance_', 'Instance ');
@@ -635,22 +867,31 @@ classdef C2837xBlockConfigurator < handle
                 return;
             end
             instances = app.ProjectSession.Project.instances;
-            socket = first_free(0:7, double(arrayfun( ...
-                @(x) x.iodevice.settings.socket_number, instances)));
-            port = first_free(5000:65535, double(arrayfun( ...
-                @(x) x.iodevice.settings.tcp_port, instances)));
-            if isempty(socket)
-                app.showIssues(app_issue('APP_NO_SOCKET_AVAILABLE', ...
-                    'No W5300 socket is available.', 'project.instances', 0, ''));
-                return;
-            end
             internalName = c2837x_block_suggest_unique_name( ...
                 'instance', {instances.internal_name});
             displayName = strrep(internalName, 'instance_', 'Instance ');
             try
-                app.Coordinator.copyInstance(app.SelectedInstance, ...
-                    displayName, internalName, ...
-                    uint16(socket), uint16(port));
+                selected = instances(app.SelectedInstance);
+                if strcmp(selected.iodevice.type, 'sci')
+                    app.Coordinator.copyInstance(app.SelectedInstance, ...
+                        displayName, internalName);
+                else
+                    w5300 = instances(arrayfun(@(value) ...
+                        strcmp(value.iodevice.type, 'w5300_tcp'), instances));
+                    socket = first_free(0:7, double(arrayfun( ...
+                        @(value) value.iodevice.settings.socket_number, w5300)));
+                    port = first_free(5000:65535, double(arrayfun( ...
+                        @(value) value.iodevice.settings.tcp_port, w5300)));
+                    if isempty(socket)
+                        app.showIssues(app_issue('APP_NO_SOCKET_AVAILABLE', ...
+                            'No W5300 socket is available.', ...
+                            'project.instances', 0, ''));
+                        return;
+                    end
+                    app.Coordinator.copyInstance(app.SelectedInstance, ...
+                        displayName, internalName, ...
+                        uint16(socket), uint16(port));
+                end
                 app.SelectedInstance = numel(app.ProjectSession.Project.instances);
                 app.afterEdit();
             catch cause
@@ -814,7 +1055,10 @@ classdef C2837xBlockConfigurator < handle
 
         function navigateToIssue(app, code, fieldPath, filePath)
             issueText = lower(strjoin(string({code, fieldPath, filePath}), ' '));
-            if contains(issueText, '.inputs')
+            if contains(issueText, '.iodevice.settings.')
+                app.MainTabGroup.SelectedTab = app.InstancesTab;
+                app.DetailTabGroup.SelectedTab = app.IoDeviceTab;
+            elseif contains(issueText, '.inputs')
                 app.MainTabGroup.SelectedTab = app.InputsOutputsTab;
                 app.InputsOutputsTabGroup.SelectedTab = app.InputsTab;
             elseif contains(issueText, '.outputs')
@@ -843,6 +1087,24 @@ classdef C2837xBlockConfigurator < handle
                 focus(app.DetailFields.socket);
             elseif contains(fieldPath, '.tcp_port')
                 focus(app.DetailFields.port);
+            elseif contains(fieldPath, '.iodevice.settings.module')
+                focus(app.DetailFields.sci_module);
+            elseif contains(fieldPath, '.iodevice.settings.baud')
+                focus(app.DetailFields.sci_baud);
+            elseif contains(fieldPath, '.iodevice.settings.pin_group')
+                focus(app.DetailFields.sci_pin_group);
+            elseif contains(fieldPath, '.iodevice.settings.rx_pin_type')
+                focus(app.DetailFields.sci_rx_pin_type);
+            elseif contains(fieldPath, '.iodevice.settings.rx_qualification')
+                focus(app.DetailFields.sci_rx_qualification);
+            elseif contains(fieldPath, '.iodevice.settings.tx_pin_type')
+                focus(app.DetailFields.sci_tx_pin_type);
+            elseif contains(fieldPath, '.iodevice.settings.ctrl_gpio')
+                focus(app.DetailFields.sci_ctrl_gpio);
+            elseif contains(fieldPath, '.iodevice.settings.ctrl_pin_type')
+                focus(app.DetailFields.sci_ctrl_pin_type);
+            elseif contains(fieldPath, '.iodevice.settings.ctrl_tx_active_level')
+                focus(app.DetailFields.sci_ctrl_active_level);
             elseif contains(fieldPath, '.sample_time_sec')
                 focus(app.DetailFields.sample_time);
             elseif contains(fieldPath, '.max_payload_size_bytes')
@@ -883,8 +1145,10 @@ classdef C2837xBlockConfigurator < handle
                     app.SelectedInstance <= numel(report.instances)
                 value = report.instances(app.SelectedInstance);
                 instance = app.ProjectSession.Project.instances(app.SelectedInstance);
+                transport = c2837x_block_build_transport_summary(instance);
                 lines = [lines, {sprintf('Selected Instance: %s [%s]', ...
                     char(instance.display_name), char(instance.internal_name)), ...
+                    sprintf('Transport: %s', transport.summary), ...
                     sprintf('Max Payload Limit: %u wire octets', ...
                     instance.max_payload_size_bytes), ...
                     sprintf('Interface Hash: 0x%08X', value.interface_hash), ...
@@ -1008,6 +1272,44 @@ classdef C2837xBlockConfigurator < handle
             app.StatusLabel.Text = cause.identifier;
         end
     end
+end
+
+function grid = detail_grid(parent, rows)
+grid = uigridlayout(parent, [rows 4]);
+grid.ColumnWidth = {180, '1x', 180, '1x'};
+grid.RowHeight = repmat({'1x'}, 1, rows);
+grid.Padding = [8 8 8 8];
+grid.RowSpacing = 8;
+grid.ColumnSpacing = 8;
+end
+
+function field = labeled_field(grid, row, labelColumn, labelText, field, tag)
+label = uilabel(grid, 'Text', labelText);
+label.Layout.Row = row;
+label.Layout.Column = labelColumn;
+field.Layout.Row = row;
+field.Layout.Column = labelColumn + 1;
+field.Tag = tag;
+end
+
+function settings = clear_invalid_pin_group(settings)
+result = c2837x_block_load_device_capability();
+if ~result.available
+    return;
+end
+modules = result.capability.sci_modules;
+moduleIndex = find(strcmp({modules.id}, settings.module), 1);
+validIds = {};
+if ~isempty(moduleIndex)
+    validIds = {modules(moduleIndex).pin_groups.id};
+end
+if ~any(strcmp(settings.pin_group, validIds))
+    settings.pin_group = '';
+end
+end
+
+function groups = empty_pin_groups()
+groups = struct('id', {}, 'display_name', {}, 'rx', {}, 'tx', {});
 end
 
 function options = validate_options(options)

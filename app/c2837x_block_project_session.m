@@ -102,7 +102,7 @@ classdef c2837x_block_project_session < handle
             instance.max_payload_size_bytes = source.max_payload_size_bytes;
             instance.inputs = source.inputs;
             instance.outputs = source.outputs;
-            instance.algorithm.mode = source.algorithm.mode;
+            instance.algorithm = source.algorithm;
             validate_instance_operation(instance);
             validate_instance_conflicts(instance, session.Project.instances, []);
             project = session.Project;
@@ -351,7 +351,9 @@ end
 
 function validate_instance_conflicts(instance, instances, excludedIndex)
 indices = 1:numel(instances);
-indices(indices == excludedIndex) = [];
+if ~isempty(excludedIndex)
+    indices(indices == excludedIndex) = [];
+end
 if any(strcmpi(instance.internal_name, {instances(indices).internal_name}))
     instance_error('DuplicateName', 'Internal name must be unique within the project.');
 end
