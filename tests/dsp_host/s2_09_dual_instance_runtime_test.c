@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 1u
+#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 2u
 #include "c2837x_block_internal.h"
 
 #define NO_RESULT_OVERRIDE  ((int32)0x7fffffffL)

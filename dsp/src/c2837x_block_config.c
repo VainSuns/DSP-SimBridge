@@ -1,6 +1,6 @@
 /* Hand-written phase-1 sample adapter and static instance binding. */
 
-#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 1u
+#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 2u
 #include "c2837x_block_internal.h"
 #include "c2837x_block_algorithm.h"
 #include "c2837x_block_config.h"

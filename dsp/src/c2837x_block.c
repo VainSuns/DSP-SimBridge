@@ -1,6 +1,6 @@
 /* Device-independent, non-blocking C2837xBlock protocol Core. */
 
-#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 1u
+#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 2u
 #include "c2837x_block.h"
 #include "c2837x_block_internal.h"
 #include "c2837x_block_protocol.h"

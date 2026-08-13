@@ -1,4 +1,4 @@
-#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 1u
+#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION 2u
 #include "c2837x_block.h"
 
 C2837xBlock *core_instance_pointer;
@@ -8,6 +8,8 @@ void (*instance_run_function)(C2837xBlock *) = C2837xBlock_Run;
 C2837xBlock_Error (*last_error_function)(const C2837xBlock *) =
     C2837xBlock_GetLastError;
 
+_Static_assert(C2837X_BLOCK_CORE_API_VERSION == 2u,
+               "Core API version changed");
 _Static_assert(C2837X_BLOCK_ERROR_INTERNAL == 8,
                "C2837xBlock_Error values changed");
 _Static_assert(C2837X_BLOCK_PLATFORM_OK == 0,
@@ -20,8 +22,10 @@ _Static_assert(C2837X_BLOCK_PLATFORM_ERROR_W5300_MEMORY == -3,
                "memory error value changed");
 _Static_assert(C2837X_BLOCK_PLATFORM_ERROR_NETWORK_CONFIG == -4,
                "network error value changed");
+_Static_assert(C2837X_BLOCK_PLATFORM_ERROR_SCI_INIT == -5,
+               "SCI init error value changed");
 
 int main(void)
 {
-    return (C2837X_BLOCK_CORE_API_VERSION == 1u) ? 0 : 1;
+    return (C2837X_BLOCK_CORE_API_VERSION == 2u) ? 0 : 1;
 }
