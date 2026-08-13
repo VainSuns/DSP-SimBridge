@@ -217,7 +217,7 @@ end
 function capability = normalize_capability(raw)
 expectedIds = {'SCI-A', 'SCI-B', 'SCI-C', 'SCI-D'};
 modulePrototype = struct('id', '', 'display_name', '', ...
-    'rx_endpoints', [], 'tx_endpoints', [], 'pin_groups', []);
+    'rx_endpoints', [], 'tx_endpoints', []);
 modules = repmat(modulePrototype, 1, numel(expectedIds));
 for index = 1:numel(expectedIds)
     rawModule = raw.sci_modules(strcmp({raw.sci_modules.id}, expectedIds{index}));
@@ -227,8 +227,6 @@ for index = 1:numel(expectedIds)
     modules(index).display_name = rawModule.display_name;
     modules(index).rx_endpoints = rxEndpoints;
     modules(index).tx_endpoints = txEndpoints;
-    modules(index).pin_groups = normalize_groups(rawModule.id, ...
-        rxEndpoints, txEndpoints);
 end
 [~, order] = sort([raw.gpio_capabilities.gpio]);
 rawGpios = raw.gpio_capabilities(order);
@@ -255,26 +253,6 @@ endpoint = struct('gpio', uint16(0), 'signal', '', ...
 endpoints = repmat(endpoint, 1, numel(rawEndpoints));
 for index = 1:numel(rawEndpoints)
     endpoints(index) = normalize_endpoint(rawEndpoints(index));
-end
-end
-
-function groups = normalize_groups(moduleId, rxEndpoints, txEndpoints)
-prototype = struct('id', '', 'display_name', '', ...
-    'rx', rxEndpoints(1), 'tx', txEndpoints(1));
-groups = repmat(prototype, 1, numel(rxEndpoints) * numel(txEndpoints));
-groupIndex = 0;
-for txIndex = 1:numel(txEndpoints)
-    for rxIndex = 1:numel(rxEndpoints)
-        groupIndex = groupIndex + 1;
-        rx = rxEndpoints(rxIndex);
-        tx = txEndpoints(txIndex);
-        groups(groupIndex).id = sprintf('%s_TX%u_RX%u', ...
-            moduleId, tx.gpio, rx.gpio);
-        groups(groupIndex).display_name = sprintf( ...
-            'GPIO%u TX / GPIO%u RX', tx.gpio, rx.gpio);
-        groups(groupIndex).rx = rx;
-        groups(groupIndex).tx = tx;
-    end
 end
 end
 

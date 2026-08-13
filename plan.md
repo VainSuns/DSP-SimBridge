@@ -12,11 +12,15 @@
 > **计划命名规则：** 本增量周期使用 `SCI-Sx-yy` 和 `SCI-Gx`，与历史 `S0～S5 / G0～G5` 区分。
 > **进度记录规则：** 本文件只定义任务、依赖、产物、最小验证和门禁，不回写实际完成状态。真实 HEAD、工作区、测试、编译、硬件和门禁结果只记录在任务移交摘要、动态上下文、Git 历史和真实日志中。
 
+### Stage 1 Correction — SCI-S1-CORR-01
+
+本纠正批次不新增 Stage、Gate 或 FR 编号：SCI capability 保存独立 RX/TX endpoint，废除 DSP-SimBridge Cartesian PinGroup；persisted Project schema 由 V3 升级为 V4。Wire Protocol 保持 V1，Core API target 保持 V2。V3 仅作为 migration source，旧 `pin_group` 只允许存在于 V3 migration parser。
+
 ---
 
 ## 1. 计划目标与执行规则
 
-本计划只实现冻结 SCI 增量需求 FR-001～FR-095，目标是在已经完成的静态多实例 W5300 基线上新增 SCI IoDevice，并完成 Project V3、Core API V2、Capability、App、DSP SCI、Windows PC Serial S-Function、生成和必要文档适配。
+本计划只实现冻结 SCI 增量需求 FR-001～FR-095，目标是在已经完成的静态多实例 W5300 基线上新增 SCI IoDevice，并完成 Project V4、Core API V2、Capability、App、DSP SCI、Windows PC Serial S-Function、生成和必要文档适配。
 
 本计划不重新实现已经关闭的 V1.0 多实例/W5300 基础能力。冻结需求未明确修改的 V1.0 行为继续复用现有实现和既有证据。
 
@@ -26,7 +30,7 @@
 2. **开始任何实施任务前必须核对 Git。** 至少核对 repository、branch、HEAD、remote HEAD、`git status`、前置任务提交和前置门禁。
 3. **冻结需求优先。** 不得通过计划解释改变 FR 语义，不得恢复旧单实例 Core、shared `g_ctx`、generic S-Function、共享 PC runtime、自动 reconnect/retry/resend、自动 MEX build 或其他废弃方案。
 4. **V1 wire protocol 不变。** SCI 只增加 transport，不改变 Header、消息、错误码、step_index、Interface Hash 线缆语义或 framing。
-5. **测试服务于研发目标。** 只执行证明 SCI 新功能和关键兼容边界所必需的最小验证；不建立多 SCI、全部 Baud、全部 PinGroup/GPIO、half-duplex、mixed 硬件或长期稳定性固定矩阵。
+5. **测试服务于研发目标。** 只执行证明 SCI 新功能和关键兼容边界所必需的最小验证；不建立多 SCI、全部 Baud、全部 RX/TX/CTRL GPIO、half-duplex、mixed 硬件或长期稳定性固定矩阵。
 6. **不伪造环境能力。** 未实际执行的 MATLAB/MEX、DSP/CCS、Simulink 或硬件项目必须记录为 `NOT_EXECUTED` / `CAPABILITY` / `USER_VALIDATION_PENDING`，不得声明 PASS。
 7. **硬件不是开发门禁的默认前提。** 最终 DSP/SCI/Baud/CTRL/mixed/长期稳定性实机验证由用户根据实际研发需要执行；开发侧无真实硬件证据时只能声明“已实现，待用户实机验证”。
 8. **LSPCLK 分两阶段。** 实现与 bring-up 初期使用 `SYSCLK/14 ≈ 14.285714 MHz`；基础 SCI-PC 链路实现后再进行理论量化误差和平台影响评估，并在有条件时结合一个代表性实机结果，确定最终平台级固定 LSPCLK。最终值不预设必须为 200 MHz。
@@ -100,7 +104,7 @@ IoDevice   : W5300 TCP only
 | 需求范围 | 主要计划覆盖位置 |
 |---|---|
 | FR-001～FR-006 | SCI-S0、SCI-S2、SCI-S3、SCI-S5；架构/版本/兼容非回退 |
-| FR-007～FR-013 | SCI-S1；Project V3、migration、conditional fields、COM 边界 |
+| FR-007～FR-013 | SCI-S1；Project V4、V2/V3 migration、conditional fields、COM 边界 |
 | FR-014～FR-018 | SCI-S1；Capability、Platform Reserved Resources、resource conflict |
 | FR-019～FR-030 | SCI-S1；App IoDevice-aware UI、defaults、copy、capability isolation |
 | FR-031～FR-040 | SCI-S1、SCI-S2、SCI-S5；LSPCLK/BRR、PinMux、PlatformInit、SCI_INIT |
@@ -129,7 +133,7 @@ Stage 0 不实现 SCI 产品功能，只把新的增量周期从历史 V1.0 周�
   3. 核对历史 `G0～G5` 已关闭且不作为本计划待执行门禁；
   4. 核对 V1 wire protocol tag/commit 仍存在且未漂移；
   5. 记录新 SCI 周期的实际起始 HEAD。
-- **非目标：** 不修改产品代码；不实现 Project V3/SCI；不重新执行历史 G0～G5。
+- **非目标：** 不修改产品代码；不实现 Project V4/SCI；不重新执行历史 G0～G5。
 - **最小验证：** Git/remote/branch/HEAD/status、protocol baseline commit/tag、基线祖先关系。
 
 ## SCI-S0-02：切换 Repository 当前 requirements / plan 并归档历史入口
@@ -169,9 +173,9 @@ Stage 0 不实现 SCI 产品功能，只把新的增量周期从历史 V1.0 周�
 
 ---
 
-# 5. SCI Stage 1：Project V3、Capability 与 App 配置
+# 5. SCI Stage 1：Project V4、Capability 与 App 配置
 
-Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配置边界，使后续 DSP/PC 生成只消费已经归一化和验证的 Project V3 数据。
+Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配置边界，使后续 DSP/PC 生成只消费已经归一化和验证的 Project V4 数据。
 
 ## SCI-S1-01：建立 TMS320F28377D PTP Capability 与 loader
 
@@ -179,7 +183,7 @@ Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配�
 - **前置门禁：** SCI-G0
 - **目标：**
   1. 新增唯一 `TMS320F28377D_PTP.json`；
-  2. 只保存固定器件事实：SCI-A/B/C/D、合法 RX/TX PinGroup、GPIO/PinMux 能力；
+  2. 只保存固定器件事实：SCI-A/B/C/D 的独立 RX/TX endpoint、GPIO/PinMux 能力，不计算或保存 PinGroup；
   3. 建立带 `schema_version` 的 MATLAB loader/normalizer；
   4. 其他 App/validator/generator 只消费 normalized capability，不直接依赖 raw `jsondecode`；
   5. W5300 EMIF/reset/GPIO 等固定占用保持 Platform Reserved Resources，不污染 capability；
@@ -188,21 +192,21 @@ Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配�
 - **非目标：** 不支持其他 package/device；不做 `.mat` cache；不加入用户配置。
 - **最小验证：** 正常 schema、unsupported schema、缺失/损坏 capability、W5300-only capability isolation，以及 capability 固定器件事实的来源可追溯性。
 
-## SCI-S1-02：升级 Project V2→V3 与 SCI Instance 模型
+## SCI-S1-02：升级 Project V2/V3→V4 与 SCI Instance 模型
 
 - **对应 FR：** FR-007～FR-013、FR-019、FR-023～FR-025、FR-029
 - **前置任务：** SCI-S1-01
 - **目标：**
-  1. `project.format_version = 3`；
+  1. `project.format_version = 4`；
   2. 增加 `project.common.package='PTP'`；
   3. 保留 Project Network，但仅在存在 W5300 Instance 时参与有效性校验/生成；
   4. Instance 增加 `IoDevice=W5300 TCP/SCI` 与 SCI 配置字段；
   5. 新 Instance 默认 W5300；切换到 SCI 使用冻结默认值；
-  6. V2 自动迁移为 V3，全部旧 Instance 保持 W5300 语义且项目 dirty，不覆盖旧 `.mat`；
+  6. V2/V3 自动迁移为 V4，全部旧 Instance 保持 W5300 语义且项目 dirty，不覆盖旧 `.mat`；V3 SCI canonical group 仅在 migration parser 中转换为独立 RX/TX；
   7. COM 不进入 Project；
-  8. SCI Copy 不复制独占 Module/PinGroup/CTRL GPIO，CTRL 仍只有 `None/GPIOxx` 两态。
-- **非目标：** 不实现 DSP/PC SCI runtime；不自动选择 SCI/PinGroup/GPIO。
-- **最小验证：** V3 round-trip、V2 migration、dirty、SCI defaults、copy、Network conditional semantics、COM 不进入 `.mat`。
+  8. SCI Copy 不复制独占 Module/RX GPIO/TX GPIO/CTRL GPIO，CTRL 仍只有 `None/GPIOxx` 两态。
+- **非目标：** 不实现 DSP/PC SCI runtime；不自动选择 SCI/RX GPIO/TX GPIO/CTRL GPIO。
+- **最小验证：** V4 round-trip、V2/V3 migration、dirty、SCI defaults、copy、Network conditional semantics、COM 不进入 `.mat`。
 
 ## SCI-S1-03：建立统一 LSPCLK/BRR/Baud 计算服务
 
@@ -227,7 +231,7 @@ Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配�
   1. validation 合并 normalized capability、Platform Reserved Resources 和全部 Instance；
   2. 阻断重复 SCI Module；
   3. 阻断 RX/TX/CTRL GPIO 之间及与 W5300 固定资源的冲突；
-  4. 阻断 capability 中不存在的 Module/PinGroup/GPIO/PinMux 组合；
+  4. 阻断 capability 中不存在的 Module、RX GPIO、TX GPIO、CTRL GPIO 或 PinMux；
   5. SCI-only 项目不因 Network 非法失败；W5300 项目继续执行既有 Network 校验；
   6. capability 故障只阻断 SCI 项目/SCI 配置，不阻断 W5300-only。
 - **非目标：** 不做运行时资源检测；不探测真实 GPIO 电气状态。
@@ -241,11 +245,11 @@ Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配�
   1. 保留现有顶层 Project / Instances / Inputs/Outputs / Issues/Interface / Generation Preview；
   2. Selected Instance 详情形成 `General / IoDevice / Algorithm`；
   3. IoDevice 页面按 W5300/SCI 显示对应字段；
-  4. PinGroup 和 CTRL GPIO 下拉由 capability 驱动；
+  4. RX GPIO、TX GPIO 和 CTRL GPIO 下拉由 capability 驱动；
   5. CTRL=None 时相关控件禁用/隐藏；
   6. 项目存在 SCI 时只读显示当前项目 LSPCLK；SCI Instance 显示 Requested/Actual/Error；
   7. Instance Table 与其他摘要使用统一 transport summary：`Socket 0 / TCP 5000` 或 `SCI-A / 57600 baud`；
-  8. Module 改变使旧 PinGroup 非法时清空；不自动分配资源。
+  8. Module 改变时分别清空非法 RX/TX GPIO；不自动分配资源。
 - **非目标：** 不测试像素尺寸/颜色/边距；不建立项目级 SCI-A/B/C/D 固定 Panel。
 - **最小验证：** 用户行为和模型状态；UI 动态字段/默认值/summary；不做表现层像素测试。
 
@@ -253,7 +257,7 @@ Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配�
 
 必须确认：
 
-- V3 model / V2 migration 可独立于 UI 测试；
+- V4 model / V2/V3 migration 可独立于 UI 测试；
 - capability/schema/normalizer 边界清晰；
 - W5300 Platform Reserved Resources 未写入器件 capability；
 - 关键 resource conflict 能在 Generate 前发现；
@@ -374,14 +378,14 @@ Stage 2 先用手写/测试 fixture 建立 Core V2 和公共 SCI IoDevice，不�
 
 # 7. SCI Stage 3：DSP 生成与 IoDevice 条件依赖
 
-Stage 3 把 Stage 1 的 Project V3/Capability 和 Stage 2 的 Core/SCI runtime 接入正式 DSP candidate generation。
+Stage 3 把 Stage 1 的 Project V4/Capability 和 Stage 2 的 Core/SCI runtime 接入正式 DSP candidate generation。
 
 ## SCI-S3-01：扩展 DSP 输出模型与项目级 Platform Config
 
 - **对应 FR：** FR-004、FR-009、FR-012、FR-038～FR-040
 - **前置门禁：** SCI-G2
 - **目标：**
-  1. generator 从 V3 project 计算项目是否使用 W5300、使用哪些 SCI；
+  1. generator 从 V4 project 计算项目是否使用 W5300、使用哪些 SCI；
   2. 生成项目级 Platform config/descriptor；
   3. generated header 声明 `C2837X_BLOCK_EXPECTED_CORE_API_VERSION = 2`；
   4. generated platform config 包含当前 bring-up LSPCLK/必要 SCI descriptors；
@@ -394,7 +398,7 @@ Stage 3 把 Stage 1 的 Project V3/Capability 和 Stage 2 的 Core/SCI runtime �
 - **对应 FR：** FR-002、FR-009、FR-012、FR-031～FR-037、FR-041
 - **前置任务：** SCI-S3-01
 - **目标：**
-  1. SCI Instance 生成 module、BRR、PinGroup、Pin Type、RX Qualification、CTRL GPIO/polarity 的 const config；
+  1. SCI Instance 生成 module、BRR、独立 RX endpoint、独立 TX endpoint、Pin Type、RX Qualification、CTRL GPIO/polarity 的 const config；
   2. BRR/Actual/Error 由 Stage 1 单一计算服务提供；DSP runtime 不重新计算；
   3. Instance IoDevice binding 继续使用现有 ops+channel；
   4. 每 Instance mutable channel 独立；
@@ -432,7 +436,7 @@ Stage 3 把 Stage 1 的 Project V3/Capability 和 Stage 2 的 Core/SCI runtime �
 
 必须确认：
 
-- Project V3→generated Platform/SCI config 责任链闭合；
+- Project V4→generated Platform/SCI config 责任链闭合；
 - Core API expected version=2；
 - SCI-only / W5300-only / mixed 的 DSP source dependency 符合冻结需求；
 - W5300-only 未被无关 SCI dependency/capability 破坏；
@@ -526,7 +530,7 @@ Stage 4 在既有 instance-specific S-Function/V1 protocol 基础上新增 self-
   6. 错误时输出不部分更新、step 不错误增加、session 结束。
 - **目标 B——SCI MEX build：** 若当前 MATLAB 已配置 C MEX compiler，至少真实构建一个 generated SCI MEX，以证明 generated SCI S-Function + `pc_serial` + protocol 能在目标 MATLAB/MEX 环境成功编译和链接；不要求为了 MEX 再重复完整代表性协议闭环。若当前无 C MEX compiler，记录 `SCI_MEX_BUILD = NOT_EXECUTED / CAPABILITY`，不得宣称 PASS。
 - **实现方式边界：** 可以使用低成本 host/mock serial backend、virtual COM、syscall injection、测试桩或 Windows 可控 endpoint 替代外部硬件/OS 对端，但不得另写一套与生产代码平行的 serial/protocol 实现来取得 PASS；mock 只能替代外部环境，不得替代被测产品代码。不得为了测试扩建产品级通信框架。
-- **不要求：** 2×SCI、SCI-A/B/C/D 组合、全部 Baud、全部 PinGroup/GPIO、half-duplex CTRL、长期稳定性或硬件矩阵；MEX build 与代表性 protocol+pc_serial 软件闭环是两个独立证据。
+- **不要求：** 2×SCI、SCI-A/B/C/D 组合、全部 Baud、全部 RX/TX/CTRL GPIO、half-duplex CTRL、长期稳定性或硬件矩阵；MEX build 与代表性 protocol+pc_serial 软件闭环是两个独立证据。
 
 ### SCI Stage 4 Gate：SCI-G4
 
@@ -578,13 +582,13 @@ Stage 5 在 DSP 和 PC 基本链路实现完成后选择最终平台 LSPCLK，�
 - **重要边界：** 最终值可以是 200 MHz，也可以是更合适的较低值；不得在评估前预设最大值。
 - **最小验证：** 理论计算可复现；更新后一个代表性 SCI generation/软件路径与 W5300-only focused regression。
 
-## SCI-S5-03：更新 SCI / Project V3 / CCS / Simulink 使用文档
+## SCI-S5-03：更新 SCI / Project V4 / CCS / Simulink 使用文档
 
 - **对应 FR：** FR-007～FR-013、FR-019～FR-030、FR-031～FR-040、FR-055～FR-070、FR-076～FR-083、FR-089～FR-095
 - **前置任务：** SCI-S5-02
 - **目标：** 更新现有文档而不是建立第二套冲突文档，至少说明：
-  1. Project V3 与 V2 migration；
-  2. SCI capability/Module/PinGroup/CTRL 配置；
+  1. Project V4 与 V2/V3 migration；
+  2. SCI capability/Module/RX GPIO/TX GPIO/CTRL 配置；
   3. 当前最终 LSPCLK、Baud/Actual/Error 的意义；
   4. CCS 需要加入的 SCI/W5300 条件 source/HAL 和实际 pin/CTRL 集成责任；
   5. Simulink SCI Block 的 COM Port Number 参数；
@@ -614,11 +618,11 @@ Stage 5 在 DSP 和 PC 基本链路实现完成后选择最终平台 LSPCLK，�
 最终 Gate 应确认：
 
 - FR-001～FR-095 全部有实现/状态/证据映射；
-- Project V3、Capability、App、Core API V2、DSP SCI、PC Serial、generation 和文档链闭合；
+- Project V4、Capability、App、Core API V2、DSP SCI、PC Serial、generation 和文档链闭合；
 - 最终项目级 LSPCLK 已经选择并写入正式平台配置；若未有用户硬件证据，实际 LSPCLK 硬件确认仍明确 pending；
 - 开发侧最小必要 SCI 软件闭环有真实证据；
 - W5300-only / SCI-only / mixed 的 Stage 3 deterministic generation 证据仍有效；若后续相关代码发生变化，则对应必要 focused regression 已真实执行并通过；
-- 无多 SCI、全部 Baud、全部 PinGroup、half-duplex、mixed 实机或长期稳定性矩阵门禁；
+- 无多 SCI、全部 Baud、全部 RX/TX/CTRL GPIO、half-duplex、mixed 实机或长期稳定性矩阵门禁；
 - 未实际执行的 DSP/CCS/MEX/Simulink/hardware 项目均真实标记；
 - 当前规范不再把历史 Rev.2 requirements / 旧 plan 当作 current implementation authority；
 - V1 wire protocol 和已关闭 hot-path 基线未回退。
@@ -679,7 +683,7 @@ SCI 增量计划完成必须同时满足：
 
 1. `SCI-G0～SCI-G5` 全部通过；
 2. 当前 repository authority 已切换为新 SCI frozen requirements + 新 `plan.md`；
-3. Project V3 和 V2→V3 migration 完成；
+3. Project V4 和 V2/V3→V4 migration 完成；
 4. TMS320F28377D PTP capability 与 resource validation 完成；
 5. App 完成 IoDevice-aware SCI 配置；
 6. Core API V2、SCI Platform/driver/runtime 完成；
@@ -711,7 +715,7 @@ SCI 增量计划完成必须同时满足：
 - Baud × Payload × Timeout 自动适配/推荐/Warning/Reject；
 - 多 SCI/2×SCI 固定测试；
 - SCI-A/B/C/D 组合矩阵；
-- 全部 Baud/PinGroup/GPIO 硬件矩阵；
+- 全部 Baud/RX/TX/CTRL GPIO 硬件矩阵；
 - half-duplex CTRL 强制专项测试矩阵；
 - mixed IoDevice 硬件门禁；
 - 长期稳定性门禁；
@@ -737,7 +741,7 @@ Final Plan Audit 结论：
 FR_NUMBER_COVERAGE              = PASS
 STAGE_DECOMPOSITION             = PASS
 DEPENDENCY_ORDER                = PASS
-PROJECT_V3_COVERAGE             = PASS
+PROJECT_V4_COVERAGE             = PASS
 CAPABILITY_COVERAGE             = PASS
 APP_COVERAGE                    = PASS
 CORE_API_V2_COVERAGE            = PASS

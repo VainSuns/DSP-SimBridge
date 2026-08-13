@@ -426,7 +426,7 @@ classdef test_app_coordinator < matlab.unittest.TestCase
         function testHighVersionLoadReturnsStableIssue(testCase)
             coordinator = previewed(testCase.WorkFolder);
             project = valid_project(testCase.WorkFolder);
-            project.format_version = uint16(4);
+            project.format_version = uint16(5);
             path = fullfile(testCase.WorkFolder, 'future.mat');
             save_project(path, project);
             [loaded, issues] = coordinator.loadProject(path);

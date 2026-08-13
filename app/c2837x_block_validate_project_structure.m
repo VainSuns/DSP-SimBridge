@@ -1,11 +1,11 @@
 function c2837x_block_validate_project_structure(project)
-%C2837X_BLOCK_VALIDATE_PROJECT_STRUCTURE Validate persisted V3 structure.
+%C2837X_BLOCK_VALIDATE_PROJECT_STRUCTURE Validate persisted V4 structure.
 
 if ~isstruct(project) || ~isscalar(project)
     invalid_project('project must be a scalar struct.');
 end
 require_fields(project, {'format_version', 'common', 'instances', 'output'}, 'project');
-validate_version(project.format_version, uint16(3), 'format_version');
+validate_version(project.format_version, uint16(4), 'format_version');
 
 common = project.common;
 if ~isstruct(common) || ~isscalar(common)
@@ -85,13 +85,14 @@ end
 function validate_known_iodevice_settings(type, settings)
 switch type
     case 'sci'
-        fields = {'module', 'baud', 'pin_group', 'rx_pin_type', ...
+        fields = {'module', 'baud', 'rx_gpio', 'tx_gpio', 'rx_pin_type', ...
             'rx_qualification', 'tx_pin_type', 'ctrl_gpio', ...
             'ctrl_pin_type', 'ctrl_tx_active_level'};
         require_exact_fields(settings, fields, 'SCI IoDevice settings');
         require_text(settings.module, 'instance.iodevice.settings.module');
         require_numeric_scalar(settings.baud, 'instance.iodevice.settings.baud');
-        require_text(settings.pin_group, 'instance.iodevice.settings.pin_group');
+        require_text(settings.rx_gpio, 'instance.iodevice.settings.rx_gpio');
+        require_text(settings.tx_gpio, 'instance.iodevice.settings.tx_gpio');
         require_text(settings.rx_pin_type, 'instance.iodevice.settings.rx_pin_type');
         require_text(settings.rx_qualification, ...
             'instance.iodevice.settings.rx_qualification');

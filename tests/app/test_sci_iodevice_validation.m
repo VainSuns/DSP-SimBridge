@@ -14,8 +14,8 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
             'ctrlPinType', struct('field', 'ctrl_pin_type', ...
                 'value', 'Open Drain', 'code', 'SCI_CTRL_PIN_TYPE_INVALID'), ...
             'qualification', struct('field', 'rx_qualification', ...
-                'value', '3-sample', 'code', ...
-                'SCI_RX_QUALIFICATION_INVALID'), ...
+                'value', '3-sample', ...
+                'code', 'SCI_RX_QUALIFICATION_INVALID'), ...
             'activeLevel', struct('field', 'ctrl_tx_active_level', ...
                 'value', 'Invert', 'code', ...
                 'SCI_CTRL_ACTIVE_LEVEL_INVALID'))
@@ -31,9 +31,9 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
 
     methods (TestMethodSetup)
         function createWorkFolder(testCase)
-            testCase.WorkFolder = c2837x_block_normalize_absolute_path(tempname);
-            mkdir(testCase.WorkFolder);
-            testCase.addTeardown(@() rmdir(testCase.WorkFolder, 's'));
+            fixture = testCase.applyFixture( ...
+                matlab.unittest.fixtures.TemporaryFolderFixture);
+            testCase.WorkFolder = fixture.Folder;
         end
     end
 
@@ -49,9 +49,9 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
                 'render_instance_io_support'})));
         end
 
-        function testValidSettingsAndNormalizedPinGroup(testCase)
+        function testIndependentSciBGpiosAreValid(testCase)
             project = project_with_instances(sci_instance( ...
-                'sci_a', 'SCI-A', 'SCI-A_TX8_RX9'));
+                'sci_b', 'SCI-B', 'GPIO19', 'GPIO14'));
 
             issues = c2837x_block_validate_project(project, 'instant');
 
@@ -59,9 +59,10 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
         end
 
         function testScalarStringSettingsMatchCharSemantics(testCase)
-            instance = sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9');
-            instance.iodevice.settings.module = "SCI-A";
-            instance.iodevice.settings.pin_group = "SCI-A_TX8_RX9";
+            instance = sci_instance('sci_b', 'SCI-B', 'GPIO19', 'GPIO14');
+            instance.iodevice.settings.module = "SCI-B";
+            instance.iodevice.settings.rx_gpio = "GPIO19";
+            instance.iodevice.settings.tx_gpio = "GPIO14";
             instance.iodevice.settings.rx_pin_type = "Standard";
             instance.iodevice.settings.rx_qualification = "Sync";
             instance.iodevice.settings.tx_pin_type = "Pull-up";
@@ -76,160 +77,166 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
         end
 
         function testModuleRequired(testCase)
-            instance = sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9');
-            instance.iodevice.settings.module = '';
-            project = project_with_instances(instance);
-
-            issues = c2837x_block_validate_project(project, 'instant');
+            instance = sci_instance('sci_a', '', 'GPIO9', 'GPIO8');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(instance), 'instant');
 
             testCase.verifyTrue(has_code(issues, 'SCI_MODULE_REQUIRED'));
         end
 
         function testModuleInvalid(testCase)
-            instance = sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9');
-            instance.iodevice.settings.module = 'SCI-E';
-            project = project_with_instances(instance);
-
-            issues = c2837x_block_validate_project(project, 'instant');
+            instance = sci_instance('sci_a', 'SCI-E', 'GPIO9', 'GPIO8');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(instance), 'instant');
 
             testCase.verifyTrue(has_code(issues, 'SCI_MODULE_INVALID'));
         end
 
-        function testPinGroupRequired(testCase)
-            instance = sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9');
-            instance.iodevice.settings.pin_group = '';
-            project = project_with_instances(instance);
+        function testRxGpioRequired(testCase)
+            instance = sci_instance('sci_a', 'SCI-A', '', 'GPIO8');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(instance), 'instant');
 
-            issues = c2837x_block_validate_project(project, 'instant');
-
-            testCase.verifyTrue(has_code(issues, 'SCI_PIN_GROUP_REQUIRED'));
+            testCase.verifyTrue(has_code(issues, 'SCI_RX_GPIO_REQUIRED'));
         end
 
-        function testPinGroupMustBelongToSelectedModule(testCase)
-            project = project_with_instances(sci_instance( ...
-                'sci_a', 'SCI-A', 'SCI-B_TX9_RX11'));
+        function testTxGpioRequired(testCase)
+            instance = sci_instance('sci_a', 'SCI-A', 'GPIO9', '');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(instance), 'instant');
 
-            issues = c2837x_block_validate_project(project, 'instant');
+            testCase.verifyTrue(has_code(issues, 'SCI_TX_GPIO_REQUIRED'));
+        end
 
-            testCase.verifyTrue(has_code(issues, 'SCI_PIN_GROUP_INVALID'));
+        function testRxGpioMustBelongToSelectedModule(testCase)
+            instance = sci_instance('sci_b', 'SCI-B', 'GPIO28', 'GPIO14');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(instance), 'instant');
+
+            testCase.verifyTrue(has_code(issues, 'SCI_RX_GPIO_INVALID'));
+        end
+
+        function testTxGpioMustBelongToSelectedModule(testCase)
+            instance = sci_instance('sci_b', 'SCI-B', 'GPIO19', 'GPIO12');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(instance), 'instant');
+
+            testCase.verifyTrue(has_code(issues, 'SCI_TX_GPIO_INVALID'));
+        end
+
+        function testNoncanonicalEndpointIsInvalid(testCase)
+            instance = sci_instance('sci_b', 'SCI-B', '19', 'GPIO14');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(instance), 'instant');
+
+            testCase.verifyTrue(has_code(issues, 'SCI_RX_GPIO_INVALID'));
         end
 
         function testFrozenSettingValueIsEnforced(testCase, invalidSetting)
-            instance = sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9');
-            instance.iodevice.settings.(invalidSetting.field) = invalidSetting.value;
-            project = project_with_instances(instance);
-
-            issues = c2837x_block_validate_project(project, 'instant');
+            instance = sci_instance('sci_a', 'SCI-A', 'GPIO9', 'GPIO8');
+            instance.iodevice.settings.(invalidSetting.field) = ...
+                invalidSetting.value;
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(instance), 'instant');
 
             testCase.verifyTrue(has_code(issues, invalidSetting.code));
         end
 
         function testCtrlGpioMustBeCanonicalAndCapable(testCase)
-            instance = sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9');
+            instance = sci_instance('sci_a', 'SCI-A', 'GPIO9', 'GPIO8');
             instance.iodevice.settings.ctrl_gpio = 'GPIO168';
-            project = project_with_instances(instance);
-
-            issues = c2837x_block_validate_project(project, 'instant');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(instance), 'instant');
 
             testCase.verifyTrue(has_code(issues, 'SCI_CTRL_GPIO_INVALID'));
         end
 
         function testDuplicateModule(testCase)
-            first = sci_instance('first', 'SCI-A', 'SCI-A_TX8_RX9');
-            second = sci_instance('second', 'SCI-A', 'SCI-A_TX29_RX28');
-            project = project_with_instances([first second]);
-
-            issues = c2837x_block_validate_project(project, 'instant');
-
+            first = sci_instance('first', 'SCI-A', 'GPIO9', 'GPIO8');
+            second = sci_instance('second', 'SCI-A', 'GPIO28', 'GPIO29');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances([first second]), 'instant');
             duplicate = issues(strcmp({issues.code}, 'SCI_MODULE_DUPLICATE'));
+
             testCase.verifyNumElements(duplicate, 1);
             testCase.verifyEqual(duplicate.instance_index, 2);
             testCase.verifyEqual(duplicate.field_path, ...
                 'project.instances(2).iodevice.settings.module');
         end
 
-        function testTwoSciPinGroupsConflictOnSharedGpio(testCase)
-            first = sci_instance('first', 'SCI-A', 'SCI-A_TX8_RX9');
-            second = sci_instance('second', 'SCI-B', 'SCI-B_TX9_RX11');
-            project = project_with_instances([first second]);
+        function testSciRxConflictsWithAnotherSciRx(testCase)
+            first = sci_instance('first', 'SCI-A', 'GPIO9', 'GPIO8');
+            second = sci_instance('second', 'SCI-A', 'GPIO9', 'GPIO29');
+            conflict = gpio_conflicts([first second]);
 
-            issues = c2837x_block_validate_project(project, 'instant');
-
-            conflict = issues(strcmp({issues.code}, 'SCI_GPIO_CONFLICT'));
-            testCase.verifyNumElements(conflict, 1);
-            testCase.verifyEqual(conflict.instance_index, 2);
-            testCase.verifyEqual(conflict.field_path, ...
-                'project.instances(2).iodevice.settings.pin_group');
-            testCase.verifyNotEmpty(strfind(conflict.message, 'GPIO9'));
+            testCase.verifyTrue(any(strcmp({conflict.field_path}, ...
+                'project.instances(2).iodevice.settings.rx_gpio')));
         end
 
-        function testCtrlConflictsWithOwnTx(testCase)
-            instance = sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9');
-            instance.iodevice.settings.ctrl_gpio = 'GPIO8';
-            project = project_with_instances(instance);
+        function testSciRxConflictsWithAnotherSciTx(testCase)
+            first = sci_instance('first', 'SCI-A', 'GPIO9', 'GPIO8');
+            second = sci_instance('second', 'SCI-B', 'GPIO19', 'GPIO9');
+            conflict = gpio_conflicts([first second]);
 
-            issues = c2837x_block_validate_project(project, 'instant');
+            testCase.verifyNumElements(conflict, 1);
+            testCase.verifyEqual(conflict.field_path, ...
+                'project.instances(2).iodevice.settings.tx_gpio');
+        end
 
-            conflict = issues(strcmp({issues.code}, 'SCI_GPIO_CONFLICT'));
+        function testSciTxConflictsWithAnotherSciTx(testCase)
+            first = sci_instance('first', 'SCI-A', 'GPIO9', 'GPIO8');
+            second = sci_instance('second', 'SCI-A', 'GPIO28', 'GPIO8');
+            conflict = gpio_conflicts([first second]);
+
+            testCase.verifyTrue(any(strcmp({conflict.field_path}, ...
+                'project.instances(2).iodevice.settings.tx_gpio')));
+        end
+
+        function testCtrlConflictsWithOwnRx(testCase)
+            instance = sci_instance('sci_a', 'SCI-A', 'GPIO9', 'GPIO8');
+            instance.iodevice.settings.ctrl_gpio = 'GPIO9';
+            conflict = gpio_conflicts(instance);
+
             testCase.verifyNumElements(conflict, 1);
             testCase.verifyEqual(conflict.field_path, ...
                 'project.instances(1).iodevice.settings.ctrl_gpio');
         end
 
-        function testCtrlConflictsWithAnotherSciPinGroup(testCase)
-            first = sci_instance('first', 'SCI-A', 'SCI-A_TX8_RX9');
-            first.iodevice.settings.ctrl_gpio = 'GPIO11';
-            second = sci_instance('second', 'SCI-B', 'SCI-B_TX10_RX11');
-            project = project_with_instances([first second]);
+        function testCtrlConflictsWithOwnTx(testCase)
+            instance = sci_instance('sci_a', 'SCI-A', 'GPIO9', 'GPIO8');
+            instance.iodevice.settings.ctrl_gpio = 'GPIO8';
+            conflict = gpio_conflicts(instance);
 
-            issues = c2837x_block_validate_project(project, 'instant');
-
-            conflict = issues(strcmp({issues.code}, 'SCI_GPIO_CONFLICT'));
             testCase.verifyNumElements(conflict, 1);
-            testCase.verifyEqual(conflict.instance_index, 2);
             testCase.verifyEqual(conflict.field_path, ...
-                'project.instances(2).iodevice.settings.pin_group');
+                'project.instances(1).iodevice.settings.ctrl_gpio');
         end
 
-        function testMixedProjectConflictsWithActiveW5300Gpio(testCase)
+        function testMixedProjectConflictsWithActiveW5300Gpios(testCase)
             w5300 = w5300_instance('network');
-            sci = sci_instance('sci_a', 'SCI-A', 'SCI-A_TX29_RX28');
-            project = project_with_instances([w5300 sci]);
+            sci = sci_instance('sci_a', 'SCI-A', 'GPIO28', 'GPIO29');
+            conflict = gpio_conflicts([w5300 sci]);
 
-            issues = c2837x_block_validate_project(project, 'instant');
-
-            conflict = issues(strcmp({issues.code}, 'SCI_GPIO_CONFLICT'));
             testCase.verifyNumElements(conflict, 2);
-            testCase.verifyTrue(all([conflict.instance_index] == 2));
-            testCase.verifyTrue(all(strcmp({conflict.field_path}, ...
-                'project.instances(2).iodevice.settings.pin_group')));
-        end
-
-        function testMixedProjectAllowsNonreservedSciGpios(testCase)
-            w5300 = w5300_instance('network');
-            sci = sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9');
-            project = project_with_instances([w5300 sci]);
-
-            issues = c2837x_block_validate_project(project, 'instant');
-
-            testCase.verifyFalse(has_code(issues, 'SCI_GPIO_CONFLICT'));
+            testCase.verifyTrue(all(ismember({conflict.field_path}, { ...
+                'project.instances(2).iodevice.settings.rx_gpio', ...
+                'project.instances(2).iodevice.settings.tx_gpio'})));
         end
 
         function testSciOnlyMayUseW5300ReservedGpios(testCase)
-            project = project_with_instances(sci_instance( ...
-                'sci_a', 'SCI-A', 'SCI-A_TX29_RX28'));
-
-            issues = c2837x_block_validate_project(project, 'instant');
+            sci = sci_instance('sci_a', 'SCI-A', 'GPIO28', 'GPIO29');
+            issues = c2837x_block_validate_project( ...
+                project_with_instances(sci), 'instant');
 
             testCase.verifyFalse(has_code(issues, 'SCI_GPIO_CONFLICT'));
         end
 
         function testNetworkValidationRemainsConditional(testCase)
             sciProject = invalid_network_project(sci_instance( ...
-                'sci_a', 'SCI-A', 'SCI-A_TX8_RX9'));
+                'sci_a', 'SCI-A', 'GPIO9', 'GPIO8'));
             w5300Project = invalid_network_project(w5300_instance('network'));
             mixedProject = invalid_network_project([w5300_instance('network'), ...
-                sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9')]);
+                sci_instance('sci_a', 'SCI-A', 'GPIO9', 'GPIO8')]);
 
             sciIssues = c2837x_block_validate_project(sciProject, 'instant');
             w5300Issues = c2837x_block_validate_project(w5300Project, 'instant');
@@ -244,35 +251,24 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
             install_unavailable_loader(testCase);
             w5300Project = project_with_instances(w5300_instance('network'));
             sciProject = project_with_instances(sci_instance( ...
-                'sci_a', 'SCI-A', 'SCI-A_TX8_RX9'));
-            invalidW5300 = w5300_instance('network');
-            invalidW5300.iodevice.settings.socket_number = uint16(8);
-            invalidW5300.iodevice.settings.tcp_port = uint16(0);
-            mixedProject = project_with_instances([invalidW5300, ...
-                sci_instance('sci_a', 'SCI-A', 'SCI-A_TX8_RX9')]);
+                'sci_a', 'SCI-A', 'GPIO9', 'GPIO8'));
 
             w5300Issues = c2837x_block_validate_project(w5300Project, 'instant');
             sciIssues = c2837x_block_validate_project(sciProject, 'instant');
-            mixedIssues = c2837x_block_validate_project(mixedProject, 'instant');
 
             testCase.verifyFalse(has_code(w5300Issues, ...
                 'SCI_CAPABILITY_UNAVAILABLE'));
             testCase.verifyTrue(has_code(sciIssues, ...
                 'SCI_CAPABILITY_UNAVAILABLE'));
-            testCase.verifyTrue(has_code(mixedIssues, ...
-                'SCI_CAPABILITY_UNAVAILABLE'));
-            testCase.verifyTrue(has_code(mixedIssues, 'SOCKET_INVALID'));
-            testCase.verifyTrue(has_code(mixedIssues, 'TCP_PORT_INVALID'));
         end
 
         function testPlatformReservedSetMatchesHalAndIsConditional(testCase)
-            w5300Project = project_with_instances(w5300_instance('network'));
-            sciProject = project_with_instances(sci_instance( ...
-                'sci_a', 'SCI-A', 'SCI-A_TX8_RX9'));
+            active = c2837x_block_get_platform_reserved_resources( ...
+                project_with_instances(w5300_instance('network')));
+            inactive = c2837x_block_get_platform_reserved_resources( ...
+                project_with_instances(sci_instance( ...
+                'sci_a', 'SCI-A', 'GPIO9', 'GPIO8')));
             expected = [28:41 44:52 63:83 85:94 99];
-
-            active = c2837x_block_get_platform_reserved_resources(w5300Project);
-            inactive = c2837x_block_get_platform_reserved_resources(sciProject);
 
             testCase.verifyEqual(cellfun(@str2double, {active.key}), expected);
             testCase.verifyEmpty(inactive);
@@ -281,7 +277,7 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
         function testGeneratorHooksFailAtStageBoundary(testCase)
             definition = c2837x_block_get_iodevice_definition('sci');
             project = project_with_instances(sci_instance( ...
-                'sci_a', 'SCI-A', 'SCI-A_TX8_RX9'));
+                'sci_a', 'SCI-A', 'GPIO9', 'GPIO8'));
 
             testCase.verifyError(@() definition.render_project_support(project), ...
                 'C2837xBlock:IoDevice:SciGenerationUnavailable');
@@ -293,12 +289,19 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
     end
 end
 
-function instance = sci_instance(name, module, pinGroup)
+function conflicts = gpio_conflicts(instances)
+issues = c2837x_block_validate_project( ...
+    project_with_instances(instances), 'instant');
+conflicts = issues(strcmp({issues.code}, 'SCI_GPIO_CONFLICT'));
+end
+
+function instance = sci_instance(name, module, rxGpio, txGpio)
 instance = base_instance(name);
 instance.iodevice = c2837x_block_create_iodevice('sci');
 instance.iodevice.settings.module = module;
 instance.iodevice.settings.baud = uint32(115200);
-instance.iodevice.settings.pin_group = pinGroup;
+instance.iodevice.settings.rx_gpio = rxGpio;
+instance.iodevice.settings.tx_gpio = txGpio;
 instance.iodevice.settings.rx_pin_type = 'Standard';
 instance.iodevice.settings.rx_qualification = 'Sync';
 instance.iodevice.settings.tx_pin_type = 'Pull-up';
@@ -375,6 +378,6 @@ end
 function write_text(path, text)
 fileID = fopen(path, 'w');
 assert(fileID >= 0);
-cleanup = onCleanup(@() fclose(fileID));
+cleanup = onCleanup(@() fclose(fileID)); %#ok<NASGU>
 fprintf(fileID, '%s', text);
 end

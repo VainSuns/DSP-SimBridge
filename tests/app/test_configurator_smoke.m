@@ -213,16 +213,29 @@ classdef test_configurator_smoke < matlab.unittest.TestCase
             testCase.verifyTrue(contains(findall(figure, 'Tag', ...
                 'ProjectSciClockField').Value, '14.285714 MHz (SYSCLK / 14)'));
 
-            invoke_dropdown(figure, 'SciModuleField', 'SCI-A');
-            pinGroup = findall(figure, 'Tag', 'SciPinGroupField');
-            testCase.verifyTrue(ismember('SCI-A_TX8_RX9', pinGroup.ItemsData));
-            index = find(strcmp(pinGroup.ItemsData, 'SCI-A_TX8_RX9'), 1);
-            testCase.verifyEqual(pinGroup.Items{index}, 'GPIO8 TX / GPIO9 RX');
-            invoke_dropdown(figure, 'SciPinGroupField', 'SCI-A_TX8_RX9');
             invoke_dropdown(figure, 'SciModuleField', 'SCI-B');
+            capability = c2837x_block_load_device_capability().capability;
+            module = capability.sci_modules(2);
+            expectedRx = [{'Not Selected'}, ...
+                cellstr(compose('GPIO%u', [module.rx_endpoints.gpio]))];
+            expectedTx = [{'Not Selected'}, ...
+                cellstr(compose('GPIO%u', [module.tx_endpoints.gpio]))];
+            rxGpio = findall(figure, 'Tag', 'SciRxGpioField');
+            txGpio = findall(figure, 'Tag', 'SciTxGpioField');
+            testCase.verifyEqual(rxGpio.Items, expectedRx);
+            testCase.verifyEqual(txGpio.Items, expectedTx);
+            invoke_dropdown(figure, 'SciRxGpioField', 'GPIO19');
+            invoke_dropdown(figure, 'SciTxGpioField', 'GPIO14');
+            settings = app.ProjectSession.Project.instances(1).iodevice.settings;
+            testCase.verifyEqual(settings.rx_gpio, 'GPIO19');
+            testCase.verifyEqual(settings.tx_gpio, 'GPIO14');
+            invoke_dropdown(figure, 'SciModuleField', 'SCI-A');
             testCase.verifyEmpty(app.ProjectSession.Project.instances(1). ...
-                iodevice.settings.pin_group);
-            testCase.verifyEmpty(pinGroup.Value);
+                iodevice.settings.rx_gpio);
+            testCase.verifyEmpty(app.ProjectSession.Project.instances(1). ...
+                iodevice.settings.tx_gpio);
+            testCase.verifyEmpty(rxGpio.Value);
+            testCase.verifyEmpty(txGpio.Value);
 
             ctrl = findall(figure, 'Tag', 'SciCtrlGpioField');
             invoke_dropdown(figure, 'SciCtrlGpioField', ctrl.ItemsData{2});
@@ -252,14 +265,16 @@ classdef test_configurator_smoke < matlab.unittest.TestCase
             source.instances.algorithm.source_path = ...
                 c2837x_block_normalize_absolute_path(fullfile(tempdir, 'source.c'));
             source.instances.iodevice.settings.module = 'SCI-A';
-            source.instances.iodevice.settings.pin_group = 'SCI-A_TX8_RX9';
+            source.instances.iodevice.settings.rx_gpio = 'GPIO9';
+            source.instances.iodevice.settings.tx_gpio = 'GPIO8';
             app.Coordinator.updateProject(source);
             refresh_via_common_field(figure);
 
             push_button(figure, 'Instances', 'Copy');
             copied = app.ProjectSession.Project.instances(2);
             testCase.verifyEmpty(copied.iodevice.settings.module);
-            testCase.verifyEmpty(copied.iodevice.settings.pin_group);
+            testCase.verifyEmpty(copied.iodevice.settings.rx_gpio);
+            testCase.verifyEmpty(copied.iodevice.settings.tx_gpio);
             testCase.verifyEqual(copied.iodevice.settings.ctrl_gpio, 'None');
             testCase.verifyEqual(copied.algorithm, source.instances.algorithm);
 
@@ -284,12 +299,26 @@ classdef test_configurator_smoke < matlab.unittest.TestCase
             push_button(app.UIFigure, 'Instances', 'Add');
             invoke_dropdown(app.UIFigure, 'IoDeviceTypeField', 'sci');
 
+            source = app.ProjectSession.Project;
+            source.instances.iodevice.settings.module = 'SCI-B';
+            source.instances.iodevice.settings.rx_gpio = 'GPIO19';
+            source.instances.iodevice.settings.tx_gpio = 'GPIO14';
+            source.instances.iodevice.settings.ctrl_gpio = 'GPIO42';
+            app.Coordinator.updateProject(source);
+            refresh_via_common_field(app.UIFigure);
+
             testCase.verifyEqual(findall(app.UIFigure, 'Tag', ...
-                'SciPinGroupField').Enable, matlab.lang.OnOffSwitchState.off);
+                'SciRxGpioField').Enable, matlab.lang.OnOffSwitchState.off);
+            testCase.verifyEqual(findall(app.UIFigure, 'Tag', ...
+                'SciTxGpioField').Enable, matlab.lang.OnOffSwitchState.off);
             testCase.verifyEqual(findall(app.UIFigure, 'Tag', ...
                 'SciCtrlGpioField').Enable, matlab.lang.OnOffSwitchState.off);
             testCase.verifyEqual(app.ProjectSession.Project.instances(1). ...
-                iodevice.settings, c2837x_block_create_iodevice('sci').settings);
+                iodevice.settings.rx_gpio, 'GPIO19');
+            testCase.verifyEqual(app.ProjectSession.Project.instances(1). ...
+                iodevice.settings.tx_gpio, 'GPIO14');
+            testCase.verifyEqual(app.ProjectSession.Project.instances(1). ...
+                iodevice.settings.ctrl_gpio, 'GPIO42');
             invoke_dropdown(app.UIFigure, 'IoDeviceTypeField', 'w5300_tcp');
             testCase.verifyEqual(app.ProjectSession.Project.instances(1). ...
                 iodevice, c2837x_block_create_iodevice('w5300_tcp'));

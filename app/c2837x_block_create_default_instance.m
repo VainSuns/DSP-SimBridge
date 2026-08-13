@@ -1,5 +1,5 @@
 function instance = c2837x_block_create_default_instance()
-%C2837X_BLOCK_CREATE_DEFAULT_INSTANCE Create a default V3 project instance.
+%C2837X_BLOCK_CREATE_DEFAULT_INSTANCE Create a default V4 project instance.
 
 variables = struct('name', {}, 'type', {}, 'dim', {});
 instance = struct( ...

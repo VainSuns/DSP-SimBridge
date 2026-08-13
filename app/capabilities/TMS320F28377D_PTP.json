@@ -18,7 +18,7 @@
       "path": "driverlib/f2837xd/driverlib/pin_map.h",
       "url": "https://raw.githubusercontent.com/TexasInstruments/c2000ware-core-sdk/main/driverlib/f2837xd/driverlib/pin_map.h"
     },
-    "package_filter": "Every SCI endpoint is present in the SPRS880P Table 5-1 PTP PIN column and has the stated mux in Table 5-3 and C2000Ware pin_map.h. RX and TX endpoints are independent device facts; normalized pin groups are their deterministic Cartesian product within one SCI module."
+    "package_filter": "Every SCI endpoint is present in the SPRS880P Table 5-1 PTP PIN column and has the stated mux in Table 5-3 and C2000Ware pin_map.h. RX and TX endpoints are independent device/package facts. Downstream configuration selects one RX endpoint and one TX endpoint independently within the selected SCI module. No RX/TX pairing is defined by this capability."
   },
   "sci_modules": [
     {

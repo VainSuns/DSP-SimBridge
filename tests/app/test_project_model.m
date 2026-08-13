@@ -19,7 +19,7 @@ classdef test_project_model < matlab.unittest.TestCase
         function testDefaultProject(testCase)
             project = c2837x_block_create_default_project();
 
-            testCase.verifyEqual(project.format_version, uint16(3));
+            testCase.verifyEqual(project.format_version, uint16(4));
             testCase.verifyEqual(project.common.dsp_model, 'TMS320F28377D');
             testCase.verifyEqual(project.common.package, 'PTP');
             testCase.verifyEqual(project.common.protocol_version, uint16(1));

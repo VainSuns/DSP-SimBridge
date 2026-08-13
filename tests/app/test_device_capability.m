@@ -93,27 +93,23 @@ classdef test_device_capability < matlab.unittest.TestCase
         function testNormalizedStructureIsStable(testCase)
             capability = c2837x_block_load_device_capability().capability;
             module = capability.sci_modules(1);
-            group = module.pin_groups(1);
+            endpoint = module.rx_endpoints(1);
 
             testCase.verifyEqual(fieldnames(capability), ...
                 {'schema_version'; 'target'; 'sci_modules'; 'gpios'});
             testCase.verifyEqual(fieldnames(capability.target), ...
                 {'device'; 'package'});
             testCase.verifyEqual(fieldnames(module), ...
-                {'id'; 'display_name'; 'rx_endpoints'; ...
-                'tx_endpoints'; 'pin_groups'});
-            testCase.verifyEqual(fieldnames(group), ...
-                {'id'; 'display_name'; 'rx'; 'tx'});
-            testCase.verifyEqual(fieldnames(group.rx), ...
+                {'id'; 'display_name'; 'rx_endpoints'; 'tx_endpoints'});
+            testCase.verifyEqual(fieldnames(endpoint), ...
                 {'gpio'; 'signal'; 'mux_selection'; ...
                 'driverlib_macro'; 'driverlib_value'});
             testCase.verifyEqual(fieldnames(capability.gpios), ...
                 {'number'; 'package_pin'});
             testCase.verifyClass(capability.schema_version, 'uint16');
-            testCase.verifyClass(group.rx.gpio, 'uint16');
-            testCase.verifyClass(group.rx.mux_selection, 'uint8');
-            testCase.verifyEqual(group.rx, module.rx_endpoints(1));
-            testCase.verifyEqual(group.tx, module.tx_endpoints(1));
+            testCase.verifyClass(endpoint.gpio, 'uint16');
+            testCase.verifyClass(endpoint.mux_selection, 'uint8');
+            testCase.verifyFalse(isfield(module, 'pin_groups'));
             testCase.verifyFalse(isfield(capability, 'provenance'));
         end
 
@@ -133,7 +129,7 @@ classdef test_device_capability < matlab.unittest.TestCase
             forbidden = {'baud', 'requested_baud', 'actual_baud', ...
                 'pin_type', 'qualification', 'rx_qualification', ...
                 'ctrl_polarity', 'selected_sci_module', ...
-                'selected_pin_group', 'ctrl_gpio', 'com', 'sample_time', ...
+                'ctrl_gpio', 'com', 'sample_time', ...
                 'timeout', 'instances', 'w5300', 'reserved_resources'};
 
             matches = find_forbidden_keys(text, forbidden);
@@ -170,31 +166,25 @@ classdef test_device_capability < matlab.unittest.TestCase
             testCase.verifyFalse(any(ismember(uint16(135:142), endpointGpios)));
         end
 
-        function testNormalizedGroupsAreCompleteUniqueCartesianProduct(testCase)
+        function testEndpointDescriptorsAreDeterministicAndComplete(testCase)
             capability = c2837x_block_load_device_capability().capability;
-            [expectedRx, expectedTx] = expected_endpoint_facts();
+            descriptors = endpoint_descriptors(capability.sci_modules);
 
-            actualPairs = module_group_pairs(capability.sci_modules);
-            expectedPairs = expected_cartesian_pairs(expectedRx, expectedTx);
-            groupCounts = cellfun(@(value) size(value, 1), actualPairs);
-            uniquePairCounts = cellfun( ...
-                @(value) size(unique(value, 'rows'), 1), actualPairs);
-            groupIds = all_group_ids(capability.sci_modules);
-
-            testCase.verifyEqual(actualPairs, expectedPairs);
-            testCase.verifyEqual(groupCounts, [49 56 36 9]);
-            testCase.verifyEqual(uniquePairCounts, groupCounts);
-            testCase.verifyEqual(sum(groupCounts), 150);
-            testCase.verifyEqual(numel(unique(groupIds)), 150);
+            testCase.verifyTrue(all([descriptors.sorted]));
+            testCase.verifyTrue(all([descriptors.signal_matches]));
+            testCase.verifyTrue(all([descriptors.macro_matches]));
+            testCase.verifyTrue(all([descriptors.value_matches]));
         end
 
-        function testNonAdjacentNormalizedGroupsExist(testCase)
+        function testIndependentNonAdjacentEndpointsExistWithoutPairModel(testCase)
             capability = c2837x_block_load_device_capability().capability;
-            groupIds = all_group_ids(capability.sci_modules);
+            module = capability.sci_modules(2);
 
-            testCase.verifyTrue(all(ismember( ...
-                {'SCI-A_TX8_RX28', 'SCI-B_TX86_RX11', ...
-                'SCI-C_TX12_RX90', 'SCI-D_TX47_RX94'}, groupIds)));
+            testCase.verifyTrue(ismember(uint16(19), ...
+                [module.rx_endpoints.gpio]));
+            testCase.verifyTrue(ismember(uint16(14), ...
+                [module.tx_endpoints.gpio]));
+            testCase.verifyFalse(isfield(module, 'pin_groups'));
         end
 
         function testTiProvenanceIsRepositoryVisible(testCase)
@@ -285,33 +275,38 @@ for moduleIndex = 1:numel(modules)
 end
 end
 
-function pairs = module_group_pairs(modules)
-pairs = cell(1, numel(modules));
+function descriptors = endpoint_descriptors(modules)
+prototype = struct('sorted', false, 'signal_matches', false, ...
+    'macro_matches', false, 'value_matches', false);
+descriptors = repmat(prototype, 1, 0);
 for moduleIndex = 1:numel(modules)
-    groups = modules(moduleIndex).pin_groups;
-    pairs{moduleIndex} = zeros(numel(groups), 2);
-    for groupIndex = 1:numel(groups)
-        pairs{moduleIndex}(groupIndex, :) = double([ ...
-            groups(groupIndex).tx.gpio groups(groupIndex).rx.gpio]);
+    for direction = {'rx_endpoints', 'tx_endpoints'}
+        endpoints = modules(moduleIndex).(direction{1});
+        letter = modules(moduleIndex).id(end);
+        directionLetter = upper(direction{1}(1));
+        signal = sprintf('SCI%sXD%s', directionLetter, letter);
+        for endpointIndex = 1:numel(endpoints)
+            endpoint = endpoints(endpointIndex);
+            descriptor = prototype;
+            descriptor.sorted = issorted([endpoints.gpio]);
+            descriptor.signal_matches = strcmp(endpoint.signal, signal);
+            descriptor.macro_matches = strcmp(endpoint.driverlib_macro, ...
+                sprintf('GPIO_%u_%s', endpoint.gpio, signal));
+            descriptor.value_matches = hex2dec( ...
+                endpoint.driverlib_value(3:10)) == expected_driverlib_value( ...
+                endpoint.gpio, endpoint.mux_selection);
+            descriptors(end + 1) = descriptor; %#ok<AGROW>
+        end
     end
 end
 end
 
-function pairs = expected_cartesian_pairs(rxFacts, txFacts)
-pairs = cell(1, numel(rxFacts));
-for moduleIndex = 1:numel(rxFacts)
-    rx = rxFacts{moduleIndex}(:, 1);
-    tx = txFacts{moduleIndex}(:, 1);
-    pairs{moduleIndex} = [repelem(tx, numel(rx)) ...
-        repmat(rx, numel(tx), 1)];
-end
-end
-
-function ids = all_group_ids(modules)
-ids = {};
-for moduleIndex = 1:numel(modules)
-    ids = [ids {modules(moduleIndex).pin_groups.id}]; %#ok<AGROW>
-end
+function value = expected_driverlib_value(gpio, muxSelection)
+bank = floor(double(gpio) / 32);
+half = floor(mod(double(gpio), 32) / 16);
+muxOffset = hex2dec('0006') + bank * hex2dec('0040') + half * 2;
+shift = mod(double(gpio), 16) * 2;
+value = muxOffset * 2^16 + shift * 2^8 + double(muxSelection);
 end
 
 function install_throwing_loader(testCase, folder)

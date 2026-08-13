@@ -1,5 +1,5 @@
 function project = c2837x_block_migrate_project_v2(source)
-%C2837X_BLOCK_MIGRATE_PROJECT_V2 Convert a persisted V2 project to V3.
+%C2837X_BLOCK_MIGRATE_PROJECT_V2 Convert a persisted V2 project to V4.
 
 validate_v2_structure(source);
 
@@ -78,7 +78,7 @@ end
 require_fields(project.output, {'dsp_root', 'sfun_root'}, 'project.output');
 
 candidate = project;
-candidate.format_version = uint16(3);
+candidate.format_version = uint16(4);
 candidate.common.package = 'PTP';
 c2837x_block_validate_project_structure(candidate);
 end

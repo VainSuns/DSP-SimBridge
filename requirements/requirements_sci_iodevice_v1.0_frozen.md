@@ -2,8 +2,11 @@
 
 > **状态：Frozen V1.0**  
 > **冻结日期：2026-08-10**  
+> **Erratum E1：2026-08-13**
 > **适用项目：DSP-SimBridge / C2837xBlock**  
-> **增量目标：在已完成的多实例 W5300 基线上新增 SCI IoDevice，并完成 Project V3、Core API V2、App 和 PC/S-Function 的必要适配。**
+> **增量目标：在已完成的多实例 W5300 基线上新增 SCI IoDevice，并完成 Project V4、Core API V2、App 和 PC/S-Function 的必要适配。**
+
+Erratum E1 纠正 Stage 1 的 SCI GPIO 抽象：TI SCI RX/TX PinMux 是独立 endpoint，DSP-SimBridge 不定义或派生 Cartesian RX/TX 配对。Project persisted schema 由单一组合字段改为独立 `rx_gpio` / `tx_gpio`，因此 Project Format 由 3 升为 4；V3 仅作为 migration source。Wire Protocol 仍为 1，最终 Core API target 仍为 2。本纠正不新增 Stage、Gate 或 FR 编号。
 
 ---
 
@@ -50,7 +53,7 @@ SCI 必须接入现有实例化 Core。公共用户 API 继续保持 `PlatformIn
 本次增量完成后固定：
 
 ```text
-Project Format Version = 3
+Project Format Version = 4
 Wire Protocol Version  = 1
 Core API Version       = 2
 ```
@@ -63,15 +66,15 @@ SCI 复用历史 V1 wire protocol。现有消息类型、4-octet Header、RESPON
 
 ### FR-006：W5300 与既有热路径保持
 
-除本文件明确要求的 Project V3、条件 PlatformInit、mixed resource validation、App IoDevice-aware UI 与生成分支外，V1.0 已实现的 W5300 行为保持不变。新增 SCI 不得无理由恢复已关闭的 hot-path 性能回退：DSP `Run()` 不重复做完整静态配置校验，PC 每 step 不重新引入动态 heap/完整 Payload 二次复制，静态端口/元素/endian 优先继续由生成期展开。
+除本文件明确要求的 Project V4、条件 PlatformInit、mixed resource validation、App IoDevice-aware UI 与生成分支外，V1.0 已实现的 W5300 行为保持不变。新增 SCI 不得无理由恢复已关闭的 hot-path 性能回退：DSP `Run()` 不重复做完整静态配置校验，PC 每 step 不重新引入动态 heap/完整 Payload 二次复制，静态端口/元素/endian 优先继续由生成期展开。
 
 ---
 
-# 2. Project V3 与迁移
+# 2. Project V4 与迁移
 
-### FR-007：V3 项目结构
+### FR-007：V4 项目结构
 
-V3 项目至少保存：
+V4 项目至少保存：
 
 ```matlab
 project.format_version
@@ -89,31 +92,31 @@ project.output.sfun_root
 
 ### FR-008：Network 条件有效
 
-`project.common.network` 在 V3 中始终保留。有 W5300 Instance 时参与校验和 W5300 生成；SCI-only 项目中 Network 原值保留，但不得因 Network 无效阻止 Preview/Generate。
+`project.common.network` 在 V4 中始终保留。有 W5300 Instance 时参与校验和 W5300 生成；SCI-only 项目中 Network 原值保留，但不得因 Network 无效阻止 Preview/Generate。
 
 ### FR-009：Instance IoDevice 条件配置
 
-每个 Instance 保存 `iodevice.type` 及当前 IoDevice 的有效设置。W5300 有效字段为 Socket/TCP Port；SCI 有效字段至少包括 SCI Module、Baud、Pin Group、RX/TX Pin Type、RX Qualification、CTRL GPIO/Pin Type/Active Level。非当前 IoDevice 的历史字段不得参与校验、生成、Hash 或运行时配置。
+每个 Instance 保存 `iodevice.type` 及当前 IoDevice 的有效设置。W5300 有效字段为 Socket/TCP Port；SCI canonical settings 精确为 `module`、`baud`、`rx_gpio`、`tx_gpio`、`rx_pin_type`、`rx_qualification`、`tx_pin_type`、`ctrl_gpio`、`ctrl_pin_type`、`ctrl_tx_active_level`。`rx_gpio` / `tx_gpio` 只保存空文本或 `GPIO<number>`，不保存数字、package pin、DriverLib macro、mux selection 或旧组合 ID。非当前 IoDevice 的历史字段不得参与校验、生成、Hash 或运行时配置。
 
-### FR-010：V2→V3 自动迁移
+### FR-010：V2/V3→V4 自动迁移
 
-加载 V2 项目时自动迁移为：
+加载 V2 或 V3 项目时自动迁移为：
 
 ```matlab
-project.format_version   = uint16(3);
+project.format_version   = uint16(4);
 project.common.dsp_model = 'TMS320F28377D';
 project.common.package   = 'PTP';
 ```
 
-全部历史 Instance 默认为 `W5300 TCP`，并保留原 Network、Socket/TCP Port、Sample Time、I/O、Algorithm 和输出根目录。当前允许把全部历史 V2 项目视为 PTP。V2→V3 migration 只迁移项目模型；迁移后必须重新 Generate DSP/PC candidates，旧 V2 generated C 不保证与 Core API V2 兼容。
+全部历史 V2 Instance 默认为 `W5300 TCP`，并保留原 Network、Socket/TCP Port、Sample Time、I/O、Algorithm 和输出根目录。当前允许把全部历史 V2 项目视为 PTP。V3 W5300 只升级版本；V3 SCI 的空旧选择迁移为空 RX/TX，canonical `SCI-[ABCD]_TX<number>_RX<number>` 仅在 migration 中确定性保留为独立 `tx_gpio` / `rx_gpio`。非 canonical 旧文本不猜测，清空 RX/TX，并由 V4 semantic validation 报 required issues。migration 不依赖 capability 文件。迁移后必须重新 Generate DSP/PC candidates，旧 generated C 不保证与 Core API V2 兼容。
 
 ### FR-011：迁移保存语义
 
-V2→V3 迁移成功后项目必须保持 dirty，不自动覆盖旧 `.mat`；由用户显式 Save 后才写入 V3。
+V2/V3→V4 迁移成功后项目必须保持 dirty，不自动覆盖旧 `.mat`；由用户显式 Save 后才写入 V4。
 
 ### FR-012：SCI 配置变化与生成
 
-IoDevice、SCI Module、Baud、Pin Group、Pin Type、Qualification、CTRL GPIO 或 CTRL polarity 的变化必须使相关 generated candidate 失效并要求重新 Generate；这些字段不进入 Interface Hash。
+IoDevice、SCI Module、Baud、RX GPIO、TX GPIO、Pin Type、Qualification、CTRL GPIO 或 CTRL polarity 的变化必须使相关 generated candidate 失效并要求重新 Generate；这些字段不进入 Interface Hash。
 
 ### FR-013：COM 不属于 Project
 
@@ -135,11 +138,11 @@ TMS320F28377D_PTP.json
 
 ### FR-015：Capability 内容与 Schema
 
-Capability JSON 随源码发布、产品维护、用户只读；只保存固定器件事实，例如 SCI-A/B/C/D、合法 Pin Group、GPIO/PinMux。JSON 必须有独立 `schema_version`，MATLAB loader 统一校验并归一化；其他模块不得直接依赖 raw `jsondecode` 结构。
+Capability JSON 随源码发布、产品维护、用户只读；只保存固定器件事实，例如 SCI-A/B/C/D 的独立 RX/TX endpoint 与 GPIO/PinMux。Capability 不定义 RX/TX 配对，也不计算 Cartesian product。JSON 必须有独立 `schema_version`，MATLAB loader 统一校验并归一化；其他模块不得直接依赖 raw `jsondecode` 结构。
 
 ### FR-016：用户配置不进入 Capability
 
-Baud、Pin Type、Qualification、CTRL polarity、具体 SCI/PinGroup/CTRL 选择属于 project `.mat`；COM 属于 S-Function runtime parameter。第一版不生成磁盘 `.mat` capability cache，但允许 MATLAB 会话内缓存。
+Baud、Pin Type、Qualification、CTRL polarity、具体 SCI Module/RX GPIO/TX GPIO/CTRL 选择属于 project `.mat`；COM 属于 S-Function runtime parameter。第一版不生成磁盘 `.mat` capability cache，但允许 MATLAB 会话内缓存。
 
 ### FR-017：Platform Reserved Resources 分层
 
@@ -147,7 +150,7 @@ W5300 固定 EMIF/GPIO/RESET 等占用属于 DSP-SimBridge Platform Reserved Res
 
 ### FR-018：Generate 前资源校验
 
-Generate 前必须合并 Device Capability、Platform Reserved Resources 与所有 Instance 选择，至少阻断：重复 SCI Module、SCI RX/TX/CTRL GPIO 冲突、CTRL 与自身 RX/TX 冲突、SCI GPIO 与 W5300 固定资源冲突，以及 capability 中不存在的 Module/PinGroup/GPIO/PinMux 组合。
+Generate 前必须合并 Device Capability、Platform Reserved Resources 与所有 Instance 选择，至少阻断：重复 SCI Module、SCI RX/TX/CTRL GPIO 冲突、CTRL 与自身 RX/TX 冲突、SCI GPIO 与 W5300 固定资源冲突，以及 capability 中不存在的 Module、该 Module 的 RX GPIO、该 Module 的 TX GPIO、CTRL GPIO 或派生 PinMux。
 
 ---
 
@@ -167,19 +170,19 @@ Selected Instance 详情至少分为 `General / IoDevice / Algorithm` 三个子�
 
 ### FR-022：IoDevice 专用字段
 
-W5300 页面继续使用明确的 `Socket / TCP Port`。SCI 页面至少显示：SCI Module、Baud Rate、Actual Baud、Baud Error、Pin Group、RX Pin Type、RX Qualification、TX Pin Type、CTRL GPIO、CTRL Pin Type、CTRL TX Active Level。
+W5300 页面继续使用明确的 `Socket / TCP Port`。SCI 页面至少显示：SCI Module、Baud Rate、Actual Baud、Baud Error、RX GPIO、TX GPIO、RX Pin Type、RX Qualification、TX Pin Type、CTRL GPIO、CTRL Pin Type、CTRL TX Active Level。
 
 ### FR-023：SCI Module、Baud 与初始值
 
-SCI Module 下拉固定 `SCI-A/B/C/D`。Baud 只允许 `9600 / 19200 / 38400 / 57600 / 115200`，默认 `57600`，不允许自由输入；上述五个候选均允许 Generate，第一版不依据 Baud Error 设置 Warning/Reject threshold。新建/切换到 SCI 时默认：Module=`Not Selected`、Pin Group=`Not Selected`、RX=`Pull-up + Async`、TX Pin Type=`Pull-up`、CTRL=`None`。
+SCI Module 下拉固定 `SCI-A/B/C/D`。Baud 只允许 `9600 / 19200 / 38400 / 57600 / 115200`，默认 `57600`，不允许自由输入；上述五个候选均允许 Generate，第一版不依据 Baud Error 设置 Warning/Reject threshold。新建/切换到 SCI 时默认：Module=`Not Selected`、RX GPIO=`Not Selected`、TX GPIO=`Not Selected`、RX=`Pull-up + Async`、TX Pin Type=`Pull-up`、CTRL=`None`。
 
 ### FR-024：CTRL UI 默认值
 
 CTRL 从 `None` 改为具体 GPIO 后，CTRL Pin Type 默认 `Standard`，CTRL TX Active 默认 `High`；CTRL=None 时 CTRL-specific 控件禁用或隐藏。
 
-### FR-025：PinGroup/CTRL 由 Capability 驱动
+### FR-025：RX/TX/CTRL GPIO 由 Capability 驱动
 
-Pin Group 下拉只列当前 SCI Module 的合法 capability 组合，并显示可读 RX/TX GPIO。切换 SCI Module 后旧 Pin Group 不合法时必须清空。CTRL GPIO 使用 `None/GPIOxx` 下拉，不允许自由输入任意数字；候选来自合法 GPIO，冲突由统一 validation 报告。
+RX GPIO 下拉只列当前 SCI Module 的 `rx_endpoints`，TX GPIO 下拉只列当前 SCI Module 的 `tx_endpoints`。两者独立选择，不要求相邻、固定成对或推荐配对。切换 SCI Module 后分别清空对新 Module 非法的 RX/TX，不自动选择替代值。CTRL GPIO 使用 `None/GPIOxx` 下拉，不允许自由输入任意数字；候选来自合法 GPIO，冲突由统一 validation 报告。
 
 ### FR-026：Pin Type 与 Qualification UI
 
@@ -195,7 +198,7 @@ Instance Table 至少使用 `Display Name / Internal Name / IoDevice / Resource 
 
 ### FR-029：SCI Instance Copy
 
-复制 SCI Instance 时复制 Baud、Pin Type、Qualification、CTRL Pin Type/Active Level、Sample Time、I/O、Payload、Algorithm 等非独占配置；SCI Module、Pin Group 必须清空并要求用户重新选择，不自动分配下一个可用资源。CTRL 只有 `None` 或 `GPIOxx` 两种项目语义，不增加 `CTRL enable` 或第三状态：源 CTRL=`None` 时复制为 `None`；源 CTRL=`GPIOxx` 时复制实例的 CTRL 置为 `None`，不得复制原 CTRL GPIO。复制得到的 CTRL Pin Type/Active Level 可保留但在 CTRL=`None` 时禁用，用户后续选择新 GPIO 后再生效。
+复制 SCI Instance 时复制 Baud、Pin Type、Qualification、CTRL Pin Type/Active Level、Sample Time、I/O、Payload、Algorithm 等非独占配置；SCI Module、RX GPIO、TX GPIO 必须清空并要求用户重新选择，不自动分配下一个可用资源。CTRL 只有 `None` 或 `GPIOxx` 两种项目语义，不增加 `CTRL enable` 或第三状态：源 CTRL=`None` 时复制为 `None`；源 CTRL=`GPIOxx` 时复制实例的 CTRL 置为 `None`，不得复制原 CTRL GPIO。复制得到的 CTRL Pin Type/Active Level 可保留但在 CTRL=`None` 时禁用，用户后续选择新 GPIO 后再生效。
 
 ### FR-030：Capability 故障隔离
 
@@ -251,7 +254,7 @@ DSP SCI 固定 8 data bits、no parity、1 stop bit、无 flow control、异步�
 
 ### FR-037：PinMux/Pad/CTRL 初始化
 
-`PlatformInit()` 根据 capability + project 设置选中 SCI 的 RX/TX PinMux、Pad、RX Qualification 和可选 CTRL GPIO；CTRL 初始为 RX。未使用 SCI/GPIO 不得被修改。
+`PlatformInit()` 根据 capability + project 分别从所选 RX endpoint 与 TX endpoint 取得 PinMux descriptor，并设置 RX/TX Pad、RX Qualification 和可选 CTRL GPIO；CTRL 初始为 RX。未使用 SCI/GPIO 不得被修改。
 
 ### FR-038：条件 PlatformInit 与构建依赖
 
@@ -472,13 +475,13 @@ DSP-SimBridge 是研发工具。本阶段只执行证明 SCI 新功能和关键�
 开发侧只执行证明本次 SCI 增量功能和关键兼容边界正确所必需的测试，至少覆盖：
 
 - capability/schema 基本加载；
-- SCI Module/PinGroup/GPIO/W5300 关键资源冲突；
-- V2→V3 migration；
+- SCI Module/RX GPIO/TX GPIO/CTRL GPIO/W5300 关键资源冲突；
+- V2/V3→V4 migration；
 - SCI-only、W5300-only 和 mixed 的关键 deterministic generation；
 - 一个代表性 SCI 配置的 serial partial read/write、deadline、SIM_START 和单步 INPUT/OUTPUT 基本协议路径；
 - 与本次修改直接相关的关键 transport/protocol error 路径。
 
-不要求增加 2×SCI、多 SCI、SCI-A/B/C/D 组合、全部 Baud、全部 PinGroup/GPIO、half-duplex CTRL、长期稳定性或其他组合矩阵测试。
+不要求增加 2×SCI、多 SCI、SCI-A/B/C/D 组合、全部 Baud、全部 RX/TX/CTRL GPIO、half-duplex CTRL、长期稳定性或其他组合矩阵测试。
 
 已有 V1.0 软件证据仍有效且相关实现未修改时，应优先复用已有证据或执行最小必要回归，不机械重跑全部旧测试。
 
@@ -492,7 +495,7 @@ V1.0 已有软件证据仍有效且相关实现未修改时，可以复用已有
 
 ### FR-088：不建立多 SCI 或硬件组合矩阵
 
-开发侧不要求 2×SCI/多 SCI 软件专项测试，也不要求遍历全部 Baud、SCI-A/B/C/D 组合、全部 PinGroup/GPIO、全数据类型×SCI、最大 Payload×SCI、多 SCI/mixed 实机矩阵或 USB adapter 品牌兼容矩阵。mixed 的低成本 deterministic generation 仅用于确认两类 IoDevice 生成分支可以共存，不扩张为多 SCI 或 mixed 硬件门禁。
+开发侧不要求 2×SCI/多 SCI 软件专项测试，也不要求遍历全部 Baud、SCI-A/B/C/D 组合、全部 RX/TX/CTRL GPIO、全数据类型×SCI、最大 Payload×SCI、多 SCI/mixed 实机矩阵或 USB adapter 品牌兼容矩阵。mixed 的低成本 deterministic generation 仅用于确认两类 IoDevice 生成分支可以共存，不扩张为多 SCI 或 mixed 硬件门禁。
 
 ### FR-089：最终硬件验证由用户执行
 
@@ -538,11 +541,10 @@ TMS320F28377D + PC 的最终 SCI 实机通信、最终 LSPCLK 实际确认、不
 
 本文件已于 2026-08-10 完成 Final Freeze Audit，并确认：
 
-1. 完整覆盖本轮已确认的 SCI / Project V3 / Core API V2 / App / PC / Capability 决策；
+1. 完整覆盖本轮已确认的 SCI / Project V4 / Core API V2 / App / PC / Capability 决策；
 2. 不重复已经实现且本轮不修改的 V1.0 完整需求；
 3. 不与 V1 protocol baseline、当前多实例架构或已关闭 hot-path 基线冲突；
 4. FR-001～FR-095 编号连续、无重复；
 5. 未在冻结需求中预设新 Stage/Gate，也未写入任何未实际执行的测试、编译或硬件结果。
 
 自本次冻结起，FR 编号按 FR-095 的治理规则保持稳定；后续新增需求从 FR-096 起追加。
-

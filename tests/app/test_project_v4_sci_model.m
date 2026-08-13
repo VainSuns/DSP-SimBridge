@@ -1,4 +1,4 @@
-classdef test_project_v3_sci_model < matlab.unittest.TestCase
+classdef test_project_v4_sci_model < matlab.unittest.TestCase
     properties
         WorkFolder
     end
@@ -20,9 +20,9 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
     end
 
     methods (Test)
-        function testDefaultV3RoundTripStoresOnlyProject(testCase)
+        function testDefaultV4RoundTripStoresOnlyProject(testCase)
             project = c2837x_block_create_default_project();
-            path = fullfile(testCase.WorkFolder, 'project-v3.mat');
+            path = fullfile(testCase.WorkFolder, 'project-v4.mat');
             source = c2837x_block_project_session(project);
 
             source.saveProject(path);
@@ -30,7 +30,7 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
             target.loadProject(path);
             variables = whos('-file', path);
 
-            testCase.verifyEqual(project.format_version, uint16(3));
+            testCase.verifyEqual(project.format_version, uint16(4));
             testCase.verifyEqual(project.common.package, 'PTP');
             testCase.verifyEqual(c2837x_block_create_default_instance().iodevice.type, ...
                 'w5300_tcp');
@@ -40,7 +40,8 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
 
         function testSciDefaultsAreCanonicalProjectState(testCase)
             iodevice = c2837x_block_create_iodevice('sci');
-            expectedFields = {'module'; 'baud'; 'pin_group'; 'rx_pin_type'; ...
+            expectedFields = {'module'; 'baud'; 'rx_gpio'; 'tx_gpio'; ...
+                'rx_pin_type'; ...
                 'rx_qualification'; 'tx_pin_type'; 'ctrl_gpio'; ...
                 'ctrl_pin_type'; 'ctrl_tx_active_level'};
 
@@ -49,7 +50,9 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
                 sort(expectedFields));
             testCase.verifyEmpty(iodevice.settings.module);
             testCase.verifyEqual(iodevice.settings.baud, uint32(57600));
-            testCase.verifyEmpty(iodevice.settings.pin_group);
+            testCase.verifyEmpty(iodevice.settings.rx_gpio);
+            testCase.verifyEmpty(iodevice.settings.tx_gpio);
+            testCase.verifyFalse(isfield(iodevice.settings, 'pin_group'));
             testCase.verifyEqual(iodevice.settings.rx_pin_type, 'Pull-up');
             testCase.verifyEqual(iodevice.settings.rx_qualification, 'Async');
             testCase.verifyEqual(iodevice.settings.tx_pin_type, 'Pull-up');
@@ -103,6 +106,60 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
                 'C2837xBlock:Instance:InvalidChanges');
         end
 
+        function testV3W5300MigratesDirtyWithoutOverwrite(testCase)
+            project = c2837x_block_create_default_project();
+            project.format_version = uint16(3);
+            project.instances = valid_instance('historical', 3, 5300);
+            path = write_project(testCase.WorkFolder, 'w5300-v3.mat', project);
+            before = file_bytes(path);
+            session = c2837x_block_project_session();
+
+            session.loadProject(path);
+            after = file_bytes(path);
+
+            testCase.verifyEqual(session.Project.format_version, uint16(4));
+            testCase.verifyEqual(session.Project.instances.iodevice, ...
+                project.instances.iodevice);
+            testCase.verifyTrue(session.Dirty);
+            testCase.verifyEmpty(session.FilePath);
+            testCase.verifyEqual(after, before);
+        end
+
+        function testV3SciEmptySelectionMigratesToEmptyEndpoints(testCase)
+            project = v3_sci_fixture('');
+
+            migrated = c2837x_block_migrate_project_v3(project);
+
+            testCase.verifyEqual(migrated.format_version, uint16(4));
+            testCase.verifyEmpty(migrated.instances.iodevice.settings.rx_gpio);
+            testCase.verifyEmpty(migrated.instances.iodevice.settings.tx_gpio);
+            testCase.verifyFalse(isfield( ...
+                migrated.instances.iodevice.settings, 'pin_group'));
+        end
+
+        function testV3SciCanonicalSelectionMigratesDeterministically(testCase)
+            project = v3_sci_fixture('SCI-B_TX14_RX19');
+
+            migrated = c2837x_block_migrate_project_v3(project);
+
+            testCase.verifyEqual( ...
+                migrated.instances.iodevice.settings.rx_gpio, 'GPIO19');
+            testCase.verifyEqual( ...
+                migrated.instances.iodevice.settings.tx_gpio, 'GPIO14');
+        end
+
+        function testV3SciNoncanonicalSelectionClearsAndValidates(testCase)
+            project = v3_sci_fixture('B-legacy-choice');
+            migrated = c2837x_block_migrate_project_v3(project);
+
+            issues = c2837x_block_validate_project(migrated, 'instant');
+
+            testCase.verifyTrue(any(strcmp( ...
+                {issues.code}, 'SCI_RX_GPIO_REQUIRED')));
+            testCase.verifyTrue(any(strcmp( ...
+                {issues.code}, 'SCI_TX_GPIO_REQUIRED')));
+        end
+
         function testExplicitV2ProjectMigratesDirtyWithoutOverwrite(testCase)
             project = v2_fixture(testCase.WorkFolder);
             sourcePath = fullfile(testCase.WorkFolder, 'source-v2.mat');
@@ -114,7 +171,7 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
             migrated = session.Project;
             after = file_bytes(sourcePath);
 
-            testCase.verifyEqual(migrated.format_version, uint16(3));
+            testCase.verifyEqual(migrated.format_version, uint16(4));
             testCase.verifyEqual(migrated.common.dsp_model, 'TMS320F28377D');
             testCase.verifyEqual(migrated.common.package, 'PTP');
             testCase.verifyEqual(migrated.common.protocol_version, ...
@@ -139,10 +196,10 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
             testCase.verifyEqual(after, before);
         end
 
-        function testExplicitSaveAfterV2MigrationWritesV3(testCase)
+        function testExplicitSaveAfterV2MigrationWritesV4(testCase)
             project = v2_fixture(testCase.WorkFolder);
             sourcePath = fullfile(testCase.WorkFolder, 'source-v2.mat');
-            targetPath = fullfile(testCase.WorkFolder, 'saved-v3.mat');
+            targetPath = fullfile(testCase.WorkFolder, 'saved-v4.mat');
             save(sourcePath, 'project');
             session = c2837x_block_project_session();
 
@@ -151,7 +208,7 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
             data = load(targetPath, 'project');
             variables = whos('-file', targetPath);
 
-            testCase.verifyEqual(data.project.format_version, uint16(3));
+            testCase.verifyEqual(data.project.format_version, uint16(4));
             testCase.verifyEqual({variables.name}, {'project'});
             testCase.verifyEqual(session.FilePath, targetPath);
             testCase.verifyFalse(session.Dirty);
@@ -201,7 +258,8 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
         function testSciCopyClearsExclusiveResourcesWhenCtrlNone(testCase)
             source = sci_instance('source', 'None');
             source.iodevice.settings.module = 'SCI-B';
-            source.iodevice.settings.pin_group = 'B-1';
+            source.iodevice.settings.rx_gpio = 'GPIO19';
+            source.iodevice.settings.tx_gpio = 'GPIO14';
             project = c2837x_block_create_default_project();
             project.instances = source;
             session = c2837x_block_project_session(project);
@@ -216,7 +274,8 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
         function testSciCopyClearsExclusiveResourcesWhenCtrlGpio(testCase)
             source = sci_instance('source', 'GPIO42');
             source.iodevice.settings.module = 'SCI-C';
-            source.iodevice.settings.pin_group = 'C-2';
+            source.iodevice.settings.rx_gpio = 'GPIO39';
+            source.iodevice.settings.tx_gpio = 'GPIO38';
             project = c2837x_block_create_default_project();
             project.instances = source;
             session = c2837x_block_project_session(project);
@@ -259,7 +318,8 @@ classdef test_project_v3_sci_model < matlab.unittest.TestCase
             settings = project.instances.iodevice.settings;
             settings.module = 'SCI-D';
             settings.baud = uint32(115200);
-            settings.pin_group = 'D-1';
+            settings.rx_gpio = 'GPIO94';
+            settings.tx_gpio = 'GPIO93';
             settings.rx_pin_type = 'Standard';
             settings.rx_qualification = 'Sync';
             settings.tx_pin_type = 'Standard';
@@ -345,9 +405,27 @@ project = struct( ...
             fullfile(folder, 'sfun'))));
 end
 
+function project = v3_sci_fixture(pinGroup)
+project = c2837x_block_create_default_project();
+project.format_version = uint16(3);
+instance = sci_instance('historical_sci', 'None');
+instance.iodevice.settings = struct( ...
+    'module', 'SCI-B', ...
+    'baud', uint32(57600), ...
+    'pin_group', pinGroup, ...
+    'rx_pin_type', 'Pull-up', ...
+    'rx_qualification', 'Async', ...
+    'tx_pin_type', 'Pull-up', ...
+    'ctrl_gpio', 'None', ...
+    'ctrl_pin_type', 'Standard', ...
+    'ctrl_tx_active_level', 'High');
+project.instances = instance;
+end
+
 function verify_sci_copy(testCase, copied, source)
 testCase.verifyEmpty(copied.iodevice.settings.module);
-testCase.verifyEmpty(copied.iodevice.settings.pin_group);
+testCase.verifyEmpty(copied.iodevice.settings.rx_gpio);
+testCase.verifyEmpty(copied.iodevice.settings.tx_gpio);
 testCase.verifyEqual(copied.iodevice.settings.baud, ...
     source.iodevice.settings.baud);
 testCase.verifyEqual(copied.iodevice.settings.rx_pin_type, ...
@@ -384,7 +462,7 @@ end
 
 function session = saved_dirty_session(folder)
 session = c2837x_block_project_session();
-session.saveProject(fullfile(folder, 'current-v3.mat'));
+session.saveProject(fullfile(folder, 'current-v4.mat'));
 project = session.Project;
 project.output.dsp_root = c2837x_block_normalize_absolute_path( ...
     fullfile(folder, 'dirty-dsp'));

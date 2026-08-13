@@ -1,5 +1,5 @@
 classdef c2837x_block_project_session < handle
-%C2837X_BLOCK_PROJECT_SESSION Persist a V3 project and track session state.
+%C2837X_BLOCK_PROJECT_SESSION Persist a V4 project and track session state.
 
     properties (Constant)
         DefaultFileName = 'dsp_simbridge_project.mat'
@@ -91,7 +91,8 @@ classdef c2837x_block_project_session < handle
                             'SCI copy does not accept exclusive resource values.');
                     end
                     instance.iodevice.settings.module = '';
-                    instance.iodevice.settings.pin_group = '';
+                    instance.iodevice.settings.rx_gpio = '';
+                    instance.iodevice.settings.tx_gpio = '';
                     instance.iodevice.settings.ctrl_gpio = 'None';
                 otherwise
                     instance_error('UnsupportedIoDevice', ...
@@ -161,6 +162,9 @@ classdef c2837x_block_project_session < handle
                 version = project_version(project);
                 if version == uint16(2)
                     project = c2837x_block_migrate_project_v2(project);
+                    migrated = true;
+                elseif version == uint16(3)
+                    project = c2837x_block_migrate_project_v3(project);
                     migrated = true;
                 end
             elseif ismember('config', variables)
@@ -234,13 +238,13 @@ if ~isa(version, 'uint16') || ~isscalar(version) || version == 0
     error('C2837xBlock:Project:InvalidVersion', ...
         'format_version must be a nonzero uint16 scalar.');
 end
-if version > uint16(3)
+if version > uint16(4)
     error('C2837xBlock:Project:UnsupportedVersion', ...
-        'format_version %g is newer than supported version 3.', version);
+        'format_version %g is newer than supported version 4.', version);
 end
-if version ~= uint16(2) && version ~= uint16(3)
+if ~any(version == uint16([2 3 4]))
     error('C2837xBlock:Project:InvalidVersion', ...
-        'format_version must equal 2 or 3.');
+        'format_version must equal 2, 3, or 4.');
 end
 end
 

@@ -267,31 +267,34 @@ classdef C2837xBlockConfigurator < handle
                 'Baud Error (Actual - Requested)', ...
                 uieditfield(app.SciGrid, 'numeric', 'Editable', 'off'), ...
                 'SciBaudErrorField');
-            app.DetailFields.sci_pin_group = labeled_field(app.SciGrid, 3, 1, ...
-                'Pin Group', uidropdown(app.SciGrid, 'Items', {'Not Selected'}, ...
-                'ItemsData', {''}), 'SciPinGroupField');
-            app.DetailFields.sci_rx_pin_type = labeled_field(app.SciGrid, 3, 4, ...
+            app.DetailFields.sci_rx_gpio = labeled_field(app.SciGrid, 3, 1, ...
+                'RX GPIO', uidropdown(app.SciGrid, 'Items', {'Not Selected'}, ...
+                'ItemsData', {''}), 'SciRxGpioField');
+            app.DetailFields.sci_tx_gpio = labeled_field(app.SciGrid, 3, 4, ...
+                'TX GPIO', uidropdown(app.SciGrid, 'Items', {'Not Selected'}, ...
+                'ItemsData', {''}), 'SciTxGpioField');
+            app.DetailFields.sci_rx_pin_type = labeled_field(app.SciGrid, 4, 1, ...
                 'RX Pin Type', uidropdown(app.SciGrid, ...
                 'Items', {'Standard', 'Pull-up'}), 'SciRxPinTypeField');
-            app.DetailFields.sci_rx_qualification = labeled_field(app.SciGrid, 4, 1, ...
+            app.DetailFields.sci_rx_qualification = labeled_field(app.SciGrid, 4, 4, ...
                 'RX Qualification', uidropdown(app.SciGrid, ...
                 'Items', {'Sync', 'Async'}), 'SciRxQualificationField');
-            app.DetailFields.sci_tx_pin_type = labeled_field(app.SciGrid, 4, 4, ...
+            app.DetailFields.sci_tx_pin_type = labeled_field(app.SciGrid, 5, 1, ...
                 'TX Pin Type', uidropdown(app.SciGrid, ...
                 'Items', {'Standard', 'Pull-up'}), 'SciTxPinTypeField');
-            app.DetailFields.sci_ctrl_gpio = labeled_field(app.SciGrid, 5, 1, ...
+            app.DetailFields.sci_ctrl_gpio = labeled_field(app.SciGrid, 5, 4, ...
                 'CTRL GPIO', uidropdown(app.SciGrid, 'Items', {'None'}, ...
                 'ItemsData', {'None'}), 'SciCtrlGpioField');
-            app.DetailFields.sci_ctrl_pin_type = labeled_field(app.SciGrid, 5, 4, ...
+            app.DetailFields.sci_ctrl_pin_type = labeled_field(app.SciGrid, 6, 1, ...
                 'CTRL Pin Type', uidropdown(app.SciGrid, ...
                 'Items', {'Standard', 'Pull-up'}), 'SciCtrlPinTypeField');
-            app.DetailFields.sci_ctrl_active_level = labeled_field(app.SciGrid, 6, 1, ...
+            app.DetailFields.sci_ctrl_active_level = labeled_field(app.SciGrid, 6, 4, ...
                 'CTRL TX Active Level', uidropdown(app.SciGrid, ...
                 'Items', {'High', 'Low'}), 'SciCtrlActiveLevelField');
             keys = {'socket', 'port', 'sci_module', 'sci_baud', ...
-                'sci_pin_group', 'sci_rx_pin_type', 'sci_rx_qualification', ...
-                'sci_tx_pin_type', 'sci_ctrl_gpio', 'sci_ctrl_pin_type', ...
-                'sci_ctrl_active_level'};
+                'sci_rx_gpio', 'sci_tx_gpio', 'sci_rx_pin_type', ...
+                'sci_rx_qualification', 'sci_tx_pin_type', 'sci_ctrl_gpio', ...
+                'sci_ctrl_pin_type', 'sci_ctrl_active_level'};
             for index = 1:numel(keys)
                 key = keys{index};
                 app.DetailFields.(key).ValueChangedFcn = ...
@@ -638,9 +641,13 @@ classdef C2837xBlockConfigurator < handle
                 settings = instance.iodevice.settings;
                 settings.module = app.DetailFields.sci_module.Value;
                 settings.baud = app.DetailFields.sci_baud.Value;
-                if isequal(app.DetailFields.sci_pin_group.Enable, ...
+                if isequal(app.DetailFields.sci_rx_gpio.Enable, ...
                         matlab.lang.OnOffSwitchState.on)
-                    settings.pin_group = app.DetailFields.sci_pin_group.Value;
+                    settings.rx_gpio = app.DetailFields.sci_rx_gpio.Value;
+                end
+                if isequal(app.DetailFields.sci_tx_gpio.Enable, ...
+                        matlab.lang.OnOffSwitchState.on)
+                    settings.tx_gpio = app.DetailFields.sci_tx_gpio.Value;
                 end
                 settings.rx_pin_type = app.DetailFields.sci_rx_pin_type.Value;
                 settings.rx_qualification = ...
@@ -654,7 +661,7 @@ classdef C2837xBlockConfigurator < handle
                 settings.ctrl_tx_active_level = ...
                     app.DetailFields.sci_ctrl_active_level.Value;
                 if strcmp(editedKey, 'sci_module')
-                    settings = clear_invalid_pin_group(settings);
+                    settings = clear_invalid_sci_endpoints(settings);
                 end
                 instance.iodevice.settings = settings;
             end
@@ -693,33 +700,27 @@ classdef C2837xBlockConfigurator < handle
         function refreshSciCapabilityChoices(app, settings)
             result = c2837x_block_load_device_capability();
             if ~result.available
-                app.DetailFields.sci_pin_group.Items = {'Not Selected'};
-                app.DetailFields.sci_pin_group.ItemsData = {''};
-                app.DetailFields.sci_pin_group.Value = '';
-                app.DetailFields.sci_pin_group.Enable = 'off';
-                app.DetailFields.sci_ctrl_gpio.Items = {'None'};
-                app.DetailFields.sci_ctrl_gpio.ItemsData = {'None'};
-                app.DetailFields.sci_ctrl_gpio.Value = 'None';
-                app.DetailFields.sci_ctrl_gpio.Enable = 'off';
+                set_unavailable_dropdown(app.DetailFields.sci_rx_gpio, ...
+                    settings.rx_gpio, 'Not Selected');
+                set_unavailable_dropdown(app.DetailFields.sci_tx_gpio, ...
+                    settings.tx_gpio, 'Not Selected');
+                set_unavailable_dropdown(app.DetailFields.sci_ctrl_gpio, ...
+                    settings.ctrl_gpio, 'None');
                 return;
             end
             capability = result.capability;
-            groups = empty_pin_groups();
+            rxEndpoints = empty_endpoints();
+            txEndpoints = empty_endpoints();
             moduleIndex = find(strcmp({capability.sci_modules.id}, ...
                 settings.module), 1);
             if ~isempty(moduleIndex)
-                groups = capability.sci_modules(moduleIndex).pin_groups;
+                rxEndpoints = capability.sci_modules(moduleIndex).rx_endpoints;
+                txEndpoints = capability.sci_modules(moduleIndex).tx_endpoints;
             end
-            app.DetailFields.sci_pin_group.Items = ...
-                [{'Not Selected'}, {groups.display_name}];
-            app.DetailFields.sci_pin_group.ItemsData = ...
-                [{''}, {groups.id}];
-            if any(strcmp(settings.pin_group, {groups.id}))
-                app.DetailFields.sci_pin_group.Value = settings.pin_group;
-            else
-                app.DetailFields.sci_pin_group.Value = '';
-            end
-            app.DetailFields.sci_pin_group.Enable = 'on';
+            configure_endpoint_dropdown(app.DetailFields.sci_rx_gpio, ...
+                settings.rx_gpio, rxEndpoints);
+            configure_endpoint_dropdown(app.DetailFields.sci_tx_gpio, ...
+                settings.tx_gpio, txEndpoints);
             gpioItems = compose('GPIO%u', [capability.gpios.number]);
             app.DetailFields.sci_ctrl_gpio.Items = [{'None'}, cellstr(gpioItems)];
             app.DetailFields.sci_ctrl_gpio.ItemsData = ...
@@ -1092,8 +1093,10 @@ classdef C2837xBlockConfigurator < handle
                 focus(app.DetailFields.sci_module);
             elseif contains(fieldPath, '.iodevice.settings.baud')
                 focus(app.DetailFields.sci_baud);
-            elseif contains(fieldPath, '.iodevice.settings.pin_group')
-                focus(app.DetailFields.sci_pin_group);
+            elseif contains(fieldPath, '.iodevice.settings.rx_gpio')
+                focus(app.DetailFields.sci_rx_gpio);
+            elseif contains(fieldPath, '.iodevice.settings.tx_gpio')
+                focus(app.DetailFields.sci_tx_gpio);
             elseif contains(fieldPath, '.iodevice.settings.rx_pin_type')
                 focus(app.DetailFields.sci_rx_pin_type);
             elseif contains(fieldPath, '.iodevice.settings.rx_qualification')
@@ -1299,24 +1302,56 @@ field.Layout.Column = labelColumn + 1;
 field.Tag = tag;
 end
 
-function settings = clear_invalid_pin_group(settings)
+function settings = clear_invalid_sci_endpoints(settings)
 result = c2837x_block_load_device_capability();
 if ~result.available
     return;
 end
 modules = result.capability.sci_modules;
 moduleIndex = find(strcmp({modules.id}, settings.module), 1);
-validIds = {};
+rxValues = {};
+txValues = {};
 if ~isempty(moduleIndex)
-    validIds = {modules(moduleIndex).pin_groups.id};
+    rxValues = cellstr(compose('GPIO%u', ...
+        [modules(moduleIndex).rx_endpoints.gpio]));
+    txValues = cellstr(compose('GPIO%u', ...
+        [modules(moduleIndex).tx_endpoints.gpio]));
 end
-if ~any(strcmp(settings.pin_group, validIds))
-    settings.pin_group = '';
+if ~any(strcmp(settings.rx_gpio, rxValues))
+    settings.rx_gpio = '';
+end
+if ~any(strcmp(settings.tx_gpio, txValues))
+    settings.tx_gpio = '';
 end
 end
 
-function groups = empty_pin_groups()
-groups = struct('id', {}, 'display_name', {}, 'rx', {}, 'tx', {});
+function configure_endpoint_dropdown(field, selected, endpoints)
+values = cellstr(compose('GPIO%u', [endpoints.gpio]));
+field.Items = [{'Not Selected'}, values];
+field.ItemsData = [{''}, values];
+if any(strcmp(selected, values))
+    field.Value = selected;
+else
+    field.Value = '';
+end
+field.Enable = 'on';
+end
+
+function set_unavailable_dropdown(field, value, emptyLabel)
+if isempty(value)
+    displayValue = emptyLabel;
+else
+    displayValue = value;
+end
+field.Items = {displayValue};
+field.ItemsData = {value};
+field.Value = value;
+field.Enable = 'off';
+end
+
+function endpoints = empty_endpoints()
+endpoints = struct('gpio', {}, 'signal', {}, 'mux_selection', {}, ...
+    'driverlib_macro', {}, 'driverlib_value', {});
 end
 
 function options = validate_options(options)

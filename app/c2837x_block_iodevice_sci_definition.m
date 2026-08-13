@@ -13,7 +13,8 @@ function issues = validate_settings(settings, instanceIndex)
 issues = empty_issues();
 prefix = sprintf('project.instances(%u).iodevice.settings.', instanceIndex);
 module = field_text(settings, 'module');
-pinGroup = field_text(settings, 'pin_group');
+rxGpio = field_text(settings, 'rx_gpio');
+txGpio = field_text(settings, 'tx_gpio');
 moduleValid = false;
 
 if isempty(module)
@@ -28,8 +29,11 @@ if ~valid_numeric_choice(settings, 'baud', [9600 19200 38400 57600 115200])
     append('SCI_BAUD_INVALID', ...
         'SCI Baud must be 9600, 19200, 38400, 57600, or 115200.', 'baud');
 end
-if isempty(pinGroup)
-    append('SCI_PIN_GROUP_REQUIRED', 'SCI PinGroup must be selected.', 'pin_group');
+if isempty(rxGpio)
+    append('SCI_RX_GPIO_REQUIRED', 'SCI RX GPIO must be selected.', 'rx_gpio');
+end
+if isempty(txGpio)
+    append('SCI_TX_GPIO_REQUIRED', 'SCI TX GPIO must be selected.', 'tx_gpio');
 end
 if ~valid_text_choice(settings, 'rx_pin_type', {'Standard', 'Pull-up'})
     append('SCI_RX_PIN_TYPE_INVALID', ...
@@ -67,16 +71,21 @@ if moduleValid && isempty(moduleIndex)
         'SCI Module does not exist in the normalized device capability.', 'module');
     moduleValid = false;
 end
-if moduleValid && ~isempty(pinGroup)
-    groups = capability.sci_modules(moduleIndex).pin_groups;
-    if ~any(strcmp({groups.id}, pinGroup))
-        append('SCI_PIN_GROUP_INVALID', ...
-            'SCI PinGroup does not belong to the selected Module.', 'pin_group');
-    end
+if moduleValid && ~isempty(rxGpio) && ...
+        ~gpio_belongs_to_endpoints(rxGpio, ...
+        capability.sci_modules(moduleIndex).rx_endpoints)
+    append('SCI_RX_GPIO_INVALID', ...
+        'SCI RX GPIO does not belong to the selected Module.', 'rx_gpio');
+end
+if moduleValid && ~isempty(txGpio) && ...
+        ~gpio_belongs_to_endpoints(txGpio, ...
+        capability.sci_modules(moduleIndex).tx_endpoints)
+    append('SCI_TX_GPIO_INVALID', ...
+        'SCI TX GPIO does not belong to the selected Module.', 'tx_gpio');
 end
 ctrlGpio = field_text(settings, 'ctrl_gpio');
 if ~strcmp(ctrlGpio, 'None')
-    [ctrlValid, ctrlNumber] = parse_ctrl_gpio(ctrlGpio);
+    [ctrlValid, ctrlNumber] = parse_gpio(ctrlGpio);
     if ~ctrlValid || ~any(double([capability.gpios.number]) == ctrlNumber)
         append('SCI_CTRL_GPIO_INVALID', ...
             'SCI CTRL GPIO must be None or a canonical GPIO in the device capability.', ...
@@ -105,19 +114,22 @@ if ~isempty(moduleIndex) && any(strcmp(module, {'SCI-A', 'SCI-B', 'SCI-C', 'SCI-
         'SCI_MODULE_DUPLICATE', ...
         sprintf('SCI Module %s is already used.', module), ...
         [prefix 'module'], instanceIndex);
-    pinGroup = field_text(settings, 'pin_group');
-    groups = capability.sci_modules(moduleIndex).pin_groups;
-    groupIndex = find(strcmp({groups.id}, pinGroup), 1);
-    if ~isempty(groupIndex)
-        group = groups(groupIndex);
-        claims(end + 1) = gpio_claim(group.rx.gpio, ...
-            [prefix 'pin_group'], instanceIndex);
-        claims(end + 1) = gpio_claim(group.tx.gpio, ...
-            [prefix 'pin_group'], instanceIndex);
+    selectedModule = capability.sci_modules(moduleIndex);
+    [rxValid, rxNumber] = endpoint_gpio( ...
+        field_text(settings, 'rx_gpio'), selectedModule.rx_endpoints);
+    if rxValid
+        claims(end + 1) = gpio_claim(rxNumber, ...
+            [prefix 'rx_gpio'], instanceIndex);
+    end
+    [txValid, txNumber] = endpoint_gpio( ...
+        field_text(settings, 'tx_gpio'), selectedModule.tx_endpoints);
+    if txValid
+        claims(end + 1) = gpio_claim(txNumber, ...
+            [prefix 'tx_gpio'], instanceIndex);
     end
 end
 ctrlGpio = field_text(settings, 'ctrl_gpio');
-[ctrlValid, ctrlNumber] = parse_ctrl_gpio(ctrlGpio);
+[ctrlValid, ctrlNumber] = parse_gpio(ctrlGpio);
 if ctrlValid && any(double([capability.gpios.number]) == ctrlNumber)
     claims(end + 1) = gpio_claim(ctrlNumber, ...
         [prefix 'ctrl_gpio'], instanceIndex);
@@ -165,7 +177,16 @@ if isempty(result.message)
 end
 end
 
-function [valid, number] = parse_ctrl_gpio(value)
+function valid = gpio_belongs_to_endpoints(value, endpoints)
+[valid, ~] = endpoint_gpio(value, endpoints);
+end
+
+function [valid, number] = endpoint_gpio(value, endpoints)
+[valid, number] = parse_gpio(value);
+valid = valid && any(double([endpoints.gpio]) == number);
+end
+
+function [valid, number] = parse_gpio(value)
 tokens = regexp(value, '^GPIO(0|[1-9][0-9]*)$', 'tokens', 'once');
 valid = ~isempty(tokens);
 number = NaN;
