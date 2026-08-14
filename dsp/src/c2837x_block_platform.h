@@ -2,6 +2,7 @@
 #define C2837X_BLOCK_PLATFORM_H
 
 #include "F28x_Project.h"
+#include "c2837x_block_sci.h"
 
 /* Current fixed C2837x target clock. Override only for matching hardware. */
 #ifndef C2837X_BLOCK_CPU_CLOCK_MHZ
@@ -15,18 +16,9 @@
 #define C2837X_BLOCK_SCI_LSPCLK_DIVISOR  14u
 #define C2837X_BLOCK_SCI_LOSPCP_VALUE     7u
 
-/* SCI-S2-03 owns the concrete descriptor fields. */
-typedef struct C2837xBlock_SciDescriptor C2837xBlock_SciDescriptor;
-
-typedef struct
-{
-    const C2837xBlock_SciDescriptor *items;
-    Uint16 count;
-} C2837xBlock_SciDescriptorCollection;
-
 /*
- * Project-owned, immutable Platform contract.  The SCI collection is
- * intentionally opaque until SCI-S2-03 defines the hardware descriptor.
+ * Project-owned, immutable Platform contract.  The SCI collection contains
+ * only the descriptors used by this project.
  */
 typedef struct
 {

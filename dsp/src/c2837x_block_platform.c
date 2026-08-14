@@ -9,6 +9,9 @@
               C2837X_W5300_SOCKET_MEMORY_KB))
 #define C2837X_W5300_MEMORY_TYPE      0x00FFu
 
+#define C2837X_BLOCK_SCI_GPIO_WORDS \
+    ((C2837X_BLOCK_SCI_MAX_GPIO / 32u) + 1u)
+
 #ifndef C2837X_BLOCK_PLATFORM_CONFIG_EXTERN
 const C2837xBlock_PlatformConfig c2837x_block_platform_config =
 {
@@ -23,6 +26,224 @@ Uint32 c2837x_block_platform_generation(void)
 {
     return platform_generation;
 }
+
+static int16 c2837x_block_sci_mark_gpio(Uint32 *used, Uint16 gpio)
+{
+    const Uint16 word = (Uint16)(gpio / 32u);
+    const Uint32 mask = ((Uint32)1u << (gpio % 32u));
+
+    if ((used[word] & mask) != 0u)
+        return -1;
+    used[word] |= mask;
+    return 0;
+}
+
+static int16 c2837x_block_sci_config_is_valid(
+    const C2837xBlock_SciDescriptorCollection *descriptors)
+{
+    Uint32 used_gpio[C2837X_BLOCK_SCI_GPIO_WORDS] = {0u};
+    Uint16 used_modules = 0u;
+    Uint16 index;
+
+    if (descriptors == 0)
+        return -1;
+    if (descriptors->count == 0u)
+        return 0;
+    if (descriptors->items == 0)
+        return -1;
+
+    for (index = 0u; index < descriptors->count; index++)
+    {
+        const C2837xBlock_SciDescriptor *descriptor =
+            &descriptors->items[index];
+
+        if ((Uint32)descriptor->module >
+            (Uint32)C2837X_BLOCK_SCI_MODULE_D)
+            return -1;
+        /* Uint16 storage enforces the upper bound of C2837X_BLOCK_SCI_BRR_MAX. */
+        if ((Uint32)descriptor->brr < C2837X_BLOCK_SCI_BRR_MIN)
+            return -1;
+        if ((descriptor->rx.pin.gpio > C2837X_BLOCK_SCI_MAX_GPIO) ||
+            (descriptor->rx.pin.mux == 0u) ||
+            (descriptor->rx.pin.mux > 15u) ||
+            (descriptor->tx.pin.gpio > C2837X_BLOCK_SCI_MAX_GPIO) ||
+            (descriptor->tx.pin.mux == 0u) ||
+            (descriptor->tx.pin.mux > 15u))
+        {
+            return -1;
+        }
+        if (((Uint32)descriptor->rx.pin_type >
+             (Uint32)C2837X_BLOCK_SCI_PIN_PULLUP) ||
+            ((Uint32)descriptor->tx.pin_type >
+             (Uint32)C2837X_BLOCK_SCI_PIN_PULLUP) ||
+            ((Uint32)descriptor->rx.qualification >
+             (Uint32)C2837X_BLOCK_SCI_QUALIFICATION_ASYNC))
+        {
+            return -1;
+        }
+        if ((used_modules & ((Uint16)1u << descriptor->module)) != 0u)
+            return -1;
+        used_modules |= (Uint16)1u << descriptor->module;
+
+        if (c2837x_block_sci_mark_gpio(used_gpio,
+                                       descriptor->rx.pin.gpio) != 0)
+            return -1;
+        if (c2837x_block_sci_mark_gpio(used_gpio,
+                                       descriptor->tx.pin.gpio) != 0)
+            return -1;
+
+        if (descriptor->ctrl.gpio != C2837X_BLOCK_SCI_NO_CTRL_GPIO)
+        {
+            if ((descriptor->ctrl.gpio > C2837X_BLOCK_SCI_MAX_GPIO) ||
+                ((Uint32)descriptor->ctrl.pin_type >
+                 (Uint32)C2837X_BLOCK_SCI_PIN_PULLUP) ||
+                ((Uint32)descriptor->ctrl.tx_active_level >
+                 (Uint32)C2837X_BLOCK_SCI_CTRL_TX_ACTIVE_HIGH))
+            {
+                return -1;
+            }
+            if (c2837x_block_sci_mark_gpio(used_gpio,
+                                           descriptor->ctrl.gpio) != 0)
+                return -1;
+        }
+    }
+
+    return 0;
+}
+
+#if !defined(C2837X_BLOCK_PLATFORM_TEST_SEAM)
+#if defined(__TI_COMPILER_VERSION__) || defined(C2837X_BLOCK_SCI_HOST_TEST)
+static volatile struct SCI_REGS *c2837x_block_sci_registers(
+    C2837xBlock_SciModule module)
+{
+    switch (module)
+    {
+    case C2837X_BLOCK_SCI_MODULE_A:
+        return &SciaRegs;
+    case C2837X_BLOCK_SCI_MODULE_B:
+        return &ScibRegs;
+    case C2837X_BLOCK_SCI_MODULE_C:
+        return &ScicRegs;
+    case C2837X_BLOCK_SCI_MODULE_D:
+        return &ScidRegs;
+    default:
+        return 0;
+    }
+}
+
+static Uint16 c2837x_block_sci_pullup_flag(C2837xBlock_SciPinType pin_type)
+{
+    return (pin_type == C2837X_BLOCK_SCI_PIN_PULLUP) ? GPIO_PULLUP : 0u;
+}
+
+static Uint16 c2837x_block_sci_rx_flags(
+    const C2837xBlock_SciRxEndpoint *rx)
+{
+    const Uint16 qualification =
+        (rx->qualification == C2837X_BLOCK_SCI_QUALIFICATION_ASYNC) ?
+        GPIO_ASYNC : GPIO_SYNC;
+
+    return (Uint16)(c2837x_block_sci_pullup_flag(rx->pin_type) |
+                    qualification);
+}
+
+static Uint16 c2837x_block_sci_ctrl_rx_level(
+    C2837xBlock_SciCtrlTxActiveLevel active_level)
+{
+    return (active_level == C2837X_BLOCK_SCI_CTRL_TX_ACTIVE_HIGH) ? 0u : 1u;
+}
+
+static void c2837x_block_sci_configure_pins(
+    const C2837xBlock_SciDescriptor *descriptor)
+{
+    GPIO_SetupPinMux(descriptor->rx.pin.gpio, GPIO_MUX_CPU1,
+                     descriptor->rx.pin.mux);
+    GPIO_SetupPinOptions(descriptor->rx.pin.gpio, GPIO_INPUT,
+                         c2837x_block_sci_rx_flags(&descriptor->rx));
+
+    GPIO_SetupPinMux(descriptor->tx.pin.gpio, GPIO_MUX_CPU1,
+                     descriptor->tx.pin.mux);
+    GPIO_SetupPinOptions(
+        descriptor->tx.pin.gpio, GPIO_OUTPUT,
+        c2837x_block_sci_pullup_flag(descriptor->tx.pin_type));
+
+    if (descriptor->ctrl.gpio != C2837X_BLOCK_SCI_NO_CTRL_GPIO)
+    {
+        GPIO_SetupPinMux(descriptor->ctrl.gpio, GPIO_MUX_CPU1, 0u);
+        GPIO_SetupPinOptions(
+            descriptor->ctrl.gpio, GPIO_OUTPUT,
+            c2837x_block_sci_pullup_flag(descriptor->ctrl.pin_type));
+        GPIO_WritePin(descriptor->ctrl.gpio,
+                      c2837x_block_sci_ctrl_rx_level(
+                          descriptor->ctrl.tx_active_level));
+    }
+}
+
+static void c2837x_block_sci_configure_peripheral(
+    const C2837xBlock_SciDescriptor *descriptor)
+{
+    volatile struct SCI_REGS *sci =
+        c2837x_block_sci_registers(descriptor->module);
+
+    /* Validation guarantees that this lookup cannot fail. */
+    sci->SCICTL1.all = 0u;
+    sci->SCICCR.all = 0u;
+    sci->SCICTL2.all = 0u;
+    sci->SCIFFTX.all = 0u;
+    sci->SCIFFRX.all = 0u;
+    sci->SCIFFCT.all = 0u;
+
+    /* BRR is generated/precomputed; the DSP does not recalculate Baud. */
+    sci->SCIHBAUD.bit.BAUD =
+        (Uint16)((descriptor->brr >> 8) & 0x00FFu);
+    sci->SCILBAUD.bit.BAUD =
+        (Uint16)(descriptor->brr & 0x00FFu);
+
+    /* 8 data bits, no parity, one stop bit, asynchronous SCI. */
+    sci->SCICCR.bit.SCICHAR = 7u;
+    sci->SCICCR.bit.ADDRIDLE_MODE = 0u;
+    sci->SCICCR.bit.LOOPBKENA = 0u;
+    sci->SCICCR.bit.PARITYENA = 0u;
+    sci->SCICCR.bit.PARITY = 0u;
+    sci->SCICCR.bit.STOPBITS = 0u;
+
+    /* Polling only: SCI and FIFO interrupt sources remain disabled. */
+    sci->SCICTL2.bit.TXINTENA = 0u;
+    sci->SCICTL2.bit.RXBKINTENA = 0u;
+    sci->SCICTL1.bit.RXERRINTENA = 0u;
+
+    /* Enable the SCI FIFO with no transmit delay and no autobaud. */
+    sci->SCIFFCT.bit.FFTXDLY = 0u;
+    sci->SCIFFCT.bit.CDC = 0u;
+    sci->SCIFFCT.bit.ABD = 0u;
+    sci->SCIFFTX.bit.TXFFIENA = 0u;
+    sci->SCIFFTX.bit.TXFFINTCLR = 1u;
+    sci->SCIFFTX.bit.SCIFFENA = 1u;
+    sci->SCIFFTX.bit.TXFIFORESET = 1u;
+    sci->SCIFFTX.bit.SCIRST = 1u;
+    sci->SCIFFRX.bit.RXFFIENA = 0u;
+    sci->SCIFFRX.bit.RXFFINTCLR = 1u;
+    sci->SCIFFRX.bit.RXFFOVRCLR = 1u;
+    sci->SCIFFRX.bit.RXFIFORESET = 1u;
+
+    sci->SCICTL1.bit.RXENA = 1u;
+    sci->SCICTL1.bit.TXENA = 1u;
+    sci->SCICTL1.bit.SWRESET = 1u;
+}
+#else
+static void c2837x_block_sci_configure_pins(
+    const C2837xBlock_SciDescriptor *descriptor)
+{
+    (void)descriptor;
+}
+
+static void c2837x_block_sci_configure_peripheral(
+    const C2837xBlock_SciDescriptor *descriptor)
+{
+    (void)descriptor;
+}
+#endif
+#endif
 
 /* Host fixtures replace these link seams; they are not project config data. */
 #if !defined(C2837X_BLOCK_PLATFORM_TEST_SEAM)
@@ -43,8 +264,27 @@ void c2837x_block_sci_lspclk_bringup(void)
 int16 c2837x_block_sci_platform_init(
     const C2837xBlock_SciDescriptorCollection *descriptors)
 {
-    (void)descriptors;
-    return -1;
+    Uint16 index;
+
+    if (descriptors == 0)
+        return -1;
+    if (descriptors->count == 0u)
+        return 0;
+
+    /* Validate the complete collection before touching any hardware. */
+    if (c2837x_block_sci_config_is_valid(descriptors) != 0)
+        return -1;
+
+    for (index = 0u; index < descriptors->count; index++)
+    {
+        const C2837xBlock_SciDescriptor *descriptor =
+            &descriptors->items[index];
+
+        c2837x_block_sci_configure_pins(descriptor);
+        c2837x_block_sci_configure_peripheral(descriptor);
+    }
+
+    return 0;
 }
 #endif
 
@@ -137,17 +377,6 @@ static int16 c2837x_block_w5300_configure_network(void)
     return 0;
 }
 
-static int16 c2837x_block_sci_config_is_valid(void)
-{
-    const C2837xBlock_SciDescriptorCollection *descriptors =
-        &c2837x_block_platform_config.sci_descriptors;
-
-    if (descriptors->count == 0u)
-        return 0;
-
-    return (descriptors->items != 0) ? 0 : -1;
-}
-
 int16 C2837xBlock_PlatformInit(void)
 {
     if (c2837x_block_timer2_init() != 0)
@@ -167,7 +396,8 @@ int16 C2837xBlock_PlatformInit(void)
 
     if (c2837x_block_platform_config.sci_descriptors.count != 0u)
     {
-        if (c2837x_block_sci_config_is_valid() != 0)
+        if (c2837x_block_sci_config_is_valid(
+                &c2837x_block_platform_config.sci_descriptors) != 0)
             return (int16)C2837X_BLOCK_PLATFORM_ERROR_SCI_INIT;
 
         c2837x_block_sci_lspclk_bringup();

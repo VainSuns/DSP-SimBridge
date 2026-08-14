@@ -88,6 +88,19 @@ static Uint16 timer_failure;
 static Uint16 sci_failure;
 static const C2837xBlock_SciDescriptorCollection *observed_sci_descriptors;
 
+#if PLATFORM_TEST_HAS_SCI
+static const C2837xBlock_SciDescriptor platform_test_sci_descriptor =
+{
+    C2837X_BLOCK_SCI_MODULE_A,
+    1u,
+    {{9u, 6u}, C2837X_BLOCK_SCI_PIN_STANDARD,
+     C2837X_BLOCK_SCI_QUALIFICATION_SYNC},
+    {{8u, 6u}, C2837X_BLOCK_SCI_PIN_STANDARD},
+    {C2837X_BLOCK_SCI_NO_CTRL_GPIO, C2837X_BLOCK_SCI_PIN_STANDARD,
+     C2837X_BLOCK_SCI_CTRL_TX_ACTIVE_LOW}
+};
+#endif
+
 void c2837x_block_sci_lspclk_bringup(void)
 {
     lspclk_calls++;
@@ -108,7 +121,7 @@ const C2837xBlock_PlatformConfig c2837x_block_platform_config =
     { 0, 0u }
 #else
     (C2837X_BLOCK_PLATFORM_TEST_MODE == PLATFORM_TEST_MIXED) ? 1u : 0u,
-    { (const C2837xBlock_SciDescriptor *)1, 1u }
+    { &platform_test_sci_descriptor, 1u }
 #endif
 };
 
