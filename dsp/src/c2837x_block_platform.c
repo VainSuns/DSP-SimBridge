@@ -9,12 +9,44 @@
               C2837X_W5300_SOCKET_MEMORY_KB))
 #define C2837X_W5300_MEMORY_TYPE      0x00FFu
 
+#ifndef C2837X_BLOCK_PLATFORM_CONFIG_EXTERN
+const C2837xBlock_PlatformConfig c2837x_block_platform_config =
+{
+    1u,
+    { 0, 0u }
+};
+#endif
+
 static Uint32 platform_generation;
 
 Uint32 c2837x_block_platform_generation(void)
 {
     return platform_generation;
 }
+
+/* Host fixtures replace these link seams; they are not project config data. */
+#if !defined(C2837X_BLOCK_PLATFORM_TEST_SEAM)
+#if defined(__TI_COMPILER_VERSION__)
+void c2837x_block_sci_lspclk_bringup(void)
+{
+    EALLOW;
+    ClkCfgRegs.LOSPCP.all = 7u;
+    EDIS;
+}
+#else
+void c2837x_block_sci_lspclk_bringup(void)
+{
+    /* Host builds do not access TI clock registers. */
+}
+#endif
+
+int16 c2837x_block_sci_platform_init(
+    const C2837xBlock_SciDescriptorCollection *descriptors)
+{
+    (void)descriptors;
+    return -1;
+}
+#endif
 
 static int16 c2837x_block_w5300_sockets_are_closed(void)
 {
@@ -105,19 +137,46 @@ static int16 c2837x_block_w5300_configure_network(void)
     return 0;
 }
 
+static int16 c2837x_block_sci_config_is_valid(void)
+{
+    const C2837xBlock_SciDescriptorCollection *descriptors =
+        &c2837x_block_platform_config.sci_descriptors;
+
+    if (descriptors->count == 0u)
+        return 0;
+
+    return (descriptors->items != 0) ? 0 : -1;
+}
+
 int16 C2837xBlock_PlatformInit(void)
 {
     if (c2837x_block_timer2_init() != 0)
         return (int16)C2837X_BLOCK_PLATFORM_ERROR_TIMER_INIT;
 
-    if (c2837x_block_w5300_initialize() != 0)
-        return (int16)C2837X_BLOCK_PLATFORM_ERROR_W5300_INIT;
+    if (c2837x_block_platform_config.use_w5300 != 0u)
+    {
+        if (c2837x_block_w5300_initialize() != 0)
+            return (int16)C2837X_BLOCK_PLATFORM_ERROR_W5300_INIT;
 
-    if (c2837x_block_w5300_configure_memory() != 0)
-        return (int16)C2837X_BLOCK_PLATFORM_ERROR_W5300_MEMORY;
+        if (c2837x_block_w5300_configure_memory() != 0)
+            return (int16)C2837X_BLOCK_PLATFORM_ERROR_W5300_MEMORY;
 
-    if (c2837x_block_w5300_configure_network() != 0)
-        return (int16)C2837X_BLOCK_PLATFORM_ERROR_NETWORK_CONFIG;
+        if (c2837x_block_w5300_configure_network() != 0)
+            return (int16)C2837X_BLOCK_PLATFORM_ERROR_NETWORK_CONFIG;
+    }
+
+    if (c2837x_block_platform_config.sci_descriptors.count != 0u)
+    {
+        if (c2837x_block_sci_config_is_valid() != 0)
+            return (int16)C2837X_BLOCK_PLATFORM_ERROR_SCI_INIT;
+
+        c2837x_block_sci_lspclk_bringup();
+        if (c2837x_block_sci_platform_init(
+                &c2837x_block_platform_config.sci_descriptors) != 0)
+        {
+            return (int16)C2837X_BLOCK_PLATFORM_ERROR_SCI_INIT;
+        }
+    }
 
     platform_generation++;
     if (platform_generation == 0u)
