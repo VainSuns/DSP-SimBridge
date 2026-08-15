@@ -29,6 +29,17 @@ static const C2837xBlock_SciDescriptor config_a =
      C2837X_BLOCK_SCI_CTRL_TX_ACTIVE_HIGH}
 };
 
+static const C2837xBlock_SciDescriptor config_full_duplex_a =
+{
+    C2837X_BLOCK_SCI_MODULE_A,
+    1u,
+    {{9u, 6u}, C2837X_BLOCK_SCI_PIN_STANDARD,
+     C2837X_BLOCK_SCI_QUALIFICATION_ASYNC},
+    {{8u, 6u}, C2837X_BLOCK_SCI_PIN_STANDARD},
+    {C2837X_BLOCK_SCI_NO_CTRL_GPIO, C2837X_BLOCK_SCI_PIN_STANDARD,
+     C2837X_BLOCK_SCI_CTRL_TX_ACTIVE_LOW}
+};
+
 static const C2837xBlock_SciDescriptor config_b =
 {
     C2837X_BLOCK_SCI_MODULE_B,
@@ -203,7 +214,7 @@ static void test_rx_error_is_finite(void)
 static void test_runtime_isolation_and_send_boundary(void)
 {
     C2837xBlock_SciChannel channel_a =
-        C2837X_BLOCK_SCI_CHANNEL_INITIALIZER(&config_a);
+        C2837X_BLOCK_SCI_CHANNEL_INITIALIZER(&config_full_duplex_a);
     C2837xBlock_SciChannel channel_b =
         C2837X_BLOCK_SCI_CHANNEL_INITIALIZER(&config_b);
     Uint16 words[1] = {0u};

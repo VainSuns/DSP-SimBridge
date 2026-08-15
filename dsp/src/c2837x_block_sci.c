@@ -8,6 +8,19 @@ static Uint16 c2837x_block_sci_ctrl_rx_level(
     return (active_level == C2837X_BLOCK_SCI_CTRL_TX_ACTIVE_HIGH) ? 0u : 1u;
 }
 
+static Uint16 c2837x_block_sci_ctrl_tx_level(
+    C2837xBlock_SciCtrlTxActiveLevel active_level)
+{
+    return (active_level == C2837X_BLOCK_SCI_CTRL_TX_ACTIVE_HIGH) ? 1u : 0u;
+}
+
+static Uint16 c2837x_block_sci_has_ctrl(
+    const C2837xBlock_SciDescriptor *config)
+{
+    return (config != 0) &&
+        (config->ctrl.gpio != C2837X_BLOCK_SCI_NO_CTRL_GPIO);
+}
+
 static volatile struct SCI_REGS *c2837x_block_sci_registers(
     C2837xBlock_SciModule module)
 {
@@ -31,16 +44,6 @@ static volatile struct SCI_REGS *c2837x_block_sci_registers(
 #endif
 }
 
-static Uint16 c2837x_block_sci_ctrl_is_valid(
-    const C2837xBlock_SciDescriptor *config)
-{
-    return (config != 0) &&
-        (config->ctrl.gpio != C2837X_BLOCK_SCI_NO_CTRL_GPIO) &&
-        (config->ctrl.gpio <= C2837X_BLOCK_SCI_MAX_GPIO) &&
-        ((Uint32)config->ctrl.tx_active_level <=
-         (Uint32)C2837X_BLOCK_SCI_CTRL_TX_ACTIVE_HIGH);
-}
-
 static void c2837x_block_sci_clear_tx_pending(
     C2837xBlock_SciChannelRuntime *runtime)
 {
@@ -62,7 +65,7 @@ static void c2837x_block_sci_reset_software_runtime(
     channel->runtime.ctrl_tx_active = 0u;
 
     /* PlatformInit owns PinMux/pad configuration; cleanup only drives RX. */
-    if (c2837x_block_sci_ctrl_is_valid(config) != 0u)
+    if (c2837x_block_sci_has_ctrl(config) != 0u)
     {
         GPIO_WritePin(config->ctrl.gpio,
                       c2837x_block_sci_ctrl_rx_level(
@@ -219,6 +222,7 @@ static int32 receive(void *channel_ref, Uint16 *data_words,
 {
     C2837xBlock_SciChannel *channel =
         (C2837xBlock_SciChannel *)channel_ref;
+    const C2837xBlock_SciDescriptor *config;
     volatile struct SCI_REGS *sci;
     Uint32 capacity_even;
     Uint32 produced_octets = 0u;
@@ -231,12 +235,21 @@ static int32 receive(void *channel_ref, Uint16 *data_words,
          C2837X_IODEVICE_CONNECTION_CONNECTED))
         return -1;
 
-    if (channel->hardware_config == 0)
+    config = channel->hardware_config;
+    if (config == 0)
     {
         c2837x_block_sci_close_after_error(channel);
         return -1;
     }
-    sci = c2837x_block_sci_registers(channel->hardware_config->module);
+
+    if ((c2837x_block_sci_has_ctrl(config) != 0u) &&
+        (channel->runtime.ctrl_tx_active != 0u))
+    {
+        c2837x_block_sci_close_after_error(channel);
+        return -1;
+    }
+
+    sci = c2837x_block_sci_registers(config->module);
     if ((sci == 0) || c2837x_block_sci_has_rx_error(sci) != 0u)
     {
         c2837x_block_sci_close_after_error(channel);
@@ -289,7 +302,9 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
 {
     C2837xBlock_SciChannel *channel =
         (C2837xBlock_SciChannel *)channel_ref;
+    const C2837xBlock_SciDescriptor *config;
     volatile struct SCI_REGS *sci;
+    Uint16 has_ctrl;
     Uint16 fifo_occupied;
     Uint32 available_slots;
     Uint32 remaining_octets;
@@ -333,12 +348,32 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
         }
     }
 
-    if (channel->hardware_config == 0)
+    config = channel->hardware_config;
+    if (config == 0)
     {
         c2837x_block_sci_close_after_error(channel);
         return -1;
     }
-    sci = c2837x_block_sci_registers(channel->hardware_config->module);
+    has_ctrl = c2837x_block_sci_has_ctrl(config);
+
+    if (channel->runtime.software_pending != 0u)
+    {
+        if (((has_ctrl != 0u) &&
+             (channel->runtime.ctrl_tx_active != 1u)) ||
+            ((has_ctrl == 0u) &&
+             (channel->runtime.ctrl_tx_active != 0u)))
+        {
+            c2837x_block_sci_close_after_error(channel);
+            return -1;
+        }
+    }
+    else if (channel->runtime.ctrl_tx_active != 0u)
+    {
+        c2837x_block_sci_close_after_error(channel);
+        return -1;
+    }
+
+    sci = c2837x_block_sci_registers(config->module);
     if (sci == 0)
     {
         c2837x_block_sci_close_after_error(channel);
@@ -351,6 +386,16 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
         channel->runtime.tx_pending_data_words = data_words;
         channel->runtime.tx_pending_total_octets = count_octets;
         channel->runtime.tx_pending_queued_octets = 0u;
+
+        if (has_ctrl != 0u)
+        {
+            GPIO_WritePin(
+                config->ctrl.gpio,
+                c2837x_block_sci_ctrl_tx_level(
+                    config->ctrl.tx_active_level));
+            channel->runtime.ctrl_tx_active = 1u;
+            return 0;
+        }
     }
 
     if (channel->runtime.tx_pending_queued_octets ==
@@ -367,7 +412,15 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
         {
             completed_octets =
                 (int32)channel->runtime.tx_pending_total_octets;
-            /* Session cleanup owns RX/CTRL reset; completion clears TX only. */
+
+            if (has_ctrl != 0u)
+            {
+                GPIO_WritePin(
+                    config->ctrl.gpio,
+                    c2837x_block_sci_ctrl_rx_level(
+                        config->ctrl.tx_active_level));
+                channel->runtime.ctrl_tx_active = 0u;
+            }
             c2837x_block_sci_clear_tx_pending(&channel->runtime);
             return completed_octets;
         }
