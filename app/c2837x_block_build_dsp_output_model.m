@@ -185,10 +185,17 @@ for index = 1:numel(project.instances)
     end
 end
 
+if isempty(sciDescriptors)
+    sciClock = [];
+else
+    % W5300-only projects do not consult the SCI clock service.
+    sciClock = c2837x_block_get_sci_clock_config();
+end
+
 platformConfig = struct( ...
     'use_w5300', logical(useW5300), ...
     'sci_descriptors', sciDescriptors, ...
-    'sci_clock', c2837x_block_get_sci_clock_config());
+    'sci_clock', sciClock);
 end
 
 function value = text_value(candidate)

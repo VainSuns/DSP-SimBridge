@@ -141,8 +141,8 @@ classdef test_dsp_integration_completeness < matlab.unittest.TestCase
             result = core_api_check(testCase.RepositoryRoot, project, ...
                 testCase.WorkFolder);
 
-            testCase.verifyEqual(result.expected, 1);
-            testCase.verifyEqual(result.actual, 1);
+            testCase.verifyEqual(result.expected, 2);
+            testCase.verifyEqual(result.actual, 2);
             testCase.verifyEqual(result.positive_status, 0, ...
                 result.positive_output);
             testCase.verifyNotEqual(result.negative_status, 0);
@@ -456,6 +456,7 @@ end
 function audit = include_audit(root)
 files = [dir(fullfile(root, '**', '*.c')); dir(fullfile(root, '**', '*.h'))];
 allowed = {'F28x_Project.h', 'stdint.h', 'limits.h', 'float.h', 'string.h'};
+facts = transport_facts(root);
 total = 0; incResolved = 0; srcLocal = 0; srcInc = 0;
 external = 0; unresolved = 0; multiple = 0; incToSrc = 0;
 cIncludes = 0; details = {};
@@ -465,8 +466,11 @@ for index = 1:numel(files)
     includes = regexp(fileread(sourcePath), ...
         '^\s*#include\s+"([^"]+)"', 'tokens', 'lineanchors');
     for include = includes
-        total = total + 1;
         name = include{1}{1};
+        if inactive_transport_include(name, facts)
+            continue;
+        end
+        total = total + 1;
         cIncludes = cIncludes + endsWith(lower(name), '.c');
         localTarget = fullfile(files(index).folder, name);
         incTarget = fullfile(root, 'inc', name);
@@ -509,6 +513,20 @@ audit = struct('total', total, 'inc_resolved', incResolved, ...
     'multiple', multiple, 'inc_to_src', incToSrc, ...
     'c_includes', cIncludes, ...
     'details', strjoin(details, newline));
+end
+
+function facts = transport_facts(root)
+header = fileread(fullfile(root, 'inc', 'c2837x_block_project.h'));
+facts = struct( ...
+    'has_w5300', ~isempty(regexp(header, ...
+    '#define\s+C2837X_BLOCK_PLATFORM_HAS_W5300\s+1u', 'once')), ...
+    'has_sci', ~isempty(regexp(header, ...
+    '#define\s+C2837X_BLOCK_PLATFORM_HAS_SCI\s+1u', 'once')));
+end
+
+function tf = inactive_transport_include(name, facts)
+tf = (~facts.has_sci && strcmp(name, 'c2837x_block_sci.h')) || ...
+    (~facts.has_w5300 && startsWith(name, 'c2837x_w5300_'));
 end
 
 function list = ccs_sources(project)
@@ -639,7 +657,7 @@ copyRoot = fullfile(root, 'api_mismatch_copy');
 copyfile(project.output.dsp_root, copyRoot);
 copyHeader = fullfile(copyRoot, 'inc', 'c2837x_block.h');
 changed = regexprep(fileread(copyHeader), ...
-    '(#define C2837X_BLOCK_CORE_API_VERSION\s+)1u', '$12u', 'once');
+    '(#define C2837X_BLOCK_CORE_API_VERSION\s+)2u', '$11u', 'once');
 write_text(copyHeader, changed);
 negativeObject = fullfile(root, 'core_api_mismatch.o');
 [negativeStatus, negativeOutput] = system(sprintf( ...

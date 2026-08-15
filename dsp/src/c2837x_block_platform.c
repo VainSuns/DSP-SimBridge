@@ -1,22 +1,32 @@
 #include "c2837x_block.h"
 #include "c2837x_block_platform.h"
+#if C2837X_BLOCK_PLATFORM_HAS_W5300
 #include "c2837x_w5300_hal.h"
+#endif
 
+#if C2837X_BLOCK_PLATFORM_HAS_W5300
 #define C2837X_W5300_MODE_VALUE       0xB800u
 #define C2837X_W5300_ID_VALUE         0x5300u
 #define C2837X_W5300_MEMORY_PAIR      \
     ((Uint16)((C2837X_W5300_SOCKET_MEMORY_KB << 8) | \
               C2837X_W5300_SOCKET_MEMORY_KB))
 #define C2837X_W5300_MEMORY_TYPE      0x00FFu
+#endif
 
+#if C2837X_BLOCK_PLATFORM_HAS_SCI
 #define C2837X_BLOCK_SCI_GPIO_WORDS \
     ((C2837X_BLOCK_SCI_MAX_GPIO / 32u) + 1u)
+#endif
 
 #ifndef C2837X_BLOCK_PLATFORM_CONFIG_EXTERN
 const C2837xBlock_PlatformConfig c2837x_block_platform_config =
 {
+#if C2837X_BLOCK_PLATFORM_HAS_W5300
     1u,
+#endif
+#if C2837X_BLOCK_PLATFORM_HAS_SCI
     { 0, 0u }
+#endif
 };
 #endif
 
@@ -27,6 +37,7 @@ Uint32 c2837x_block_platform_generation(void)
     return platform_generation;
 }
 
+#if C2837X_BLOCK_PLATFORM_HAS_SCI
 static int16 c2837x_block_sci_mark_gpio(Uint32 *used, Uint16 gpio)
 {
     const Uint16 word = (Uint16)(gpio / 32u);
@@ -110,7 +121,9 @@ static int16 c2837x_block_sci_config_is_valid(
 
     return 0;
 }
+#endif
 
+#if C2837X_BLOCK_PLATFORM_HAS_SCI
 #if !defined(C2837X_BLOCK_PLATFORM_TEST_SEAM)
 #if defined(__TI_COMPILER_VERSION__) || defined(C2837X_BLOCK_SCI_HOST_TEST)
 static volatile struct SCI_REGS *c2837x_block_sci_registers(
@@ -287,7 +300,9 @@ int16 c2837x_block_sci_platform_init(
     return 0;
 }
 #endif
+#endif /* C2837X_BLOCK_PLATFORM_HAS_SCI */
 
+#if C2837X_BLOCK_PLATFORM_HAS_W5300
 static int16 c2837x_block_w5300_sockets_are_closed(void)
 {
     Uint16 sn;
@@ -376,12 +391,14 @@ static int16 c2837x_block_w5300_configure_network(void)
 
     return 0;
 }
+#endif /* C2837X_BLOCK_PLATFORM_HAS_W5300 */
 
 int16 C2837xBlock_PlatformInit(void)
 {
     if (c2837x_block_timer2_init() != 0)
         return (int16)C2837X_BLOCK_PLATFORM_ERROR_TIMER_INIT;
 
+#if C2837X_BLOCK_PLATFORM_HAS_W5300
     if (c2837x_block_platform_config.use_w5300 != 0u)
     {
         if (c2837x_block_w5300_initialize() != 0)
@@ -393,7 +410,9 @@ int16 C2837xBlock_PlatformInit(void)
         if (c2837x_block_w5300_configure_network() != 0)
             return (int16)C2837X_BLOCK_PLATFORM_ERROR_NETWORK_CONFIG;
     }
+#endif
 
+#if C2837X_BLOCK_PLATFORM_HAS_SCI
     if (c2837x_block_platform_config.sci_descriptors.count != 0u)
     {
         if (c2837x_block_sci_config_is_valid(
@@ -407,6 +426,7 @@ int16 C2837xBlock_PlatformInit(void)
             return (int16)C2837X_BLOCK_PLATFORM_ERROR_SCI_INIT;
         }
     }
+#endif
 
     platform_generation++;
     if (platform_generation == 0u)

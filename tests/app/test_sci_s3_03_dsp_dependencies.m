@@ -1,11 +1,13 @@
 classdef test_sci_s3_03_dsp_dependencies < matlab.unittest.TestCase
     properties
         WorkFolder
+        RepositoryRoot
     end
 
     methods (TestClassSetup)
         function addAppPath(testCase)
             root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+            testCase.RepositoryRoot = root;
             testCase.applyFixture(matlab.unittest.fixtures.PathFixture( ...
                 fullfile(root, 'app')));
         end
@@ -72,6 +74,33 @@ classdef test_sci_s3_03_dsp_dependencies < matlab.unittest.TestCase
             verify_transport_dependencies(testCase, firstDependencies, ...
                 'mixed', true, true);
             testCase.verifyEqual(numel(firstCandidates), 33);
+        end
+
+        function testGeneratedTreesHaveTransportCompileClosure(testCase)
+            modes = {'w5300', 'sci', 'mixed'};
+            for modeIndex = 1:numel(modes)
+                mode = modes{modeIndex};
+                project = make_project(testCase.WorkFolder, mode);
+                project.output.dsp_root = c2837x_block_normalize_absolute_path( ...
+                    fullfile(testCase.WorkFolder, [mode '_compile_dsp']));
+                project.output.sfun_root = c2837x_block_normalize_absolute_path( ...
+                    fullfile(testCase.WorkFolder, [mode '_compile_sfun']));
+                [candidates, dependencies, issues] = ...
+                    c2837x_block_build_dsp_candidates(project);
+                [snapshot, snapshotIssues] = ...
+                    c2837x_block_create_preview_snapshot( ...
+                    project, candidates, dependencies);
+                [~, commitIssues] = c2837x_block_commit_preview_snapshot( ...
+                    snapshot, project, candidates, dependencies);
+
+                testCase.verifyEmpty(issues);
+                testCase.verifyFalse(has_errors(snapshotIssues), ...
+                    issue_text(snapshotIssues));
+                testCase.verifyFalse(has_errors(commitIssues), ...
+                    issue_text(commitIssues));
+                verify_generated_closure(testCase, testCase.RepositoryRoot, ...
+                    project, candidates, mode, testCase.WorkFolder);
+            end
         end
     end
 end
@@ -230,4 +259,183 @@ function text = candidate_text(candidates, suffix)
 index = find(endsWith({candidates.target_path}, suffix), 1);
 assert(~isempty(index));
 text = native2unicode(candidates(index).content_bytes, 'UTF-8');
+end
+
+function verify_generated_closure(testCase, repositoryRoot, project, ...
+        candidates, mode, workFolder)
+root = project.output.dsp_root;
+candidatePaths = relative_candidate_paths(candidates);
+candidateSources = sort(candidatePaths(startsWith(candidatePaths, 'src/') & ...
+    endsWith(candidatePaths, '.c')));
+sourceFiles = dir(fullfile(root, 'src', '*.c'));
+sourcePaths = sort(fullfile({sourceFiles.folder}, {sourceFiles.name}));
+sourceRelative = sort(cellfun(@(path) slash(path(numel(root) + 2:end)), ...
+    sourcePaths, 'UniformOutput', false));
+
+testCase.verifyEqual(sourceRelative, candidateSources);
+audit = include_audit(root);
+testCase.verifyEqual(audit.unresolved, 0, audit.details);
+testCase.verifyEqual(audit.multiple, 0, audit.details);
+testCase.verifyEqual(audit.c_includes, 0, audit.details);
+testCase.verifyEqual(audit.total, ...
+    audit.inc_resolved + audit.src_local + audit.src_inc + ...
+    audit.allowed_external);
+
+hasW5300 = any(strcmp(mode, {'w5300', 'mixed'}));
+hasSci = any(strcmp(mode, {'sci', 'mixed'}));
+testCase.verifyEqual(any(contains(candidatePaths, 'c2837x_w5300_')), ...
+    hasW5300);
+testCase.verifyEqual(any(contains(candidatePaths, 'c2837x_block_sci')), ...
+    hasSci);
+testCase.verifyEqual(isfile(fullfile(root, 'inc', ...
+    'c2837x_w5300_hal.h')), hasW5300);
+testCase.verifyEqual(isfile(fullfile(root, 'inc', ...
+    'c2837x_block_sci.h')), hasSci);
+testCase.verifyEqual(isfile(fullfile(root, 'src', ...
+    'c2837x_w5300_hal.c')), hasW5300);
+testCase.verifyEqual(isfile(fullfile(root, 'src', ...
+    'c2837x_block_sci.c')), hasSci);
+
+projectHeader = fileread(fullfile(root, 'inc', ...
+    'c2837x_block_project.h'));
+coreHeader = fileread(fullfile(root, 'inc', 'c2837x_block.h'));
+testCase.verifyTrue(contains(projectHeader, sprintf( ...
+    '#define C2837X_BLOCK_PLATFORM_HAS_W5300  %uu', double(hasW5300))));
+testCase.verifyTrue(contains(projectHeader, sprintf( ...
+    '#define C2837X_BLOCK_PLATFORM_HAS_SCI    %uu', double(hasSci))));
+testCase.verifyTrue(contains(projectHeader, ...
+    '#define C2837X_BLOCK_EXPECTED_CORE_API_VERSION  2u'));
+testCase.verifyTrue(contains(coreHeader, ...
+    '#define C2837X_BLOCK_CORE_API_VERSION  2u'));
+
+compile = compile_sources(repositoryRoot, project, sourcePaths, ...
+    fullfile(workFolder, [mode '_objects']));
+testCase.verifyEqual(compile.statuses, zeros(1, numel(sourcePaths)), ...
+    strjoin(compile.outputs, newline));
+fprintf(['S3_03_CLOSURE mode=%s sources=%u includes=%u ' ...
+    'w5300=%u sci=%u compile=PASS\n'], mode, numel(sourcePaths), ...
+    audit.total, hasW5300, hasSci);
+end
+
+function result = compile_sources(repositoryRoot, project, sourcePaths, ...
+        objectRoot)
+mkdir(objectRoot);
+flags = sprintf([ ...
+    '-std=c11 -Wall -Wextra -Werror -Wno-unknown-pragmas ' ...
+    '-Wno-error=int-to-pointer-cast -mlong-double-64 ' ...
+    '-fstrict-aliasing -Wstrict-aliasing=2 ' ...
+    '-I"%s" -I"%s"'], ...
+    fullfile(repositoryRoot, 'tests', 'dsp_host', 'include'), ...
+    fullfile(project.output.dsp_root, 'inc'));
+statuses = zeros(1, numel(sourcePaths));
+outputs = cell(1, numel(sourcePaths));
+for index = 1:numel(sourcePaths)
+    [~, name] = fileparts(sourcePaths{index});
+    object = fullfile(objectRoot, sprintf('%02u_%s.o', index, name));
+    command = sprintf( ...
+        'cd /d "%s" && gcc %s -c "%s" -o "%s" 2>&1', ...
+        objectRoot, flags, sourcePaths{index}, object);
+    [statuses(index), outputs{index}] = system(command);
+end
+result = struct('statuses', statuses, 'outputs', {outputs}, ...
+    'flags', flags);
+end
+
+function audit = include_audit(root)
+files = [dir(fullfile(root, '**', '*.c')); dir(fullfile(root, '**', '*.h'))];
+allowed = {'F28x_Project.h', 'stdint.h', 'limits.h', 'float.h', 'string.h'};
+facts = transport_facts(root);
+total = 0; incResolved = 0; srcLocal = 0; srcInc = 0;
+external = 0; unresolved = 0; multiple = 0; incToSrc = 0;
+cIncludes = 0; details = {};
+for index = 1:numel(files)
+    sourcePath = fullfile(files(index).folder, files(index).name);
+    inInc = paths_equal(files(index).folder, fullfile(root, 'inc'));
+    includes = regexp(fileread(sourcePath), ...
+        '^\s*#include\s+"([^"]+)"', 'tokens', 'lineanchors');
+    for include = includes
+        name = include{1}{1};
+        if inactive_transport_include(name, facts)
+            continue;
+        end
+        total = total + 1;
+        cIncludes = cIncludes + endsWith(lower(name), '.c');
+        localTarget = fullfile(files(index).folder, name);
+        incTarget = fullfile(root, 'inc', name);
+        if inInc
+            targets = {localTarget};
+            incToSrc = incToSrc + isfile(fullfile(root, 'src', name));
+        else
+            targets = unique({localTarget, incTarget});
+        end
+        matches = targets(cellfun(@isfile, targets));
+        if isscalar(matches)
+            if inInc
+                incResolved = incResolved + 1;
+                status = 'inc';
+            elseif paths_equal(fileparts(matches{1}), files(index).folder)
+                srcLocal = srcLocal + 1;
+                status = 'src local';
+            else
+                srcInc = srcInc + 1;
+                status = 'src to inc';
+            end
+        elseif isempty(matches) && any(strcmp(name, allowed))
+            external = external + 1;
+            status = 'allowed external';
+        elseif isempty(matches)
+            unresolved = unresolved + 1;
+            status = 'unresolved';
+        else
+            multiple = multiple + 1;
+            status = 'multiple';
+        end
+        details{end + 1} = sprintf('%s | %s | %s | %s', ...
+            slash(sourcePath), name, strjoin(cellfun(@slash, matches, ...
+            'UniformOutput', false), ', '), status); %#ok<AGROW>
+    end
+end
+audit = struct('total', total, 'inc_resolved', incResolved, ...
+    'src_local', srcLocal, 'src_inc', srcInc, ...
+    'allowed_external', external, 'unresolved', unresolved, ...
+    'multiple', multiple, 'inc_to_src', incToSrc, ...
+    'c_includes', cIncludes, 'details', strjoin(details, newline));
+end
+
+function facts = transport_facts(root)
+header = fileread(fullfile(root, 'inc', 'c2837x_block_project.h'));
+facts = struct( ...
+    'has_w5300', ~isempty(regexp(header, ...
+    '#define\s+C2837X_BLOCK_PLATFORM_HAS_W5300\s+1u', 'once')), ...
+    'has_sci', ~isempty(regexp(header, ...
+    '#define\s+C2837X_BLOCK_PLATFORM_HAS_SCI\s+1u', 'once')));
+end
+
+function tf = inactive_transport_include(name, facts)
+tf = (~facts.has_sci && strcmp(name, 'c2837x_block_sci.h')) || ...
+    (~facts.has_w5300 && startsWith(name, 'c2837x_w5300_'));
+end
+
+function tf = paths_equal(first, second)
+if ispc
+    tf = strcmpi(first, second);
+else
+    tf = strcmp(first, second);
+end
+end
+
+function tf = has_errors(issues)
+tf = any(strcmp({issues.severity}, 'Error'));
+end
+
+function text = issue_text(issues)
+if isempty(issues)
+    text = '';
+else
+    text = strjoin({issues.message}, newline);
+end
+end
+
+function value = slash(value)
+value = strrep(value, '\', '/');
 end
