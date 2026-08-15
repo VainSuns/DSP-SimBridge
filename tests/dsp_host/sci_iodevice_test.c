@@ -223,7 +223,11 @@ static void test_runtime_isolation_and_send_boundary(void)
     SciaRegs.SCIFFRX.bit.RXFFST = 1u;
     assert(c2837x_block_sci_iodevice_ops.get_connection_state(&channel_a) ==
            C2837X_IODEVICE_CONNECTION_CONNECTED);
-    assert(c2837x_block_sci_iodevice_ops.send(&channel_a, words, 2u) < 0);
+    assert(c2837x_block_sci_iodevice_ops.send(&channel_a, words, 2u) == 0);
+    assert(channel_a.runtime.software_pending == 1u);
+    assert(channel_a.runtime.tx_pending_data_words == words);
+    assert(channel_a.runtime.tx_pending_total_octets == 2u);
+    assert(channel_a.runtime.tx_pending_queued_octets == 2u);
 
     assert(channel_b.runtime.rx_staging_octet == 0x55u);
     assert(channel_b.runtime.rx_staging_valid == 1u);

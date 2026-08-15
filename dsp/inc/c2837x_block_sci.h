@@ -95,6 +95,9 @@ typedef struct
     Uint16 rx_staging_valid;
     Uint16 software_pending;
     Uint16 ctrl_tx_active;
+    const Uint16 *tx_pending_data_words;
+    Uint32 tx_pending_total_octets;
+    Uint32 tx_pending_queued_octets;
     C2837xBlock_IoConnectionState connection_state;
     Uint16 session_cleanup_done;
 } C2837xBlock_SciChannelRuntime;
@@ -106,7 +109,7 @@ typedef struct
 } C2837xBlock_SciChannel;
 
 #define C2837X_BLOCK_SCI_CHANNEL_INITIALIZER(config_ptr_) \
-    { (config_ptr_), { 0u, 0u, 0u, 0u, \
+    { (config_ptr_), { 0u, 0u, 0u, 0u, 0, 0u, 0u, \
                        C2837X_IODEVICE_CONNECTION_CLOSED, 0u } }
 
 /* Initializes this channel; the first open->listen owns initial cleanup. */
