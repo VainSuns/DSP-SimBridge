@@ -274,18 +274,150 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
             testCase.verifyEmpty(inactive);
         end
 
-        function testProjectSupportStopsAtStageBoundary(testCase)
+        function testProjectSupportRendersSciDescriptorCollection(testCase)
             definition = c2837x_block_get_iodevice_definition('sci');
             project = project_with_instances(sci_instance( ...
-                'sci_a', 'SCI-A', 'GPIO9', 'GPIO8'));
+                'sci_b', 'SCI-B', 'GPIO19', 'GPIO14'));
 
             projectSupport = definition.render_project_support(project);
             testCase.verifyEmpty(projectSupport.includes);
-            testCase.verifyEmpty(projectSupport.source);
-            testCase.verifyError(@() definition.render_instance_config_support( ...
-                project, 1), 'C2837xBlock:IoDevice:SciGenerationUnavailable');
-            testCase.verifyError(@() definition.render_instance_io_support( ...
-                project, 1), 'C2837xBlock:IoDevice:SciGenerationUnavailable');
+            testCase.verifySubstring(projectSupport.source, ...
+                'c2837x_block_project_sci_descriptors[]');
+            testCase.verifySubstring(projectSupport.source, ...
+                'C2837X_BLOCK_SCI_MODULE_B');
+            testCase.verifySubstring(projectSupport.source, ...
+                '{ (Uint16)19u, (Uint16)2u }');
+            testCase.verifySubstring(projectSupport.source, ...
+                '{ (Uint16)14u, (Uint16)2u }');
+            testCase.verifyEmpty(regexp(lower(projectSupport.source), ...
+                '\b(com|pin_group|requested_baud)\b', 'once'));
+        end
+
+        function testInstanceConfigRendersDescriptorAndBinding(testCase)
+            project = project_with_instances(sci_instance( ...
+                'sci_b', 'SCI-B', 'GPIO19', 'GPIO14'));
+            expected = c2837x_block_calculate_sci_baud( ...
+                c2837x_block_get_sci_clock_config().lspclk_hz, 115200);
+
+            rendered = c2837x_block_render_dsp_instance_config_files(project);
+            text = native2unicode(rendered.config_source_bytes, 'UTF-8');
+            expectedBrr = sprintf('(Uint16)%uu', double(expected.brr));
+
+            testCase.verifySubstring(text, ...
+                'const C2837xBlock_SciDescriptor');
+            testCase.verifySubstring(text, ...
+                'c2837x_block_sci_b_sci_descriptor');
+            testCase.verifySubstring(text, 'C2837X_BLOCK_SCI_MODULE_B');
+            testCase.verifySubstring(text, expectedBrr);
+            testCase.verifySubstring(text, ...
+                '{ (Uint16)19u, (Uint16)2u }');
+            testCase.verifySubstring(text, ...
+                '{ (Uint16)14u, (Uint16)2u }');
+            testCase.verifySubstring(text, ...
+                'C2837X_BLOCK_SCI_PIN_STANDARD');
+            testCase.verifySubstring(text, ...
+                'C2837X_BLOCK_SCI_QUALIFICATION_SYNC');
+            testCase.verifySubstring(text, ...
+                'C2837X_BLOCK_SCI_PIN_PULLUP');
+            testCase.verifySubstring(text, ...
+                'C2837X_BLOCK_SCI_NO_CTRL_GPIO');
+            testCase.verifySubstring(text, ...
+                '&c2837x_block_sci_iodevice_ops');
+            testCase.verifySubstring(text, ...
+                '&c2837x_block_sci_b_iodevice_channel');
+            testCase.verifyEmpty(regexp(lower(text), ...
+                '\b(requested_baud|actual_baud|baud_error|pin_group|com)\b', ...
+                'once'));
+        end
+
+        function testCtrlEndpointIsGeneratedWhenSelected(testCase)
+            instance = sci_instance('sci_b', 'SCI-B', 'GPIO19', 'GPIO14');
+            instance.iodevice.settings.ctrl_gpio = 'GPIO99';
+            instance.iodevice.settings.ctrl_tx_active_level = 'High';
+            project = project_with_instances(instance);
+
+            rendered = c2837x_block_render_dsp_instance_config_files(project);
+            text = native2unicode(rendered.config_source_bytes, 'UTF-8');
+
+            testCase.verifySubstring(text, '(Uint16)99u');
+            testCase.verifySubstring(text, ...
+                'C2837X_BLOCK_SCI_PIN_STANDARD');
+            testCase.verifySubstring(text, ...
+                'C2837X_BLOCK_SCI_CTRL_TX_ACTIVE_HIGH');
+            testCase.verifyEmpty(strfind(text, ...
+                'C2837X_BLOCK_SCI_NO_CTRL_GPIO'));
+        end
+
+        function testInstanceIoRendersIndependentMutableChannel(testCase)
+            project = project_with_instances(sci_instance( ...
+                'sci_b', 'SCI-B', 'GPIO19', 'GPIO14'));
+
+            rendered = c2837x_block_render_dsp_instance_io_files(project);
+            text = native2unicode(rendered.io_source_bytes, 'UTF-8');
+
+            testCase.verifySubstring(text, ...
+                'C2837xBlock_SciChannel');
+            testCase.verifySubstring(text, ...
+                'c2837x_block_sci_b_iodevice_channel');
+            testCase.verifySubstring(text, ...
+                'C2837X_BLOCK_SCI_CHANNEL_INITIALIZER');
+            testCase.verifySubstring(text, ...
+                '&c2837x_block_sci_b_sci_descriptor');
+            testCase.verifyEmpty(regexp(text, ...
+                'static\s+C2837xBlock_SciChannel', 'once'));
+            testCase.verifyEmpty(regexp(lower(text), ...
+                '\b(shared|g_ctx|pin_group|com)\b', 'once'));
+        end
+
+        function testInterfaceHashIgnoresSciHardwareSettings(testCase)
+            project = project_with_instances(sci_instance( ...
+                'sci_b', 'SCI-B', 'GPIO19', 'GPIO14'));
+            [firstText, firstHash] = c2837x_block_build_interface_hash(project, 1);
+
+            project.instances.iodevice.settings.module = 'SCI-A';
+            project.instances.iodevice.settings.baud = uint32(57600);
+            project.instances.iodevice.settings.rx_gpio = 'GPIO9';
+            project.instances.iodevice.settings.tx_gpio = 'GPIO8';
+            project.instances.iodevice.settings.rx_pin_type = 'Pull-up';
+            project.instances.iodevice.settings.rx_qualification = 'Async';
+            project.instances.iodevice.settings.tx_pin_type = 'Standard';
+            project.instances.iodevice.settings.ctrl_gpio = 'GPIO99';
+            project.instances.iodevice.settings.ctrl_pin_type = 'Pull-up';
+            project.instances.iodevice.settings.ctrl_tx_active_level = 'High';
+            [secondText, secondHash] = c2837x_block_build_interface_hash(project, 1);
+
+            testCase.verifyEqual(secondText, firstText);
+            testCase.verifyEqual(secondHash, firstHash);
+        end
+
+        function testTwoSciInstanceSymbolsAreIsolated(testCase)
+            first = sci_instance('sci_b', 'SCI-B', 'GPIO19', 'GPIO14');
+            second = sci_instance('sci_a', 'SCI-A', 'GPIO9', 'GPIO8');
+            project = project_with_instances([first second]);
+
+            config = c2837x_block_render_dsp_instance_config_files(project);
+            io = c2837x_block_render_dsp_instance_io_files(project);
+            firstConfig = native2unicode(config(1).config_source_bytes, 'UTF-8');
+            secondConfig = native2unicode(config(2).config_source_bytes, 'UTF-8');
+            firstIo = native2unicode(io(1).io_source_bytes, 'UTF-8');
+            secondIo = native2unicode(io(2).io_source_bytes, 'UTF-8');
+
+            testCase.verifySubstring(firstConfig, ...
+                'c2837x_block_sci_b_sci_descriptor');
+            testCase.verifySubstring(secondConfig, ...
+                'c2837x_block_sci_a_sci_descriptor');
+            testCase.verifyEmpty(strfind(firstConfig, ...
+                'c2837x_block_sci_a_sci_descriptor'));
+            testCase.verifyEmpty(strfind(secondConfig, ...
+                'c2837x_block_sci_b_sci_descriptor'));
+            testCase.verifySubstring(firstIo, ...
+                'c2837x_block_sci_b_iodevice_channel');
+            testCase.verifySubstring(secondIo, ...
+                'c2837x_block_sci_a_iodevice_channel');
+            testCase.verifyEmpty(strfind(firstIo, ...
+                'c2837x_block_sci_a_iodevice_channel'));
+            testCase.verifyEmpty(strfind(secondIo, ...
+                'c2837x_block_sci_b_iodevice_channel'));
         end
     end
 end
