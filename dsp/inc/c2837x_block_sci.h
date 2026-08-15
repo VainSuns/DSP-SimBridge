@@ -1,7 +1,7 @@
 #ifndef C2837X_BLOCK_SCI_H
 #define C2837X_BLOCK_SCI_H
 
-#include "F28x_Project.h"
+#include "c2837x_block_iodevice.h"
 
 /*
  * SCI-S2-03 descriptor contract.
@@ -86,9 +86,8 @@ typedef struct
 #define C2837X_BLOCK_SCI_MAX_GPIO  168u
 
 /*
- * S2-03 runtime foundation only.  These fields are software bookkeeping;
- * no SCI peripheral state is cached here and no later-stage state machine is
- * implied by their presence.
+ * SCI channel runtime is intentionally per-instance.  The connection state
+ * is logical; no SCI peripheral state is cached here.
  */
 typedef struct
 {
@@ -96,6 +95,8 @@ typedef struct
     Uint16 rx_staging_valid;
     Uint16 software_pending;
     Uint16 ctrl_tx_active;
+    C2837xBlock_IoConnectionState connection_state;
+    Uint16 session_cleanup_done;
 } C2837xBlock_SciChannelRuntime;
 
 typedef struct
@@ -105,9 +106,12 @@ typedef struct
 } C2837xBlock_SciChannel;
 
 #define C2837X_BLOCK_SCI_CHANNEL_INITIALIZER(config_ptr_) \
-    { (config_ptr_), { 0u, 0u, 0u, 0u } }
+    { (config_ptr_), { 0u, 0u, 0u, 0u, \
+                       C2837X_IODEVICE_CONNECTION_CLOSED, 0u } }
 
-/* Resets only this channel's software runtime and CTRL direction latch. */
+/* Initializes this channel; the first open->listen owns initial cleanup. */
 void c2837x_block_sci_channel_init(C2837xBlock_SciChannel *channel);
+
+extern const C2837xBlock_IoDeviceOps c2837x_block_sci_iodevice_ops;
 
 #endif /* C2837X_BLOCK_SCI_H */

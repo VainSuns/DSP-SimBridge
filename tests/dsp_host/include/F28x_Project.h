@@ -104,6 +104,21 @@ typedef union {
 typedef union {
     Uint16 all;
     struct {
+        Uint16 reserved0 : 1;
+        Uint16 RXWAKE : 1;
+        Uint16 PE : 1;
+        Uint16 OE : 1;
+        Uint16 FE : 1;
+        Uint16 BRKDT : 1;
+        Uint16 RXRDY : 1;
+        Uint16 RXERROR : 1;
+        Uint16 reserved1 : 8;
+    } bit;
+} TEST_SCIRXST_REG;
+
+typedef union {
+    Uint16 all;
+    struct {
         Uint16 TXFFIL : 5;
         Uint16 TXFFIENA : 1;
         Uint16 TXFFINTCLR : 1;
@@ -150,7 +165,7 @@ struct SCI_REGS {
     TEST_SCI_BAUD_REG SCIHBAUD;
     TEST_SCI_BAUD_REG SCILBAUD;
     TEST_SCICTL2_REG SCICTL2;
-    TEST_SCI_PLAIN_REG SCIRXST;
+    TEST_SCIRXST_REG SCIRXST;
     TEST_SCI_PLAIN_REG SCIRXEMU;
     TEST_SCI_PLAIN_REG SCIRXBUF;
     Uint16 reserved0;
