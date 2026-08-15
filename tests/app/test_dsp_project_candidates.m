@@ -130,7 +130,8 @@ classdef test_dsp_project_candidates < matlab.unittest.TestCase
             write_bytes(fullfile(generatedInc, 'c2837x_block_project.h'), bytes.header);
             write_bytes(fullfile(generatedSrc, 'c2837x_block_project.c'), bytes.source);
             for name = {'c2837x_block_internal.h', ...
-                    'c2837x_block_config_internal.h'}
+                    'c2837x_block_config_internal.h', ...
+                    'c2837x_block_platform.h'}
                 copyfile(fullfile(testCase.RepositoryRoot, 'dsp', 'src', name{1}), ...
                     fullfile(generatedSrc, name{1}));
             end

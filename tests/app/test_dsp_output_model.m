@@ -61,6 +61,65 @@ classdef test_dsp_output_model < matlab.unittest.TestCase
             testCase.verifyFalse(isfolder(stringProject.output.dsp_root));
         end
 
+        function testProjectPlatformConfigTracksActualIoDevices(testCase)
+            w5300 = platform_project(testCase.WorkFolder, 'w5300');
+            sci = platform_project(testCase.WorkFolder, 'sci');
+            mixed = platform_project(testCase.WorkFolder, 'mixed');
+
+            w5300Model = c2837x_block_build_dsp_output_model(w5300);
+            sciModel = c2837x_block_build_dsp_output_model(sci);
+            mixedModel = c2837x_block_build_dsp_output_model(mixed);
+
+            testCase.verifyTrue(w5300Model.platform_config.use_w5300);
+            testCase.verifyEmpty(w5300Model.platform_config.sci_descriptors);
+            testCase.verifyFalse(sciModel.platform_config.use_w5300);
+            testCase.verifyNumElements( ...
+                sciModel.platform_config.sci_descriptors, 1);
+            testCase.verifyTrue(mixedModel.platform_config.use_w5300);
+            testCase.verifyNumElements( ...
+                mixedModel.platform_config.sci_descriptors, 1);
+
+            descriptor = sciModel.platform_config.sci_descriptors;
+            testCase.verifyEqual(descriptor.module, 'SCI-B');
+            testCase.verifyEqual(descriptor.baud, uint32(115200));
+            testCase.verifyEqual(descriptor.rx_gpio, 'GPIO19');
+            testCase.verifyEqual(descriptor.tx_gpio, 'GPIO14');
+            testCase.verifyEqual(descriptor.rx_pin_type, 'Standard');
+            testCase.verifyEqual(descriptor.rx_qualification, 'Sync');
+            testCase.verifyEqual(descriptor.tx_pin_type, 'Pull-up');
+            testCase.verifyEqual(descriptor.ctrl_gpio, 'None');
+            testCase.verifyEqual(descriptor.ctrl_pin_type, 'Standard');
+            testCase.verifyEqual(descriptor.ctrl_tx_active_level, 'Low');
+            testCase.verifyEqual( ...
+                sciModel.platform_config.sci_clock.lspclk_divisor, 14);
+            platformFields = cellfun(@lower, ...
+                fieldnames(sciModel.platform_config), 'UniformOutput', false);
+            descriptorFields = cellfun(@lower, fieldnames(descriptor), ...
+                'UniformOutput', false);
+            testCase.verifyFalse(any(contains(platformFields, ...
+                {'com', 'pin_group'})));
+            testCase.verifyFalse(any(contains(descriptorFields, ...
+                {'com', 'pin_group'})));
+        end
+
+        function testProjectRendererUsesCoreV2AndPlatformConfig(testCase)
+            project = platform_project(testCase.WorkFolder, 'mixed');
+            rendered = c2837x_block_render_dsp_project_files(project);
+            header = native2unicode(rendered.header_bytes, 'UTF-8');
+            source = native2unicode(rendered.source_bytes, 'UTF-8');
+
+            testCase.verifyNotEmpty(regexp(header, ...
+                'C2837X_BLOCK_EXPECTED_CORE_API_VERSION\s+2u', 'once'));
+            testCase.verifyNotEmpty(regexp(source, ...
+                'C2837X_BLOCK_EXPECTED_CORE_API_VERSION\s+2u', 'once'));
+            testCase.verifyNotEmpty(regexp(source, ...
+                'C2837xBlock_PlatformConfig', 'once'));
+            testCase.verifyNotEmpty(regexp(source, ...
+                'c2837x_block_project_sci_descriptors,\s*1u', 'once'));
+            testCase.verifyEmpty(regexp(lower([header source]), ...
+                '\b(com|pin_group)\b', 'once'));
+        end
+
         function testRejectsPathEscapingInstanceName(testCase)
             project = two_instance_project(testCase.WorkFolder);
             project.instances(1).internal_name = '../escape';
@@ -149,6 +208,42 @@ second.internal_name = 'voltage_loop';
 second.iodevice.settings.socket_number = uint16(1);
 second.iodevice.settings.tcp_port = uint16(5001);
 project.instances = [first second];
+end
+
+function project = platform_project(root, mode)
+project = c2837x_block_create_default_project();
+project.output.dsp_root = c2837x_block_normalize_absolute_path( ...
+    fullfile(root, [mode '_dsp']));
+
+w5300 = c2837x_block_create_default_instance();
+w5300.display_name = 'Network';
+w5300.internal_name = 'network';
+
+sci = c2837x_block_create_default_instance();
+sci.display_name = 'Serial';
+sci.internal_name = 'serial';
+sci.iodevice = c2837x_block_create_iodevice('sci');
+sci.iodevice.settings.module = 'SCI-B';
+sci.iodevice.settings.baud = uint32(115200);
+sci.iodevice.settings.rx_gpio = 'GPIO19';
+sci.iodevice.settings.tx_gpio = 'GPIO14';
+sci.iodevice.settings.rx_pin_type = 'Standard';
+sci.iodevice.settings.rx_qualification = 'Sync';
+sci.iodevice.settings.tx_pin_type = 'Pull-up';
+sci.iodevice.settings.ctrl_gpio = 'None';
+sci.iodevice.settings.ctrl_pin_type = 'Standard';
+sci.iodevice.settings.ctrl_tx_active_level = 'Low';
+
+switch mode
+    case 'w5300'
+        project.instances = w5300;
+    case 'sci'
+        project.instances = sci;
+    case 'mixed'
+        project.instances = [w5300 sci];
+    otherwise
+        error('test_dsp_output_model:InvalidMode', 'Unknown platform mode.');
+end
 end
 
 function paths = fixed_core_paths()

@@ -1,10 +1,11 @@
 function model = c2837x_block_build_dsp_output_model(project)
-%C2837X_BLOCK_BUILD_DSP_OUTPUT_MODEL Describe the complete DSP output tree.
+%C2837X_BLOCK_BUILD_DSP_OUTPUT_MODEL Describe the DSP tree and platform data.
 
 c2837x_block_validate_project_structure(project);
 dspRoot = canonical_root(project.output.dsp_root);
 appRoot = fileparts(mfilename('fullpath'));
 repositoryRoot = fileparts(appRoot);
+platformConfig = build_platform_config(project);
 
 prototype = struct('relative_path', '', 'target_path', '', 'category', '', ...
     'owner', '', 'instance_index', 0, 'file_scope', '', ...
@@ -93,7 +94,8 @@ if numel(unique(foldedPaths)) ~= numel(paths)
 end
 model = struct('schema_version', uint16(1), 'dsp_root', dspRoot, ...
     'inc_root', fullfile(dspRoot, 'inc'), ...
-    'src_root', fullfile(dspRoot, 'src'), 'files', files);
+    'src_root', fullfile(dspRoot, 'src'), ...
+    'platform_config', platformConfig, 'files', files);
 
     function value = make_file(relativePath, category, owner, instanceIndex, ...
             fileScope, responsibility, sourcePath, candidateAvailable)
@@ -119,6 +121,62 @@ model = struct('schema_version', uint16(1), 'dsp_root', dspRoot, ...
             'responsibility', responsibility, 'source_path', sourcePath, ...
             'candidate_available', logical(candidateAvailable));
     end
+end
+
+function platformConfig = build_platform_config(project)
+% Keep this collection at project scope; instance binding is a later stage.
+descriptorPrototype = struct( ...
+    'module', '', ...
+    'baud', uint32(0), ...
+    'rx_gpio', '', ...
+    'tx_gpio', '', ...
+    'rx_pin_type', '', ...
+    'rx_qualification', '', ...
+    'tx_pin_type', '', ...
+    'ctrl_gpio', '', ...
+    'ctrl_pin_type', '', ...
+    'ctrl_tx_active_level', '');
+sciDescriptors = repmat(descriptorPrototype, 1, 0);
+useW5300 = false;
+
+for index = 1:numel(project.instances)
+    instance = project.instances(index);
+    type = char(instance.iodevice.type);
+    if strcmp(type, 'w5300_tcp')
+        useW5300 = true;
+    elseif strcmp(type, 'sci')
+        settings = instance.iodevice.settings;
+        descriptor = descriptorPrototype;
+        descriptor.module = text_value(settings.module);
+        descriptor.baud = uint32(double(settings.baud));
+        descriptor.rx_gpio = text_value(settings.rx_gpio);
+        descriptor.tx_gpio = text_value(settings.tx_gpio);
+        descriptor.rx_pin_type = text_value(settings.rx_pin_type);
+        descriptor.rx_qualification = text_value(settings.rx_qualification);
+        descriptor.tx_pin_type = text_value(settings.tx_pin_type);
+        descriptor.ctrl_gpio = text_value(settings.ctrl_gpio);
+        descriptor.ctrl_pin_type = text_value(settings.ctrl_pin_type);
+        descriptor.ctrl_tx_active_level = ...
+            text_value(settings.ctrl_tx_active_level);
+        sciDescriptors(end + 1) = descriptor; %#ok<AGROW>
+    end
+end
+
+platformConfig = struct( ...
+    'use_w5300', logical(useW5300), ...
+    'sci_descriptors', sciDescriptors, ...
+    'sci_clock', c2837x_block_get_sci_clock_config());
+end
+
+function value = text_value(candidate)
+if ischar(candidate) && isrow(candidate)
+    value = candidate;
+elseif isstring(candidate) && isscalar(candidate) && ~ismissing(candidate)
+    value = char(candidate);
+else
+    error('C2837xBlock:DspOutput:InvalidPlatformText', ...
+        'SCI platform settings must be scalar text.');
+end
 end
 
 function root = canonical_root(value)

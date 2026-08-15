@@ -274,13 +274,14 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
             testCase.verifyEmpty(inactive);
         end
 
-        function testGeneratorHooksFailAtStageBoundary(testCase)
+        function testProjectSupportStopsAtStageBoundary(testCase)
             definition = c2837x_block_get_iodevice_definition('sci');
             project = project_with_instances(sci_instance( ...
                 'sci_a', 'SCI-A', 'GPIO9', 'GPIO8'));
 
-            testCase.verifyError(@() definition.render_project_support(project), ...
-                'C2837xBlock:IoDevice:SciGenerationUnavailable');
+            projectSupport = definition.render_project_support(project);
+            testCase.verifyEmpty(projectSupport.includes);
+            testCase.verifyEmpty(projectSupport.source);
             testCase.verifyError(@() definition.render_instance_config_support( ...
                 project, 1), 'C2837xBlock:IoDevice:SciGenerationUnavailable');
             testCase.verifyError(@() definition.render_instance_io_support( ...
