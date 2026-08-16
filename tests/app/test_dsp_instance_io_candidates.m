@@ -183,14 +183,18 @@ classdef test_dsp_instance_io_candidates < matlab.unittest.TestCase
         function testGoldenWireAndGeneratedObjects(testCase)
             project = wire_project(testCase.WorkFolder, {'axis_x'});
             candidates = c2837x_block_build_dsp_candidates(project);
-            write_candidates(candidates);
+            write_candidates(candidates, project.output.dsp_root, ...
+                {'src/c2837x_block_platform.h', ...
+                'src/c2837x_block_platform.c'});
             generatedInc = fullfile(project.output.dsp_root, 'inc');
             generatedSrc = fullfile(project.output.dsp_root, 'src');
             hostInclude = fullfile(testCase.RepositoryRoot, 'tests', ...
                 'dsp_host', 'include');
             flags = sprintf('-std=c11 -O2 -Wall -Wextra -Werror -fstrict-aliasing -Wstrict-aliasing=2 -mlong-double-64 -I"%s" -I"%s" -I"%s" -I"%s"', ...
-                hostInclude, fullfile(testCase.RepositoryRoot, 'dsp', 'inc'), ...
-                fullfile(testCase.RepositoryRoot, 'dsp', 'src'), generatedInc);
+                generatedInc, hostInclude, ...
+                fullfile(testCase.RepositoryRoot, 'dsp', 'inc'), ...
+                fullfile(testCase.RepositoryRoot, 'dsp', 'src'));
+            verify_generated_include_authority(testCase, flags, generatedInc);
             probeObject = fullfile(testCase.WorkFolder, 'long_double_probe.o');
             [probeStatus, probeOutput] = system(sprintf( ...
                 'echo int x;| gcc -mlong-double-64 -x c -c - -o "%s" 2>&1', ...
@@ -207,8 +211,10 @@ classdef test_dsp_instance_io_candidates < matlab.unittest.TestCase
             testCase.verifyEqual(status, 0, output);
             testCase.verifySubstring(output, 's3_05_wire=ok');
 
-            objects = {'c2837x_block_project.c', 'axis_x_config.c', ...
-                'axis_x_io.c', 'axis_x_algorithm.c'};
+            % test_provider has no production transport. Keep this wire test
+            % at the generated IO/algorithm boundary; production project and
+            % Platform compilation is covered by transport closure tests.
+            objects = {'axis_x_io.c', 'axis_x_algorithm.c'};
             for index = 1:numel(objects)
                 source = fullfile(generatedSrc, objects{index});
                 object = fullfile(testCase.WorkFolder, [objects{index} '.o']);
@@ -221,22 +227,26 @@ classdef test_dsp_instance_io_candidates < matlab.unittest.TestCase
         function testGeneratedDualInstanceCoreBinding(testCase)
             project = binding_project(testCase.WorkFolder);
             candidates = c2837x_block_build_dsp_candidates(project);
-            write_candidates(candidates);
+            write_candidates(candidates, project.output.dsp_root, ...
+                {'src/c2837x_block_platform.h'});
             generatedInc = fullfile(project.output.dsp_root, 'inc');
             generatedSrc = fullfile(project.output.dsp_root, 'src');
+            testProviderPlatformInclude = fullfile(testCase.RepositoryRoot, ...
+                'tests', 'dsp_host', 'include', 'test_provider_platform');
             flags = sprintf(['-std=c11 -O2 -Wall -Wextra -Werror ' ...
                 '-fstrict-aliasing -Wstrict-aliasing=2 -mlong-double-64 ' ...
-                '-I"%s" -I"%s" -I"%s" -I"%s"'], ...
+                '-I"%s" -I"%s" -I"%s" -I"%s" -I"%s"'], ...
+                generatedInc, testProviderPlatformInclude, ...
                 fullfile(testCase.RepositoryRoot, 'tests', 'dsp_host', 'include'), ...
                 fullfile(testCase.RepositoryRoot, 'dsp', 'inc'), ...
-                fullfile(testCase.RepositoryRoot, 'dsp', 'src'), generatedInc);
+                fullfile(testCase.RepositoryRoot, 'dsp', 'src'));
+            verify_generated_include_authority(testCase, flags, generatedInc);
             sources = { ...
                 fullfile(testCase.RepositoryRoot, 'tests', 'dsp_host', ...
                 's3_05_generated_binding_test.c'), ...
                 fullfile(testCase.RepositoryRoot, 'dsp', 'src', 'c2837x_block.c'), ...
                 fullfile(testCase.RepositoryRoot, 'dsp', 'src', ...
                 'c2837x_block_protocol.c'), ...
-                fullfile(generatedSrc, 'c2837x_block_project.c'), ...
                 fullfile(generatedSrc, 'axis_a_config.c'), ...
                 fullfile(generatedSrc, 'axis_a_io.c'), ...
                 fullfile(generatedSrc, 'axis_a_algorithm.c'), ...
@@ -324,16 +334,46 @@ values = struct( ...
     'dim', {1, 1, 2, 1, 6, 6});
 end
 
-function write_candidates(candidates)
+function write_candidates(candidates, dspRoot, excludedPaths)
+if nargin < 3
+    excludedPaths = {};
+end
+rootPrefix = [dspRoot filesep];
 for index = 1:numel(candidates)
-    folder = fileparts(candidates(index).target_path);
+    targetPath = candidates(index).target_path;
+    if ~startsWith(targetPath, rootPrefix)
+        error('C2837xBlock:Test:CandidateOutsideDspRoot', ...
+            'Candidate target is outside the generated DSP root.');
+    end
+    relativePath = strrep( ...
+        targetPath(numel(rootPrefix) + 1:end), filesep, '/');
+    if any(strcmp(relativePath, excludedPaths))
+        continue;
+    end
+    folder = fileparts(targetPath);
     if ~isfolder(folder), mkdir(folder); end
-    fileID = fopen(candidates(index).target_path, 'wb');
+    fileID = fopen(targetPath, 'wb');
     assert(fileID >= 0);
     cleanup = onCleanup(@() fclose(fileID));
     fwrite(fileID, candidates(index).content_bytes, 'uint8');
     clear cleanup
 end
+end
+
+function verify_generated_include_authority(testCase, flags, generatedInc)
+generatedFlag = ['-I"' generatedInc '"'];
+hostFlag = ['-I"' fullfile(testCase.RepositoryRoot, 'tests', ...
+    'dsp_host', 'include') '"'];
+repositoryFlag = ['-I"' fullfile(testCase.RepositoryRoot, 'dsp', ...
+    'inc') '"'];
+generatedPosition = strfind(flags, generatedFlag);
+hostPosition = strfind(flags, hostFlag);
+repositoryPosition = strfind(flags, repositoryFlag);
+testCase.verifyTrue(isscalar(generatedPosition));
+testCase.verifyTrue(isscalar(hostPosition));
+testCase.verifyTrue(isscalar(repositoryPosition));
+testCase.verifyLessThan(generatedPosition, hostPosition);
+testCase.verifyLessThan(hostPosition, repositoryPosition);
 end
 
 function write_shadow_renderer(folder, count)

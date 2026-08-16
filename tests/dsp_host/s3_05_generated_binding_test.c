@@ -12,6 +12,14 @@ extern TestProviderChannel c2837x_block_axis_a_iodevice_channel;
 extern TestProviderChannel c2837x_block_axis_b_iodevice_channel;
 extern AxisA_InputData c2837x_block_axis_a_input_object;
 extern AxisB_InputData c2837x_block_axis_b_input_object;
+extern const C2837xBlock_Config c2837x_block_axis_a_config;
+extern const C2837xBlock_Config c2837x_block_axis_b_config;
+
+/* Test-only binding seam: this provider fixture has no Platform transport. */
+C2837xBlock g_axis_a =
+    C2837X_BLOCK_INSTANCE_INITIALIZER(&c2837x_block_axis_a_config);
+C2837xBlock g_axis_b =
+    C2837X_BLOCK_INSTANCE_INITIALIZER(&c2837x_block_axis_b_config);
 
 static Uint32 now_us;
 Uint32 c2837x_block_time_us(void) { return now_us++; }

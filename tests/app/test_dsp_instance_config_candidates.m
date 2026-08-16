@@ -391,6 +391,7 @@ write_text(mainPath, sprintf([ ...
     '#include "c2837x_block_project.h"\n' ...
     'void use_project(void) { C2837xBlock_Init(&g_axis_x); }\n']));
 flags = include_flags(testCase.RepositoryRoot, generatedInc);
+verify_generated_include_authority(testCase, flags, generatedInc);
 compile_ok(testCase, flags, fullfile(generatedSrc, ...
     'c2837x_block_project.c'), fullfile(testCase.WorkFolder, 'project.o'));
 compile_ok(testCase, flags, mainPath, fullfile(testCase.WorkFolder, 'main.o'));
@@ -411,6 +412,7 @@ mkdir(generatedInc); mkdir(generatedSrc);
 write_generated_candidates(candidates, generatedInc, generatedSrc);
 write_internal_headers(testCase.RepositoryRoot, generatedSrc);
 flags = include_flags(testCase.RepositoryRoot, generatedInc);
+verify_generated_include_authority(testCase, flags, generatedInc);
 source = fullfile(generatedSrc, 'axis_x_config.c');
 userPath = fullfile(generatedInc, 'axis_x_user_config.h');
 valid = {'1', '1000u', '5000u', '2147483u', '(1000u + 1u)'};
@@ -469,8 +471,25 @@ end
 
 function flags = include_flags(repositoryRoot, generatedInc)
 flags = sprintf('-I"%s" -I"%s" -I"%s"', ...
+    generatedInc, ...
     fullfile(repositoryRoot, 'tests', 'dsp_host', 'include'), ...
-    fullfile(repositoryRoot, 'dsp', 'inc'), generatedInc);
+    fullfile(repositoryRoot, 'dsp', 'inc'));
+end
+
+function verify_generated_include_authority(testCase, flags, generatedInc)
+generatedFlag = ['-I"' generatedInc '"'];
+hostFlag = ['-I"' fullfile(testCase.RepositoryRoot, 'tests', ...
+    'dsp_host', 'include') '"'];
+repositoryFlag = ['-I"' fullfile(testCase.RepositoryRoot, 'dsp', ...
+    'inc') '"'];
+generatedPosition = strfind(flags, generatedFlag);
+hostPosition = strfind(flags, hostFlag);
+repositoryPosition = strfind(flags, repositoryFlag);
+testCase.verifyTrue(isscalar(generatedPosition));
+testCase.verifyTrue(isscalar(hostPosition));
+testCase.verifyTrue(isscalar(repositoryPosition));
+testCase.verifyLessThan(generatedPosition, hostPosition);
+testCase.verifyLessThan(hostPosition, repositoryPosition);
 end
 
 function write_internal_headers(repositoryRoot, generatedSrc)
