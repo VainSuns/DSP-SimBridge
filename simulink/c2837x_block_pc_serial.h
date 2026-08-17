@@ -58,23 +58,35 @@ typedef struct
 
 typedef struct
 {
-    uint32_t baud_rate;
-    uint32_t byte_size;
-    uint32_t parity;
-    uint32_t stop_bits;
-    uint32_t binary;
-    uint32_t parity_check;
-    uint32_t out_cts_flow;
-    uint32_t out_dsr_flow;
-    uint32_t dtr_control;
-    uint32_t dsr_sensitivity;
-    uint32_t tx_continue_on_xoff;
-    uint32_t out_x;
-    uint32_t in_x;
-    uint32_t error_char;
-    uint32_t null;
-    uint32_t rts_control;
-    uint32_t abort_on_error;
+    /* Keep the test DCB field names aligned with Win32's DCB structure. */
+    uint32_t DCBlength;
+    uint32_t BaudRate;
+    uint32_t fBinary;
+    uint32_t fParity;
+    uint32_t fOutxCtsFlow;
+    uint32_t fOutxDsrFlow;
+    uint32_t fDtrControl;
+    uint32_t fDsrSensitivity;
+    uint32_t fTXContinueOnXoff;
+    uint32_t fOutX;
+    uint32_t fInX;
+    uint32_t fErrorChar;
+    uint32_t fNull;
+    uint32_t fRtsControl;
+    uint32_t fAbortOnError;
+    uint32_t fDummy2;
+    uint16_t wReserved;
+    uint16_t XonLim;
+    uint16_t XoffLim;
+    uint8_t ByteSize;
+    uint8_t Parity;
+    uint8_t StopBits;
+    uint8_t XonChar;
+    uint8_t XoffChar;
+    uint8_t ErrorChar;
+    uint8_t EofChar;
+    uint8_t EvtChar;
+    uint16_t wReserved1;
 } c2837x_pc_serial_test_dcb_t;
 
 typedef struct

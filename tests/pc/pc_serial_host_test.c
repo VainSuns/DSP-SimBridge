@@ -21,6 +21,7 @@ typedef struct
     uint32_t open_os_error;
     char opened_path[64];
     uint32_t close_calls;
+    c2837x_pc_serial_test_dcb_t driver_dcb;
     uint32_t configured_baud;
     c2837x_pc_serial_test_dcb_t configured_dcb;
     c2837x_pc_serial_test_timeouts_t timeout_history[FAKE_MAX_CALLS];
@@ -115,7 +116,7 @@ static int fake_get_dcb(uintptr_t native_handle,
         *os_error = fake->configure_os_error;
         return 0;
     }
-    memset(dcb, 0, sizeof(*dcb));
+    *dcb = fake->driver_dcb;
     *os_error = 0u;
     return 1;
 }
@@ -131,7 +132,7 @@ static int fake_set_dcb(uintptr_t native_handle,
         return 0;
     }
     fake->configured_dcb = *dcb;
-    fake->configured_baud = dcb->baud_rate;
+    fake->configured_baud = dcb->BaudRate;
     *os_error = 0u;
     return 1;
 }
@@ -262,6 +263,34 @@ static void initialize_fake(fake_serial_t *fake)
     fake->set_timeouts_success = 1;
     fake->read_success = 1;
     fake->write_success = 1;
+    fake->driver_dcb.DCBlength = (uint32_t)sizeof(fake->driver_dcb);
+    fake->driver_dcb.BaudRate = 38400u;
+    fake->driver_dcb.fBinary = 1u;
+    fake->driver_dcb.fParity = 1u;
+    fake->driver_dcb.fOutxCtsFlow = 1u;
+    fake->driver_dcb.fOutxDsrFlow = 1u;
+    fake->driver_dcb.fDtrControl = 1u;
+    fake->driver_dcb.fDsrSensitivity = 1u;
+    fake->driver_dcb.fTXContinueOnXoff = 0u;
+    fake->driver_dcb.fOutX = 1u;
+    fake->driver_dcb.fInX = 1u;
+    fake->driver_dcb.fErrorChar = 1u;
+    fake->driver_dcb.fNull = 1u;
+    fake->driver_dcb.fRtsControl = 1u;
+    fake->driver_dcb.fAbortOnError = 1u;
+    fake->driver_dcb.fDummy2 = 0x12345u;
+    fake->driver_dcb.wReserved = 0x1357u;
+    fake->driver_dcb.XonLim = 0x1111u;
+    fake->driver_dcb.XoffLim = 0x2222u;
+    fake->driver_dcb.ByteSize = 7u;
+    fake->driver_dcb.Parity = 2u;
+    fake->driver_dcb.StopBits = 2u;
+    fake->driver_dcb.XonChar = 0x11u;
+    fake->driver_dcb.XoffChar = 0x13u;
+    fake->driver_dcb.ErrorChar = 0xEEu;
+    fake->driver_dcb.EofChar = 0x1Au;
+    fake->driver_dcb.EvtChar = 0x7Eu;
+    fake->driver_dcb.wReserved1 = 0x2468u;
 }
 
 static int test_com_paths(void)
@@ -310,18 +339,39 @@ static int test_configuration_and_purge(void)
     c2837x_pc_serial_test_dcb_t *dcb;
 
     initialize_fake(&fake);
+    if (!check(fake.driver_dcb.XonChar != 0u &&
+            fake.driver_dcb.XoffChar != 0u &&
+            fake.driver_dcb.XonChar != fake.driver_dcb.XoffChar,
+            "driver provides legal XON/XOFF characters")) return 0;
     if (!check(open_and_configure(&fake, &serial, &error),
             "configuration setup")) return 0;
     dcb = &fake.configured_dcb;
-    if (!check(fake.configured_baud == 57600u && dcb->byte_size == 8u &&
-            dcb->parity == 0u && dcb->stop_bits == 0u && dcb->binary == 1u,
+    if (!check(fake.configured_baud == 57600u && dcb->BaudRate == 57600u &&
+            dcb->ByteSize == 8u && dcb->Parity == 0u &&
+            dcb->StopBits == 0u && dcb->fBinary == 1u,
             "requested baud and 8N1")) return 0;
-    if (!check(dcb->out_x == 0u && dcb->in_x == 0u &&
-            dcb->out_cts_flow == 0u && dcb->out_dsr_flow == 0u &&
-            dcb->dsr_sensitivity == 0u && dcb->tx_continue_on_xoff == 1u,
+    if (!check(dcb->fOutX == 0u && dcb->fInX == 0u &&
+            dcb->fOutxCtsFlow == 0u && dcb->fOutxDsrFlow == 0u &&
+            dcb->fDsrSensitivity == 0u && dcb->fTXContinueOnXoff == 1u &&
+            dcb->fParity == 0u && dcb->fErrorChar == 0u &&
+            dcb->fNull == 0u && dcb->fAbortOnError == 0u,
             "software and hardware flow control disabled")) return 0;
-    if (!check(dcb->dtr_control == 0u && dcb->rts_control == 0u,
+    if (!check(dcb->fDtrControl == 0u && dcb->fRtsControl == 0u,
             "DTR and RTS inactive")) return 0;
+    if (!check(dcb->DCBlength == fake.driver_dcb.DCBlength &&
+            dcb->fDummy2 == fake.driver_dcb.fDummy2 &&
+            dcb->wReserved == fake.driver_dcb.wReserved &&
+            dcb->XonLim == fake.driver_dcb.XonLim &&
+            dcb->XoffLim == fake.driver_dcb.XoffLim &&
+            dcb->XonChar == fake.driver_dcb.XonChar &&
+            dcb->XoffChar == fake.driver_dcb.XoffChar &&
+            dcb->ErrorChar == fake.driver_dcb.ErrorChar &&
+            dcb->EofChar == fake.driver_dcb.EofChar &&
+            dcb->EvtChar == fake.driver_dcb.EvtChar &&
+            dcb->wReserved1 == fake.driver_dcb.wReserved1 &&
+            dcb->XonChar != 0u && dcb->XoffChar != 0u &&
+            dcb->XonChar != dcb->XoffChar,
+            "driver DCB state including XON/XOFF is preserved")) return 0;
     if (!check(fake.purge_calls == 0u, "configure does not auto-purge")) return 0;
     if (!check(c2837x_pc_serial_purge(&serial,
             C2837X_PC_SERIAL_PURGE_RX | C2837X_PC_SERIAL_PURGE_TX,

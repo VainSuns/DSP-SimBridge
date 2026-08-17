@@ -22,27 +22,9 @@
 typedef c2837x_pc_serial_test_dcb_t c2837x_pc_serial_dcb_t;
 typedef c2837x_pc_serial_test_timeouts_t c2837x_pc_serial_timeouts_t;
 #else
-typedef struct
-{
-    uint32_t baud_rate;
-    uint32_t byte_size;
-    uint32_t parity;
-    uint32_t stop_bits;
-    uint32_t binary;
-    uint32_t parity_check;
-    uint32_t out_cts_flow;
-    uint32_t out_dsr_flow;
-    uint32_t dtr_control;
-    uint32_t dsr_sensitivity;
-    uint32_t tx_continue_on_xoff;
-    uint32_t out_x;
-    uint32_t in_x;
-    uint32_t error_char;
-    uint32_t null;
-    uint32_t rts_control;
-    uint32_t abort_on_error;
-} c2837x_pc_serial_dcb_t;
-
+#ifdef _WIN32
+typedef DCB c2837x_pc_serial_dcb_t;
+#endif
 typedef struct
 {
     uint32_t read_interval_timeout;
@@ -101,7 +83,7 @@ static int fail(c2837x_pc_serial_t *serial,
     return -1;
 }
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) || defined(C2837X_PC_SERIAL_TEST_SEAM)
 static int missing_hook(uint32_t *os_error)
 {
     if (os_error != NULL) {
@@ -165,33 +147,15 @@ static int native_close(uintptr_t native_handle, uint32_t *os_error)
     return 0;
 }
 
+#if !defined(C2837X_PC_SERIAL_TEST_SEAM)
 static int native_get_dcb(uintptr_t native_handle,
     c2837x_pc_serial_dcb_t *config, uint32_t *os_error)
 {
-    DCB dcb;
-    memset(&dcb, 0, sizeof(dcb));
-    dcb.DCBlength = sizeof(dcb);
-    if (!GetCommState((HANDLE)native_handle, &dcb)) {
+    config->DCBlength = sizeof(*config);
+    if (!GetCommState((HANDLE)native_handle, config)) {
         if (os_error != NULL) *os_error = (uint32_t)GetLastError();
         return 0;
     }
-    config->baud_rate = dcb.BaudRate;
-    config->byte_size = dcb.ByteSize;
-    config->parity = dcb.Parity;
-    config->stop_bits = dcb.StopBits;
-    config->binary = dcb.fBinary;
-    config->parity_check = dcb.fParity;
-    config->out_cts_flow = dcb.fOutxCtsFlow;
-    config->out_dsr_flow = dcb.fOutxDsrFlow;
-    config->dtr_control = dcb.fDtrControl;
-    config->dsr_sensitivity = dcb.fDsrSensitivity;
-    config->tx_continue_on_xoff = dcb.fTXContinueOnXoff;
-    config->out_x = dcb.fOutX;
-    config->in_x = dcb.fInX;
-    config->error_char = dcb.fErrorChar;
-    config->null = dcb.fNull;
-    config->rts_control = dcb.fRtsControl;
-    config->abort_on_error = dcb.fAbortOnError;
     if (os_error != NULL) *os_error = 0u;
     return 1;
 }
@@ -199,26 +163,7 @@ static int native_get_dcb(uintptr_t native_handle,
 static int native_set_dcb(uintptr_t native_handle,
     const c2837x_pc_serial_dcb_t *config, uint32_t *os_error)
 {
-    DCB dcb;
-    memset(&dcb, 0, sizeof(dcb));
-    dcb.DCBlength = sizeof(dcb);
-    dcb.BaudRate = config->baud_rate;
-    dcb.ByteSize = (BYTE)config->byte_size;
-    dcb.Parity = (BYTE)config->parity;
-    dcb.StopBits = (BYTE)config->stop_bits;
-    dcb.fBinary = config->binary != 0u;
-    dcb.fParity = config->parity_check != 0u;
-    dcb.fOutxCtsFlow = config->out_cts_flow != 0u;
-    dcb.fOutxDsrFlow = config->out_dsr_flow != 0u;
-    dcb.fDtrControl = config->dtr_control;
-    dcb.fDsrSensitivity = config->dsr_sensitivity != 0u;
-    dcb.fTXContinueOnXoff = config->tx_continue_on_xoff != 0u;
-    dcb.fOutX = config->out_x != 0u;
-    dcb.fInX = config->in_x != 0u;
-    dcb.fErrorChar = config->error_char != 0u;
-    dcb.fNull = config->null != 0u;
-    dcb.fRtsControl = config->rts_control;
-    dcb.fAbortOnError = config->abort_on_error != 0u;
+    DCB dcb = *config;
     if (!SetCommState((HANDLE)native_handle, &dcb)) {
         if (os_error != NULL) *os_error = (uint32_t)GetLastError();
         return 0;
@@ -226,6 +171,7 @@ static int native_set_dcb(uintptr_t native_handle,
     if (os_error != NULL) *os_error = 0u;
     return 1;
 }
+#endif
 
 static int native_set_timeouts(uintptr_t native_handle,
     const c2837x_pc_serial_timeouts_t *timeouts, uint32_t *os_error)
@@ -371,7 +317,7 @@ static int call_get_dcb(c2837x_pc_serial_t *serial,
             serial->test_user_data);
     }
 #endif
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(C2837X_PC_SERIAL_TEST_SEAM)
     return native_get_dcb(serial->native_handle, config, os_error);
 #else
     return missing_hook(os_error);
@@ -387,11 +333,33 @@ static int call_set_dcb(c2837x_pc_serial_t *serial,
             serial->test_user_data);
     }
 #endif
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(C2837X_PC_SERIAL_TEST_SEAM)
     return native_set_dcb(serial->native_handle, config, os_error);
 #else
     return missing_hook(os_error);
 #endif
+}
+
+static void apply_owned_dcb_settings(c2837x_pc_serial_dcb_t *config,
+    uint32_t requested_baud)
+{
+    config->BaudRate = requested_baud;
+    config->ByteSize = 8u;
+    config->Parity = (uint8_t)C2837X_PC_SERIAL_NOPARITY;
+    config->StopBits = (uint8_t)C2837X_PC_SERIAL_ONESTOPBIT;
+    config->fBinary = 1u;
+    config->fParity = 0u;
+    config->fOutxCtsFlow = 0u;
+    config->fOutxDsrFlow = 0u;
+    config->fDtrControl = C2837X_PC_SERIAL_DTR_DISABLED;
+    config->fDsrSensitivity = 0u;
+    config->fTXContinueOnXoff = 1u;
+    config->fOutX = 0u;
+    config->fInX = 0u;
+    config->fErrorChar = 0u;
+    config->fNull = 0u;
+    config->fRtsControl = C2837X_PC_SERIAL_RTS_DISABLED;
+    config->fAbortOnError = 0u;
 }
 
 static int call_set_timeouts(c2837x_pc_serial_t *serial,
@@ -706,28 +674,11 @@ int c2837x_pc_serial_configure(c2837x_pc_serial_t *serial,
     }
     serial->requested_baud = requested_baud;
     if (error != NULL) error->requested_baud = requested_baud;
-    memset(&config, 0, sizeof(config));
     if (!call_get_dcb(serial, &config, &os_error)) {
         return fail(serial, error, C2837X_PC_SERIAL_ERROR_OS, os_error, 0u, 0u);
     }
 
-    config.baud_rate = requested_baud;
-    config.byte_size = 8u;
-    config.parity = C2837X_PC_SERIAL_NOPARITY;
-    config.stop_bits = C2837X_PC_SERIAL_ONESTOPBIT;
-    config.binary = 1u;
-    config.parity_check = 0u;
-    config.out_cts_flow = 0u;
-    config.out_dsr_flow = 0u;
-    config.dtr_control = C2837X_PC_SERIAL_DTR_DISABLED;
-    config.dsr_sensitivity = 0u;
-    config.tx_continue_on_xoff = 1u;
-    config.out_x = 0u;
-    config.in_x = 0u;
-    config.error_char = 0u;
-    config.null = 0u;
-    config.rts_control = C2837X_PC_SERIAL_RTS_DISABLED;
-    config.abort_on_error = 0u;
+    apply_owned_dcb_settings(&config, requested_baud);
 
     if (!call_set_dcb(serial, &config, &os_error)) {
         return fail(serial, error, C2837X_PC_SERIAL_ERROR_OS, os_error, 0u, 0u);
