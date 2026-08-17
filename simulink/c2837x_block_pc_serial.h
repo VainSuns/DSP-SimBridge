@@ -12,6 +12,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "c2837x_block_pc_error.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -152,6 +154,11 @@ int c2837x_pc_serial_init_with_test_hooks(c2837x_pc_serial_t *serial,
 
 void c2837x_pc_serial_error_reset(c2837x_pc_serial_error_t *error,
     const char *operation);
+
+/* Map one transport result into the shared PC diagnostics contract. */
+void c2837x_pc_serial_error_to_pc_error(
+    const c2837x_pc_serial_error_t *serial_error, const char *instance,
+    const char *stage, uint32_t generated_baud, c2837x_pc_error_t *error);
 
 /* Convert a positive logical COM number to a native Windows device path. */
 int c2837x_pc_serial_format_path(uint32_t logical_com_number,

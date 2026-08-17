@@ -561,6 +561,83 @@ void c2837x_pc_serial_error_reset(c2837x_pc_serial_error_t *error,
     }
 }
 
+static const char *pc_error_stage_for_serial(
+    const c2837x_pc_serial_error_t *serial_error, const char *stage)
+{
+    if (stage != NULL && stage[0] != '\0') return stage;
+    if (serial_error != NULL && serial_error->operation != NULL &&
+            serial_error->operation[0] != '\0') {
+        if (strcmp(serial_error->operation, "open") == 0) {
+            return C2837X_PC_ERROR_STAGE_SERIAL_OPEN;
+        }
+        if (strcmp(serial_error->operation, "configure") == 0) {
+            return C2837X_PC_ERROR_STAGE_SERIAL_CONFIGURE;
+        }
+        if (strcmp(serial_error->operation, "purge") == 0) {
+            return C2837X_PC_ERROR_STAGE_SERIAL_PURGE;
+        }
+        return serial_error->operation;
+    }
+    return "serial";
+}
+
+static c2837x_pc_error_kind_t pc_error_kind_for_serial(
+    c2837x_pc_serial_error_kind_t kind)
+{
+    switch (kind) {
+    case C2837X_PC_SERIAL_ERROR_NONE:
+        return C2837X_PC_ERROR_NONE;
+    case C2837X_PC_SERIAL_ERROR_ARGUMENT:
+        return C2837X_PC_ERROR_ARGUMENT;
+    case C2837X_PC_SERIAL_ERROR_TIMEOUT:
+        return C2837X_PC_ERROR_TIMEOUT;
+    case C2837X_PC_SERIAL_ERROR_OS:
+        return C2837X_PC_ERROR_SERIAL;
+    case C2837X_PC_SERIAL_ERROR_INTERNAL:
+        return C2837X_PC_ERROR_INTERNAL;
+    default:
+        return C2837X_PC_ERROR_INTERNAL;
+    }
+}
+
+void c2837x_pc_serial_error_to_pc_error(
+    const c2837x_pc_serial_error_t *serial_error, const char *instance,
+    const char *stage, uint32_t generated_baud, c2837x_pc_error_t *error)
+{
+    uint32_t baud = generated_baud;
+    char system_error_text[C2837X_PC_ERROR_SYSTEM_TEXT_CAPACITY];
+
+    if (serial_error != NULL && baud == 0u) {
+        baud = serial_error->requested_baud;
+    }
+    c2837x_pc_error_reset(error, instance,
+        pc_error_stage_for_serial(serial_error, stage));
+    if (error == NULL) return;
+
+    error->kind = serial_error == NULL ? C2837X_PC_ERROR_ARGUMENT :
+        pc_error_kind_for_serial(serial_error->kind);
+    c2837x_pc_error_set_com_and_baud(error,
+        serial_error != NULL ? serial_error->com_number : 0u, baud);
+    if (serial_error == NULL) return;
+
+    if (serial_error->requested_bytes != 0u ||
+            serial_error->transferred_bytes != 0u) {
+        c2837x_pc_error_set_lengths(error, serial_error->requested_bytes,
+            serial_error->transferred_bytes);
+    }
+    if (serial_error->kind == C2837X_PC_SERIAL_ERROR_OS) {
+        error->available |= C2837X_PC_ERROR_HAS_OS_ERROR |
+            C2837X_PC_ERROR_HAS_OS_ERROR_CODE;
+        error->os_error = (int)serial_error->os_error;
+        error->os_error_code = serial_error->os_error;
+        if (serial_error->os_error != 0u &&
+                c2837x_pc_serial_get_system_error_text(serial_error->os_error,
+                    system_error_text, sizeof(system_error_text)) == 0) {
+            c2837x_pc_error_set_system_error_text(error, system_error_text);
+        }
+    }
+}
+
 int c2837x_pc_serial_format_path(uint32_t logical_com_number,
     char *path, size_t capacity)
 {
@@ -584,7 +661,7 @@ static int init_impl(c2837x_pc_serial_t *serial,
     uint32_t os_error = 0u;
 
     if (serial == NULL) {
-        c2837x_pc_serial_error_reset(error, "init");
+        c2837x_pc_serial_error_reset(error, "serial_init");
         if (error != NULL) error->kind = C2837X_PC_SERIAL_ERROR_ARGUMENT;
         return -1;
     }
@@ -600,7 +677,7 @@ static int init_impl(c2837x_pc_serial_t *serial,
     (void)hooks;
     (void)user_data;
 #endif
-    c2837x_pc_serial_error_reset(error, "init");
+    c2837x_pc_serial_error_reset(error, "serial_init");
     if (!call_query_frequency(serial, &serial->clock_frequency_hz, &os_error) ||
             serial->clock_frequency_hz == 0u) {
         return fail(serial, error, C2837X_PC_SERIAL_ERROR_OS, os_error, 0u, 0u);
@@ -621,7 +698,7 @@ int c2837x_pc_serial_init_with_test_hooks(c2837x_pc_serial_t *serial,
     c2837x_pc_serial_error_t *error)
 {
     if (hooks == NULL) {
-        c2837x_pc_serial_error_reset(error, "init");
+        c2837x_pc_serial_error_reset(error, "serial_init");
         if (error != NULL) error->kind = C2837X_PC_SERIAL_ERROR_ARGUMENT;
         return -1;
     }
@@ -636,7 +713,7 @@ int c2837x_pc_serial_open(c2837x_pc_serial_t *serial,
     uintptr_t native_handle = C2837X_PC_SERIAL_INVALID_HANDLE;
     uint32_t os_error = 0u;
 
-    c2837x_pc_serial_error_reset(error, "open");
+    c2837x_pc_serial_error_reset(error, C2837X_PC_ERROR_STAGE_SERIAL_OPEN);
     if (serial == NULL || !serial->initialized || serial->valid ||
             logical_com_number == 0u) {
         if (error != NULL) error->kind = C2837X_PC_SERIAL_ERROR_ARGUMENT;
@@ -667,7 +744,8 @@ int c2837x_pc_serial_configure(c2837x_pc_serial_t *serial,
     c2837x_pc_serial_timeouts_t timeouts;
     uint32_t os_error = 0u;
 
-    c2837x_pc_serial_error_reset(error, "configure");
+    c2837x_pc_serial_error_reset(error,
+        C2837X_PC_ERROR_STAGE_SERIAL_CONFIGURE);
     if (require_valid(serial, error) != 0 || requested_baud == 0u) {
         if (error != NULL) error->kind = C2837X_PC_SERIAL_ERROR_ARGUMENT;
         return -1;
@@ -699,7 +777,7 @@ int c2837x_pc_serial_purge(c2837x_pc_serial_t *serial, uint32_t flags,
     c2837x_pc_serial_error_t *error)
 {
     uint32_t os_error = 0u;
-    c2837x_pc_serial_error_reset(error, "purge");
+    c2837x_pc_serial_error_reset(error, C2837X_PC_ERROR_STAGE_SERIAL_PURGE);
     if (require_valid(serial, error) != 0 || flags == 0u ||
             (flags & ~(C2837X_PC_SERIAL_PURGE_RX |
                 C2837X_PC_SERIAL_PURGE_TX)) != 0u) {
@@ -718,7 +796,7 @@ int c2837x_pc_serial_deadline_start(const c2837x_pc_serial_t *serial,
     c2837x_pc_serial_error_t *error)
 {
     uint32_t os_error = 0u;
-    c2837x_pc_serial_error_reset(error, "deadline_start");
+    c2837x_pc_serial_error_reset(error, "serial_deadline_start");
     if (start_error(error, serial) != 0 || deadline == NULL) {
         if (error != NULL) error->kind = C2837X_PC_SERIAL_ERROR_ARGUMENT;
         return -1;
@@ -736,7 +814,7 @@ int c2837x_pc_serial_deadline_remaining(
     int *expired, c2837x_pc_serial_error_t *error)
 {
     uint32_t os_error = 0u;
-    c2837x_pc_serial_error_reset(error, "deadline_remaining");
+    c2837x_pc_serial_error_reset(error, "serial_deadline_remaining");
     if (start_error(error, serial) != 0 || deadline == NULL ||
             remaining_ms == NULL || expired == NULL) {
         if (error != NULL) error->kind = C2837X_PC_SERIAL_ERROR_ARGUMENT;
@@ -845,7 +923,7 @@ int c2837x_pc_serial_send_all(c2837x_pc_serial_t *serial,
     c2837x_pc_serial_deadline_t deadline;
     uint32_t os_error = 0u;
 
-    c2837x_pc_serial_error_reset(error, "write");
+    c2837x_pc_serial_error_reset(error, "serial_write");
     if (require_valid(serial, error) != 0 ||
             (length != 0u && data == NULL)) {
         if (error != NULL) error->kind = C2837X_PC_SERIAL_ERROR_ARGUMENT;
@@ -866,7 +944,7 @@ int c2837x_pc_serial_recv_exact(c2837x_pc_serial_t *serial, uint8_t *data,
     c2837x_pc_serial_deadline_t deadline;
     uint32_t os_error = 0u;
 
-    c2837x_pc_serial_error_reset(error, "read");
+    c2837x_pc_serial_error_reset(error, "serial_read");
     if (require_valid(serial, error) != 0 ||
             (length != 0u && data == NULL)) {
         if (error != NULL) error->kind = C2837X_PC_SERIAL_ERROR_ARGUMENT;

@@ -24,14 +24,14 @@ classdef test_sfun_build_candidates < matlab.unittest.TestCase
             model = c2837x_block_build_sfun_output_model( ...
                 build_project(testCase.WorkFolder));
 
-            testCase.verifyNumElements(model.files, 20);
+            testCase.verifyNumElements(model.files, 22);
             testCase.verifyEqual({model.files.relative_path}, expected_paths());
             testCase.verifyEqual([model.files.instance_index], ...
-                [ones(1, 10) 2 * ones(1, 10)]);
+                [ones(1, 11) 2 * ones(1, 11)]);
             testCase.verifyEqual({model.files.category}, expected_categories());
-            testCase.verifyNumElements(unique({model.files.owner}), 20);
+            testCase.verifyNumElements(unique({model.files.owner}), 22);
             alphaUser = model.files(5);
-            alphaBuild = model.files(10);
+            alphaBuild = model.files(11);
             testCase.verifyEqual(alphaUser.category, 'user');
             testCase.verifyEqual(alphaUser.owner, ...
                 'sfun-instance:axis_alpha:axis_alpha/axis_alpha_sfun_user_config.h');
@@ -294,22 +294,22 @@ end
 
 function paths = expected_paths()
 names = {'axis_alpha', 'axis_beta'};
-paths = cell(1, 20);
+            paths = cell(1, 22);
 for instanceIndex = 1:2
     name = names{instanceIndex};
     files = {[name '_sfun.c'], [name '_sfun.h'], [name '_sfun_io.c'], ...
         [name '_sfun_config.h'], [name '_sfun_user_config.h'], ...
-        [name '_pc_socket.c'], [name '_pc_socket.h'], ...
+        [name '_pc_error.h'], [name '_pc_socket.c'], [name '_pc_socket.h'], ...
         [name '_protocol.c'], [name '_protocol.h'], ['build_' name '_sfun.m']};
-    for fileIndex = 1:10
-        paths{(instanceIndex - 1) * 10 + fileIndex} = [name '/' files{fileIndex}];
+    for fileIndex = 1:11
+        paths{(instanceIndex - 1) * 11 + fileIndex} = [name '/' files{fileIndex}];
     end
 end
 end
 
 function categories = expected_categories()
 perInstance = [repmat({'auto_generated'}, 1, 4), {'user'}, ...
-    repmat({'auto_generated'}, 1, 5)];
+    repmat({'auto_generated'}, 1, 6)];
 categories = [perInstance perInstance];
 end
 

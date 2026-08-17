@@ -26,14 +26,14 @@ classdef test_pc_protocol_candidates < matlab.unittest.TestCase
     end
 
     methods (Test)
-        function testTenFilesPerInstanceAndDeterminism(testCase)
+        function testElevenFilesPerInstanceAndDeterminism(testCase)
             project = two_instance_project(testCase.WorkFolder);
             second = c2837x_block_build_sfun_candidates(project);
             testCase.verifyEqual(second, testCase.Candidates);
             for instance = 1:2
                 selected = testCase.Candidates( ...
                     [testCase.Candidates.instance_index] == instance);
-                testCase.verifyNumElements(selected, 10);
+                testCase.verifyNumElements(selected, 11);
                 names = candidate_names(selected);
                 testCase.verifyEqual(sum(contains(names, '_protocol.')), 2);
                 testCase.verifyEqual(sum(contains(names, '_pc_socket.')), 2);
@@ -111,12 +111,20 @@ classdef test_pc_protocol_candidates < matlab.unittest.TestCase
             protocolHeader = testCase.Candidates( ...
                 [testCase.Candidates.instance_index] == 1 & ...
                 endsWith({testCase.Candidates.target_path}, 'axis_alpha_protocol.h'));
+            errorHeader = testCase.Candidates( ...
+                [testCase.Candidates.instance_index] == 1 & ...
+                endsWith({testCase.Candidates.target_path}, 'axis_alpha_pc_error.h'));
             socketCandidate = testCase.Candidates( ...
                 [testCase.Candidates.instance_index] == 1 & ...
                 endsWith({testCase.Candidates.target_path}, 'axis_alpha_pc_socket.c'));
+            socketHeaderCandidate = testCase.Candidates( ...
+                [testCase.Candidates.instance_index] == 1 & ...
+                endsWith({testCase.Candidates.target_path}, 'axis_alpha_pc_socket.h'));
             protocol = native2unicode(protocolCandidate.content_bytes, 'UTF-8');
             header = native2unicode(protocolHeader.content_bytes, 'UTF-8');
+            errorContract = native2unicode(errorHeader.content_bytes, 'UTF-8');
             socket = native2unicode(socketCandidate.content_bytes, 'UTF-8');
+            socketHeader = native2unicode(socketHeaderCandidate.content_bytes, 'UTF-8');
             testCase.verifyEmpty(regexp(protocol, ...
                 '\<(malloc|calloc|realloc|free)\s*\(', 'once'));
             testCase.verifyEmpty(strfind(protocol, '#include <stdlib.h>'));
@@ -128,6 +136,11 @@ classdef test_pc_protocol_candidates < matlab.unittest.TestCase
                 'axis_alpha_protocol_send_input_data(AxisAlphaPcSocket *socket,');
             testCase.verifySubstring(header, ...
                 'uint8_t *frame, uint16_t payload_length');
+            testCase.verifySubstring(errorContract, ...
+                'C2837X_PC_ERROR_SERIAL = 14');
+            testCase.verifySubstring(socketHeader, ...
+                '#include "axis_alpha_pc_error.h"');
+            testCase.verifyEmpty(strfind(socketHeader, 'typedef enum'));
             testCase.verifyEqual(numel(strfind(socket, ...
                 'QueryPerformanceFrequency')), 1);
             testCase.verifyEqual(numel(strfind(socket, ...

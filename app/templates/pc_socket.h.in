@@ -8,57 +8,56 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "@NAME@_pc_error.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef enum
-{
-    @MACRO@_PC_ERROR_NONE = 0,
-    @MACRO@_PC_ERROR_ARGUMENT = 1,
-    @MACRO@_PC_ERROR_TIMEOUT = 2,
-    @MACRO@_PC_ERROR_DISCONNECT = 3,
-    @MACRO@_PC_ERROR_SOCKET = 4,
-    @MACRO@_PC_ERROR_TRUNCATED = 5,
-    @MACRO@_PC_ERROR_MESSAGE_TYPE = 6,
-    @MACRO@_PC_ERROR_PAYLOAD_LENGTH = 7,
-    @MACRO@_PC_ERROR_PAYLOAD_CAPACITY = 8,
-    @MACRO@_PC_ERROR_DSP_RESPONSE = 9,
-    @MACRO@_PC_ERROR_INTERNAL = 10,
-    @MACRO@_PC_ERROR_STEP_INDEX = 11,
-    @MACRO@_PC_ERROR_FIELD_DECODE = 12,
-    @MACRO@_PC_ERROR_PORT_ACCESS = 13
-} @TYPED@PcErrorKind;
+typedef c2837x_pc_error_kind_t @TYPED@PcErrorKind;
+typedef c2837x_pc_error_t @TYPED@PcError;
 
-enum
-{
-    @MACRO@_PC_ERROR_HAS_STEP_INDEX = 1u << 0,
-    @MACRO@_PC_ERROR_HAS_EXPECTED_TYPE = 1u << 1,
-    @MACRO@_PC_ERROR_HAS_ACTUAL_TYPE = 1u << 2,
-    @MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH = 1u << 3,
-    @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH = 1u << 4,
-    @MACRO@_PC_ERROR_HAS_EXPECTED_STEP = 1u << 5,
-    @MACRO@_PC_ERROR_HAS_ACTUAL_STEP = 1u << 6,
-    @MACRO@_PC_ERROR_HAS_DSP_ERROR = 1u << 7,
-    @MACRO@_PC_ERROR_HAS_OS_ERROR = 1u << 8
-};
+#define @MACRO@_PC_ERROR_NONE C2837X_PC_ERROR_NONE
+#define @MACRO@_PC_ERROR_ARGUMENT C2837X_PC_ERROR_ARGUMENT
+#define @MACRO@_PC_ERROR_TIMEOUT C2837X_PC_ERROR_TIMEOUT
+#define @MACRO@_PC_ERROR_DISCONNECT C2837X_PC_ERROR_DISCONNECT
+#define @MACRO@_PC_ERROR_SOCKET C2837X_PC_ERROR_SOCKET
+#define @MACRO@_PC_ERROR_TRUNCATED C2837X_PC_ERROR_TRUNCATED
+#define @MACRO@_PC_ERROR_MESSAGE_TYPE C2837X_PC_ERROR_MESSAGE_TYPE
+#define @MACRO@_PC_ERROR_PAYLOAD_LENGTH C2837X_PC_ERROR_PAYLOAD_LENGTH
+#define @MACRO@_PC_ERROR_PAYLOAD_CAPACITY C2837X_PC_ERROR_PAYLOAD_CAPACITY
+#define @MACRO@_PC_ERROR_DSP_RESPONSE C2837X_PC_ERROR_DSP_RESPONSE
+#define @MACRO@_PC_ERROR_INTERNAL C2837X_PC_ERROR_INTERNAL
+#define @MACRO@_PC_ERROR_STEP_INDEX C2837X_PC_ERROR_STEP_INDEX
+#define @MACRO@_PC_ERROR_FIELD_DECODE C2837X_PC_ERROR_FIELD_DECODE
+#define @MACRO@_PC_ERROR_PORT_ACCESS C2837X_PC_ERROR_PORT_ACCESS
+#define @MACRO@_PC_ERROR_SERIAL C2837X_PC_ERROR_SERIAL
 
-typedef struct
+#define @MACRO@_PC_ERROR_HAS_STEP_INDEX C2837X_PC_ERROR_HAS_STEP_INDEX
+#define @MACRO@_PC_ERROR_HAS_EXPECTED_TYPE C2837X_PC_ERROR_HAS_EXPECTED_TYPE
+#define @MACRO@_PC_ERROR_HAS_ACTUAL_TYPE C2837X_PC_ERROR_HAS_ACTUAL_TYPE
+#define @MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH C2837X_PC_ERROR_HAS_EXPECTED_LENGTH
+#define @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH C2837X_PC_ERROR_HAS_ACTUAL_LENGTH
+#define @MACRO@_PC_ERROR_HAS_EXPECTED_STEP C2837X_PC_ERROR_HAS_EXPECTED_STEP
+#define @MACRO@_PC_ERROR_HAS_ACTUAL_STEP C2837X_PC_ERROR_HAS_ACTUAL_STEP
+#define @MACRO@_PC_ERROR_HAS_DSP_ERROR C2837X_PC_ERROR_HAS_DSP_ERROR
+#define @MACRO@_PC_ERROR_HAS_OS_ERROR C2837X_PC_ERROR_HAS_OS_ERROR
+#define @MACRO@_PC_ERROR_HAS_COM_NUMBER C2837X_PC_ERROR_HAS_COM_NUMBER
+#define @MACRO@_PC_ERROR_HAS_REQUESTED_BAUD C2837X_PC_ERROR_HAS_REQUESTED_BAUD
+#define @MACRO@_PC_ERROR_HAS_SYSTEM_ERROR_TEXT C2837X_PC_ERROR_HAS_SYSTEM_ERROR_TEXT
+#define @MACRO@_PC_ERROR_HAS_OS_ERROR_CODE C2837X_PC_ERROR_HAS_OS_ERROR_CODE
+
+static inline void @NAME@_pc_error_reset(@TYPED@PcError *error,
+    const char *stage)
 {
-    @TYPED@PcErrorKind kind;
-    const char *stage;
-    uint32_t available;
-    uint32_t step_index;
-    uint32_t expected_step;
-    uint32_t actual_step;
-    uint16_t expected_type;
-    uint16_t actual_type;
-    uint16_t expected_length;
-    uint16_t actual_length;
-    uint16_t dsp_error;
-    int os_error;
-} @TYPED@PcError;
+    c2837x_pc_error_reset(error, "@NAME@", stage);
+}
+
+static inline int @NAME@_pc_error_format(const @TYPED@PcError *error,
+    char *buffer, size_t capacity)
+{
+    return c2837x_pc_error_format(error, buffer, capacity);
+}
 
 typedef struct
 {
@@ -75,9 +74,6 @@ typedef struct
     uint64_t expires_at_ms;
 } @TYPED@PcDeadline;
 
-void @NAME@_pc_error_reset(@TYPED@PcError *error, const char *stage);
-int @NAME@_pc_error_format(const @TYPED@PcError *error,
-    char *buffer, size_t capacity);
 int @NAME@_pc_socket_init(@TYPED@PcSocket *socket, @TYPED@PcError *error);
 void @NAME@_pc_socket_cleanup(@TYPED@PcSocket *socket);
 int @NAME@_pc_socket_connect(@TYPED@PcSocket *socket, const char *ip,

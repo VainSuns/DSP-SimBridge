@@ -38,8 +38,6 @@ typedef socklen_t @NAME@_socket_length;
 #define @MACRO@_CLOSE_SOCKET(s_) close(s_)
 #endif
 
-#include <stdarg.h>
-#include <stdio.h>
 #include <string.h>
 
 static @NAME@_native_socket @NAME@_native(const @TYPED@PcSocket *socket)
@@ -51,93 +49,6 @@ static void @NAME@_invalidate(@TYPED@PcSocket *socket)
 {
     socket->native_handle = (uintptr_t)@MACRO@_INVALID_SOCKET;
     socket->valid = 0;
-}
-
-void @NAME@_pc_error_reset(@TYPED@PcError *error, const char *stage)
-{
-    if (error != NULL) {
-        memset(error, 0, sizeof(*error));
-        error->stage = stage;
-    }
-}
-
-static const char *@NAME@_error_kind_name(@TYPED@PcErrorKind kind)
-{
-    switch (kind) {
-    case @MACRO@_PC_ERROR_NONE: return "none";
-    case @MACRO@_PC_ERROR_ARGUMENT: return "argument";
-    case @MACRO@_PC_ERROR_TIMEOUT: return "timeout";
-    case @MACRO@_PC_ERROR_DISCONNECT: return "disconnect";
-    case @MACRO@_PC_ERROR_SOCKET: return "socket";
-    case @MACRO@_PC_ERROR_TRUNCATED: return "truncated";
-    case @MACRO@_PC_ERROR_MESSAGE_TYPE: return "message_type";
-    case @MACRO@_PC_ERROR_PAYLOAD_LENGTH: return "payload_length";
-    case @MACRO@_PC_ERROR_PAYLOAD_CAPACITY: return "payload_capacity";
-    case @MACRO@_PC_ERROR_DSP_RESPONSE: return "dsp_response";
-    case @MACRO@_PC_ERROR_INTERNAL: return "internal";
-    case @MACRO@_PC_ERROR_STEP_INDEX: return "step_index";
-    case @MACRO@_PC_ERROR_FIELD_DECODE: return "field_decode";
-    case @MACRO@_PC_ERROR_PORT_ACCESS: return "port_access";
-    default: return "unknown";
-    }
-}
-
-static int @NAME@_append(char *buffer, size_t capacity, size_t *used,
-    const char *format, ...)
-{
-    int count;
-    va_list args;
-    if (*used >= capacity) {
-        return -1;
-    }
-    va_start(args, format);
-    count = vsnprintf(buffer + *used, capacity - *used, format, args);
-    va_end(args);
-    if (count < 0 || (size_t)count >= capacity - *used) {
-        buffer[capacity - 1u] = '\0';
-        return -1;
-    }
-    *used += (size_t)count;
-    return 0;
-}
-
-int @NAME@_pc_error_format(const @TYPED@PcError *error,
-    char *buffer, size_t capacity)
-{
-    size_t used = 0u;
-    int status = 0;
-    if (error == NULL || buffer == NULL || capacity == 0u) {
-        return -1;
-    }
-    buffer[0] = '\0';
-    status |= @NAME@_append(buffer, capacity, &used,
-        "instance=@NAME@ stage=%s category=%s",
-        error->stage != NULL ? error->stage : "unknown",
-        @NAME@_error_kind_name(error->kind));
-#define @MACRO@_APPEND_IF(flag_, ...) \
-    do { if ((error->available & (flag_)) != 0u) { \
-        status |= @NAME@_append(buffer, capacity, &used, __VA_ARGS__); \
-    } } while (0)
-    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_STEP_INDEX,
-        " step_index=%lu", (unsigned long)error->step_index);
-    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_EXPECTED_TYPE,
-        " expected_type=%u", (unsigned int)error->expected_type);
-    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_ACTUAL_TYPE,
-        " actual_type=%u", (unsigned int)error->actual_type);
-    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH,
-        " expected_length=%u", (unsigned int)error->expected_length);
-    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH,
-        " actual_length=%u", (unsigned int)error->actual_length);
-    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_EXPECTED_STEP,
-        " expected_step=%lu", (unsigned long)error->expected_step);
-    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_ACTUAL_STEP,
-        " actual_step=%lu", (unsigned long)error->actual_step);
-    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_DSP_ERROR,
-        " dsp_error=%u", (unsigned int)error->dsp_error);
-    @MACRO@_APPEND_IF(@MACRO@_PC_ERROR_HAS_OS_ERROR,
-        " os_error=%d", error->os_error);
-#undef @MACRO@_APPEND_IF
-    return status == 0 ? 0 : -1;
 }
 
 static int @NAME@_now_ms(const @TYPED@PcSocket *socket,
