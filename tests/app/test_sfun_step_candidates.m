@@ -14,7 +14,7 @@ classdef test_sfun_step_candidates < matlab.unittest.TestCase
             port = free_port();
             project = step_project(root, port);
             candidates = c2837x_block_build_sfun_candidates(project);
-            testCase.verifyNumElements(candidates, 20);
+            testCase.verifyNumElements(candidates, 22);
             write_candidates(candidates);
             write_fixture(project.output.sfun_root, 'simstruc.h', simstruc_stub());
             write_fixture(project.output.sfun_root, 'simulink.c', '/* host stub */');
