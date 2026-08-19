@@ -53,7 +53,7 @@ classdef test_sfun_candidates < matlab.unittest.TestCase
             testCase.verifyTrue(all(cellfun(@(path) contains(path, ...
                 [project.output.sfun_root filesep]), {first.target_path})));
             testCase.verifyFalse(isfolder(project.output.sfun_root));
-            testCase.verifyNumElements(dependencies, 12);
+            testCase.verifyNumElements(dependencies, 14);
             testCase.verifyTrue(all(cellfun(@isfile, {dependencies.source_path})));
             testCase.verifyEmpty(c2837x_block_validate_candidate_files(first));
             [comparisons, comparisonIssues] = ...
