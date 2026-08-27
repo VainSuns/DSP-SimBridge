@@ -214,11 +214,15 @@ baud 使用生成的 BRR 和：
 actual_baud = 50,000,000 / (8 * (BRR + 1))
 ~~~
 
-SCI 生成输出带有 Requested/Nominal Baud、Actual Baud、baud error、module、
-端点和 pin 配置。PC serial configure 使用生成的 Requested/Nominal Baud；
-Actual Baud 是 DSP BRR 量化后的诊断信息，不是要求 Windows serial port
-使用的另一个 baud。当前支持 9600、19200、38400、57600、115200；当前验证
-没有额外的 baud 误差阈值拒绝规则。
+PC generated config/diagnostics 包含 Requested/Nominal Baud 和 Actual Baud
+diagnostic information。PC serial configure 使用生成的 Requested/Nominal
+Baud；Actual Baud 是 DSP BRR 量化后的诊断信息，不是要求 Windows serial
+port 使用的另一个 baud。Baud Error (Actual - Requested) 是
+App/calculator 的派生诊断，不是所有 generated config 的 runtime field。
+DSP SCI descriptor 只包含 SCI module enum、BRR、RX/TX GPIO 及 mux、pin type、
+RX qualification 和可选 CTRL 配置；不包含 Actual Baud、Baud Error 或 COM。
+LSPCLK 是项目级 Platform configuration。当前支持 9600、19200、38400、
+57600、115200；当前验证没有额外的 baud 误差阈值拒绝规则。
 
 每个实例有独立的 PcError 头文件。诊断文本可包含 instance、COM、requested
 或 actual baud、stage 和 category；串口异常通常属于 serial，期限异常
@@ -289,7 +293,9 @@ Update Diagram 只做静态的 block parameter、port、sample-time 等配置检
 | SCI mdlStart/mdlOutputs/mdlTerminate 流程 | 已按当前实现核对 |
 | LSPCLK、baud、BRR 和 Interface Hash 说明 | 已按当前实现核对 |
 | DSP/CCS target build | NOT_EXECUTED |
-| MATLAB MEX 编译 | 未执行 |
+| SCI-S5-03/R1 MEX/MATLAB product tests | NOT_EXECUTED / NOT_REQUIRED |
+| Representative SCI MEX from SCI-S5-02 (MinGW64 8.1.0) | REUSED PASS |
+| Focused MATLAB/software tests from SCI-S5-02 / earlier closed stages | REUSED EVIDENCE |
 | Real COM hardware | NOT_EXECUTED |
 | Real Simulink communication | NOT_EXECUTED |
 | SCI hardware | USER_VALIDATION_PENDING |

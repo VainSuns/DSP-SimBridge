@@ -90,8 +90,19 @@ mode
 source_path
 ~~~
 
-当前支持的算法 mode 是 generated_example 和 external_reference。使用外部
-算法时，source_path 必须指向用户提供的外部 C 源文件。
+当前支持三种算法 mode：
+
+- generated_example：生成实例 algorithm source；source_path 必须为空；
+- external_copy：读取 source_path 指向的用户 C 源，并将其内容作为当前
+  Generate 的实例 algorithm source 输出；CCS 使用本次 Generate 输出的
+  实例 algorithm source；
+- external_reference：读取并验证 source_path，但不把外部 C 文件复制为
+  generated algorithm source；generated DSP output 不生成该实例的 algorithm
+  source，用户必须把原始 external source 加入自己的 CCS 工程。
+
+external_copy 和 external_reference 都要求 source_path 指向可读取的用户
+外部 C 源。修改 external_copy 的源文件后必须重新 Generate；修改
+external_reference 的源文件由用户 CCS 工程自行管理。
 
 ### W5300 实例字段
 
@@ -263,6 +274,14 @@ LSPCLK 只读显示为 50.000000 MHz (SYSCLK / 4)。当前验证器接受全部�
 支持 baud，不设置额外的 baud 误差阈值警告或拒绝规则。LSPCLK 是平台固定
 配置、不可编辑，并由所有 SCI 实例共用；timeout 不会根据 Baud 或 payload
 自动修改。
+
+Baud Error (Actual - Requested) 是 calculator/App 的派生诊断。DSP SCI
+descriptor 只包含硬件运行配置：SCI module enum、BRR、RX/TX GPIO 及 mux、
+pin type、RX qualification 和可选 CTRL GPIO/pin 配置；不包含 Actual Baud、
+Baud Error 或 COM。LSPCLK 属于项目级 Platform configuration，不是每个
+SCI descriptor 的字段。PC generated config/diagnostics 使用
+Requested/Nominal Baud 配置串口，并保留 Actual Baud 作为诊断信息；Baud
+Error 不应被理解为所有 generated config 的 runtime field。
 
 当 CTRL GPIO 为 None 时，CTRL Pin Type 和 CTRL TX Active Level 对运行时
 不起作用；页面会将这两个控件置为不可用。

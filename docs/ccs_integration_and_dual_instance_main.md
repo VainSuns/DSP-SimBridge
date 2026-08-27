@@ -72,7 +72,7 @@ src/c2837x_block_sci.c
 
 ### 实例文件
 
-每个实例都生成：
+每个实例都生成配置、用户配置、算法头文件和 I/O 文件：
 
 ~~~text
 inc/<internal_name>_config.h
@@ -80,12 +80,22 @@ inc/<internal_name>_user_config.h
 inc/<internal_name>_algorithm.h
 src/<internal_name>_config.c
 src/<internal_name>_io.c
-src/<internal_name>_algorithm.c
 ~~~
 
-当 algorithm mode 为 external_reference 时，src 中的 algorithm C 文件由
-用户提供的外部源文件替代；配置、I/O 和接口头文件仍使用本次 Generate
-的版本。
+当前支持三种 algorithm mode：
+
+- generated_example：生成实例 algorithm source，CCS 编译当前 Generate
+  输出的实例 algorithm source；
+- external_copy：读取 source_path 指向的外部 C 源，并将内容作为当前
+  Generate 的实例 algorithm source 输出；CCS 编译当前 Generate 输出的
+  实例 algorithm source；
+- external_reference：读取并验证 source_path，但不生成该实例的 algorithm
+  source；CCS 必须把用户维护的原始 external source 加入工程。
+
+external_copy 和 external_reference 都要求 source_path 指向可读取的用户
+外部 C 源。generated_example 和 external_copy 生成
+src/<internal_name>_algorithm.c；external_reference 不生成该实例的
+algorithm source。三种 mode 的配置和 I/O 文件仍使用同一次 Generate 的版本。
 
 ## 2. CCS 工程设置
 
@@ -161,7 +171,10 @@ SCI 时钟合同为 SYSCLK 200 MHz、LSPCLK divisor 4、LOSPCP encoding 2，
 所以 LSPCLK 为 50 MHz。LOSPCP=2 在 SCI 外设初始化前设置一次；没有 SCI
 实例时，PlatformInit 不会仅为了 SCI 修改 LSPCLK。SCI descriptor 已包含
 生成的 module、BRR、RX/TX 端点 mux、pin type、qualification 和可选 CTRL
-配置；CCS main 不应再次手工覆盖这些字段。
+配置；CCS main 不应再次手工覆盖这些字段。Actual Baud、Baud Error 和
+COM 不属于 DSP SCI descriptor；Actual Baud/错误信息由 PC generated
+config 或 PcError 作为诊断提供，LSPCLK 由项目级 Platform configuration
+统一设置。
 
 DSP SCI 侧是轮询实现，不使用 SCI 中断或 DMA。SCI CTRL GPIO（若配置）在
 发送前置为 TX-active，发送完成后等待 TX FIFO empty 和 TXEMPTY，再恢复
@@ -177,7 +190,7 @@ DSP 平台代码通过 TI device support/bitfield 接口完成 SCI 外设和 GPI
 - 所选 SCI 模块对应的 RX/TX GPIO 复用与电气连接；
 - 若使用 CTRL GPIO，匹配收发器方向控制的电平极性；
 - 与 SCI 端点匹配的物理收发器、地线和电平；
-- 外部算法源码及其依赖（若选择 external_reference）。
+- 外部算法源码及其依赖（若选择 external_copy 或 external_reference）。
 
 App 能力文件只保证生成配置在目标能力范围内，不会验证目标板上实际跳线、
 收发器或连接器是否正确。本文不把 half-duplex 方向控制描述为已经完成

@@ -109,6 +109,21 @@ V2、V3 和旧顶层 <code>config</code> 的迁移规则见
 [App 项目与迁移指南](docs/app_project_and_migration_guide.md)。迁移只在加载
 时建立内存中的 V4 项目，不回写旧 MAT 文件。
 
+## 算法模式
+
+当前支持三种 algorithm mode：
+
+| mode | Generate 行为 | CCS 使用方式 |
+| --- | --- | --- |
+| generated_example | 生成实例 algorithm source | 编译当前 Generate 输出的实例 algorithm source |
+| external_copy | 读取 source_path 指向的外部 C 源，并将内容复制为当前 Generate 的实例 algorithm source | 编译当前 Generate 输出的实例 algorithm source |
+| external_reference | 读取并验证 source_path，但不生成该实例的 algorithm source | 将用户维护的原始 external source 加入 CCS 工程 |
+
+generated_example 的 source_path 必须为空；external_copy 和
+external_reference 都要求 source_path 指向可读取的用户 C 源。修改外部源
+后，external_copy 需要重新 Generate 才会更新 DSP 输出；external_reference
+则继续由用户工程维护并编译原始源文件。
+
 ## 快速开始
 
 1. 启动 <code>C2837xBlockConfigurator</code>，新建或加载 Project V4。
@@ -148,9 +163,9 @@ src/
 
 所有工程都有公共核心、协议、平台、Timer2、项目描述和实例文件；W5300
 传输文件仅在存在 W5300 实例时生成，SCI 文件仅在存在 SCI 实例时生成。
-每个实例还生成独立的配置、用户配置、算法和 I/O 文件。算法使用
-<code>external_reference</code> 时，生成目录引用用户提供的外部 <code>.c</code> 文件，自动算法
-文件不作为可编辑候选。
+每个实例还生成独立的配置、用户配置、算法头文件和 I/O 文件。算法 source 是否
+来自 generated_example、external_copy 或 external_reference，遵循上面的
+三种 mode 合同。
 
 每个实例的 S-Function 输出严格为 11 个文件：
 
@@ -233,8 +248,13 @@ actual_baud = LSPCLK / (8 * (BRR + 1))
 这些值都通过当前验证器；当前实现没有额外的误差阈值拒绝规则。
 
 SCI 页面同时显示 Requested Baud、Actual Baud 和
-Baud Error (Actual - Requested)。实际 baud、BRR、LSPCLK 和 SCI 引脚配置
-会写入生成的 descriptor；不要在用户代码中再手工改一份 baud 配置。
+Baud Error (Actual - Requested)。这些是 App/calculator 的显示或派生诊断。
+DSP SCI descriptor 只保存硬件运行配置：SCI module enum、BRR、RX/TX GPIO
+及 mux、pin type、RX qualification 和可选 CTRL 配置；它不保存 Actual Baud、
+Baud Error 或 COM。LSPCLK 是项目级 Platform configuration，不是每个 SCI
+descriptor 的字段。PC generated config/diagnostics 保存 Requested/Nominal
+Baud 并使用它配置串口，Actual Baud 作为 DSP BRR 量化后的诊断信息；Baud
+Error 不应被理解为所有 generated config 的 runtime field。
 
 ## Interface Hash
 
@@ -274,7 +294,9 @@ SCI 不会自动重连、重试或重发，不使用固定 sleep，也不使用 
 | SCI 能力、GPIO/模块资源和 W5300 资源规则 | 已按当前实现核对 |
 | SCI 50 MHz LSPCLK、BRR 计算、接口 hash 边界 | 已按当前实现核对 |
 | 生成文件清单、S-Function 参数和构建脚本 | 已按当前实现核对 |
-| MATLAB 单元测试、MEX 编译 | 未执行 |
+| SCI-S5-03/R1 MEX/MATLAB product tests | NOT_EXECUTED / NOT_REQUIRED |
+| Representative SCI MEX from SCI-S5-02 (MinGW64 8.1.0) | REUSED PASS |
+| Focused MATLAB/software tests from SCI-S5-02 / earlier closed stages | REUSED EVIDENCE |
 | DSP/CCS target build | NOT_EXECUTED |
 | Real COM hardware | NOT_EXECUTED |
 | Real Simulink communication | NOT_EXECUTED |
