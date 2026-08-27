@@ -1,228 +1,261 @@
-# CCS 集成和双实例 `main` 示例
+# CCS 集成与双实例 main 使用指南
 
-## 1. 范围与验证状态
+本文说明如何把 Project V4 生成的 DSP 输出加入 Code Composer Studio
+工程，并在目标板上启动一个或多个实例。当前 DSP 输出支持 W5300/TCP、
+SCI/串口以及两者混合；实际生成文件由工程中存在的 IoDevice 类型决定。
 
-App 只生成 `<dsp_root>/inc` 和 `<dsp_root>/src`。用户负责把这些文件集成到现有 CCS 工程，并负责器件初始化、系统时钟、链接文件、启动代码、中断向量表、Flash/RAM 配置、GEL、烧录和硬件调试。
+本文只描述代码集成和用户责任。CCS 编译、下载、目标板运行和双实例实机
+收发不在本次文档更新中执行。
 
-本项目不生成 `.project`、`.cproject`、linker command file、启动代码、中断向量表或烧录脚本。本指南也不设计硬件接线、链接或启动流程。
+## 1. 生成输出与编译边界
 
-当前状态：**已实现，待用户编译或实机验证**。本文的生成树和 Host 检查不代表已经通过 TI CCS/C2000 编译器或 W5300 实机验证。
+在 App 中设置 DSP Output Root 并点击 Generate 后，输出根目录包含：
 
-## 2. Include Search Path
+~~~text
+<dsp_root>/
+  inc/
+  src/
+~~~
 
-将以下目录加入 CCS Include Search Path：
+将本次 Generate 得到的 inc 和 src 加入 CCS 工程。不要同时加入旧 Generate
+目录中的同名核心文件，也不要把多个实例目录中的同一公共源文件重复编译。
+每个生成的 C 源文件在一个 CCS 工程中只编译一次。
 
-```text
-<dsp_root>/inc
-```
+公共 DSP 文件始终存在：
 
-- 不要把 `<dsp_root>/src` 作为公共 Include Search Path。
-- 不要使用 `#include "*.c"`；`.c` 文件应作为独立编译单元加入工程。
-- 用户算法依赖的其他头文件由用户自行加入 Include Search Path。
-- 生成文件之间的实际 Include 关系以当前生成内容为准。
-- 用户 `main.c` 只需包含 `c2837x_block_project.h`；该头继续包含公共 API 并导出静态实例。
-
-## 3. CCS 源文件清单
-
-下面只列需要编译的 `.c` 文件。头文件通过 Include Search Path 使用，不作为编译单元。**每个 `.c` 只能加入并编译一次**，生成目录中不存在的文件不得加入工程。
-
-### 3.1 公共 Core：每个项目各一次
-
-| 相对路径 | 职责 |
-| --- | --- |
-| `src/c2837x_block.c` | 公共实例生命周期与协议状态机 |
-| `src/c2837x_block_protocol.c` | V1 wire 协议编解码 |
-| `src/c2837x_block_platform.c` | 项目级平台初始化入口 |
-| `src/c2837x_block_timer2.c` | 共享 CPU Timer 2 单调计时源 |
-| `src/c2837x_w5300_hal.c` | W5300 GPIO、EMIF、复位与寄存器访问 HAL |
-| `src/c2837x_w5300_socket.c` | W5300 Socket 操作 |
-| `src/c2837x_w5300_channel.c` | 非阻塞 W5300 TCP IoDevice 通道 |
-
-公共 Core 输出副本只应来自同一次生成。Core 如需修改，应在 DSP-SimBridge 源仓库统一修复后重新生成，不要只修改某个输出目录中的副本。
-
-### 3.2 项目级：一次
-
-| 相对路径 | 职责 |
-| --- | --- |
-| `src/c2837x_block_project.c` | 定义所有生成的 `g_<internal_name>` 静态实例及项目级公共绑定 |
-
-### 3.3 实例级：每个有效实例各一次
-
-| 相对路径 | 职责 |
-| --- | --- |
-| `src/<instance>_config.c` | 尺寸、Interface Hash、适配器和静态配置绑定 |
-| `src/<instance>_io.c` | 实例序列化与 IoDevice 通道绑定 |
-| `src/<instance>_algorithm.c` | 算法实现；是否生成取决于算法模式 |
-
-### 3.4 双实例完整示例
-
-以下清单来自当前生成器对 `current_loop: generated_example`、`voltage_loop: external_reference` 的真实临时生成结果：
-
-```text
+~~~text
+inc/c2837x_block.h
+inc/c2837x_block_protocol.h
+inc/c2837x_block_iodevice.h
 src/c2837x_block.c
 src/c2837x_block_protocol.c
+src/c2837x_block_internal.h
+src/c2837x_block_config_internal.h
+src/c2837x_block_platform.h
 src/c2837x_block_platform.c
 src/c2837x_block_timer2.c
+~~~
+
+工程描述文件始终由生成器提供：
+
+~~~text
+inc/c2837x_block_project.h
+src/c2837x_block_project.c
+~~~
+
+### W5300 条件文件
+
+只要工程中存在 W5300 实例，还会生成：
+
+~~~text
+inc/c2837x_w5300_regs.h
+inc/c2837x_w5300_hal.h
+inc/c2837x_w5300_socket.h
+inc/c2837x_w5300_channel.h
 src/c2837x_w5300_hal.c
 src/c2837x_w5300_socket.c
 src/c2837x_w5300_channel.c
-src/c2837x_block_project.c
-src/current_loop_config.c
-src/current_loop_io.c
-src/current_loop_algorithm.c
-src/voltage_loop_config.c
-src/voltage_loop_io.c
-<用户原始路径>/voltage_loop_external.c
-```
+~~~
 
-其中前 13 个是生成树中的编译单元，最后一个是 `external_reference` 的原外部源。`src/voltage_loop_algorithm.c` 不会生成，也不得加入工程。
+### SCI 条件文件
 
-## 4. 三种算法文件模式
+只要工程中存在 SCI 实例，还会生成：
 
-### `generated_example`
+~~~text
+inc/c2837x_block_sci.h
+src/c2837x_block_sci.c
+~~~
 
-- 生成 `src/<instance>_algorithm.c`。
-- 该文件可由用户编辑。
-- 将生成文件加入 CCS 工程一次。
+因此 SCI-only 工程不应从旧 W5300 工程手工带入 W5300 源文件；混合工程则
+需要两组条件文件。生成器会在项目描述中设置平台能力标志，使平台初始化
+只启用当前工程存在的传输。
 
-### `external_copy`
+### 实例文件
 
-- 外部源内容被复制到 `src/<instance>_algorithm.c`。
-- CCS 只加入生成目录中的副本一次。
-- 不要同时加入原外部源，否则可能产生重复回调符号。
+每个实例都生成：
 
-### `external_reference`
+~~~text
+inc/<internal_name>_config.h
+inc/<internal_name>_user_config.h
+inc/<internal_name>_algorithm.h
+src/<internal_name>_config.c
+src/<internal_name>_io.c
+src/<internal_name>_algorithm.c
+~~~
 
-- 不生成 `src/<instance>_algorithm.c`。
-- 将原外部 `.c` 加入 CCS 工程一次。
-- 原文件依赖的头文件由用户维护 Include Search Path。
-- 不要添加一个不存在的生成算法文件。
-- 不要让两个有状态实例错误复用同一套实例专用回调实现；各实例回调必须符合各自生成的强类型声明。
+当 algorithm mode 为 external_reference 时，src 中的 algorithm C 文件由
+用户提供的外部源文件替代；配置、I/O 和接口头文件仍使用本次 Generate
+的版本。
 
-无论采用哪种模式，每个算法实现都只能编译一次。
+## 2. CCS 工程设置
 
-## 5. 用户可编辑边界
+按目标板和 TI 编译器版本设置 C28x 编译选项、链接命令文件和启动代码。
+生成输出的公共 include 根为：
 
-用户可编辑：
+~~~text
+<dsp_root>/inc
+~~~
 
-```text
-inc/<instance>_user_config.h
-src/<instance>_algorithm.c
-用户 main.c
-用户 CCS 工程配置
-```
+平台源文件会从其所在的 src 目录包含内部头文件；通常不需要把整个 src
+目录作为公共 include 路径。需要同时加入目标工程实际使用的 TI device
+support/bitfield 头文件与库，并确保 F28x_Project.h 和对应外设寄存器定义
+可见。
 
-`external_reference` 模式下，用户编辑的是原外部算法源。
+本生成器的核心 API 使用 EABI/COFFABI 合同和 API version 2。ABI 必须与
+Project V4 和 CCS 工程的编译设置一致；不要混用不同 ABI 或另一份旧版
+核心头文件。
 
-以下自动生成内容不应手工修改：
+## 3. main 的调用顺序
 
-```text
-inc/<instance>_algorithm.h
-inc/<instance>_config.h
-src/<instance>_config.c
-src/<instance>_io.c
-inc/c2837x_block_project.h
-src/c2837x_block_project.c
-公共 Core 输出副本
-Interface Hash 和尺寸定义
-```
+平台初始化只调用一次，且必须在任何实例运行前完成。典型结构为：
 
-## 6. 禁止新旧单实例文件混合编译
+~~~c
+#include "c2837x_block.h"
+#include "c2837x_block_project.h"
 
-迁移后应从 CCS 工程和相关路径中移除旧单实例文件及旧工程引用。不得同时使用：
+int16 main(void)
+{
+    /* 按目标板工程完成时钟、PIE、看门狗和 TI 外设基础初始化。 */
 
-- 新旧 `c2837x_block.c`；
-- 旧单实例配置与新的项目级/实例级配置；
-- 旧全局输入输出文件与新的实例 I/O；
-- 旧无参数 `C2837xBlock_Init()`、`C2837xBlock_Run()` 调用与当前带实例参数的 API；
-- 旧通用单实例 S-Function 与新实例 S-Function。
+    if (C2837xBlock_PlatformInit() < 0) {
+        /* 记录平台错误；不要继续运行实例。 */
+        for (;;) {
+        }
+    }
 
-V1 wire 协议兼容不代表 DSP C API、生成文件或二进制兼容。必须重新生成并重新编译，不能拼接新旧输出。
+    C2837xBlock_Init(&g_instance_a);
+    C2837xBlock_Init(&g_instance_b);
 
-## 7. ABI 与编译检查
+    for (;;) {
+        C2837xBlock_Run(&g_instance_a);
+        C2837xBlock_Run(&g_instance_b);
+    }
+}
+~~~
 
-- CCS 工程 ABI 必须与 App 项目级选择的 `eabi` 或 `coffabi` 一致。
-- 同一项目的全部公共、项目级和实例级文件必须使用同一 ABI，不允许按实例混用。
-- 生成代码包含 Core API Version 编译期检查；版本不匹配会产生编译错误。
-- 生成代码包含数据类型宽度检查。使用逻辑 `double` 接口时，DSP 本地 `long double` 必须满足生成代码要求：`sizeof(long double) * CHAR_BIT == 64`。
-- 本项目不猜测或固定用户的 CCS/C2000 Compiler 版本，也不虚构未执行的 TI 编译选项。
-- 后续编译记录必须填写实际 CCS、C2000 Compiler、ABI 和目标器件工程配置。
+g_instance_a、g_instance_b 只是说明调用顺序的占位名；真实实例对象和
+实例数量由生成的 c2837x_block_project.h/.c 决定。单实例工程只调用一次
+Init 和 Run；双实例工程按生成文件中声明的对象逐个调用。
 
-## 8. 平台资源与用户工程责任
+运行期间可通过：
 
-集成前确认：
+~~~c
+C2837xBlock_Error error =
+    C2837xBlock_GetLastError(&g_instance_a);
+~~~
 
-- CPU Timer 2 未被其他模块占用；`PlatformInit()` 成功后不得停止、重装、重新预分频或复用它。
-- W5300 HAL 的 GPIO、EMIF、复位和访问时序符合实际硬件。
-- 一个项目只对应一个物理 W5300。
-- 各实例 Socket 编号和 TCP port 来自生成配置，且互不重复。
-- 用户现有工程负责器件/时钟初始化、链接、启动及存储布局。
+读取实例的最后错误。C2837xBlock 是不透明类型，应用代码不应直接改写其
+内部状态、协议缓冲区或 SCI 运行时结构。
 
-## 9. 实例对象使用限制
+## 4. PlatformInit 的实际行为
 
-`C2837xBlock` 是不透明类型。用户只能使用生成的
-`c2837x_block_project.h` 导出的项目实例，例如
-`g_current_loop` 和 `g_voltage_loop`。
+当前 PlatformInit 顺序是：
 
-禁止：
+1. 初始化 Timer2。
+2. 若工程含 W5300，初始化 W5300、片上/外部存储配置和网络参数。
+3. 若工程含 SCI，检查 SCI descriptor，设置 SCI 使用的 LSPCLK，再初始化
+   SCI GPIO 复用、pin options 和 SCI 外设。
+4. 完成平台初始化并返回成功或平台错误。
 
-- 在栈、静态存储区或动态内存中自行定义新的
-  `C2837xBlock` 实例；
-- 使用 `malloc`、`calloc`、`realloc` 或 `free`
-  创建、复制、调整或释放实例资源；
-- 直接赋值复制实例对象，或使用 `memcpy`、`memmove`
-  等方式复制实例内部状态；
-- 将内部头文件加入用户代码，以绕过不透明类型边界；
-- 将非生成实例传给 `C2837xBlock_Init()`、
-  `C2837xBlock_Run()` 或 `C2837xBlock_GetLastError()`；
-- 让两个实例共享同一实例配置、Socket、RX/TX 缓冲区
-  或 IoDevice 通道；
-- 手工修改 `g_<internal_name>` 的生成定义、配置绑定或
-  内部资源指针。
+SCI 时钟合同为 SYSCLK 200 MHz、LSPCLK divisor 4、LOSPCP encoding 2，
+所以 LSPCLK 为 50 MHz。LOSPCP=2 在 SCI 外设初始化前设置一次；没有 SCI
+实例时，PlatformInit 不会仅为了 SCI 修改 LSPCLK。SCI descriptor 已包含
+生成的 module、BRR、RX/TX 端点 mux、pin type、qualification 和可选 CTRL
+配置；CCS main 不应再次手工覆盖这些字段。
 
-每个生成实例的配置、Socket、协议缓冲区和 IoDevice
-通道均由生成文件静态绑定。用户代码只负责按固定顺序
-调用生成实例，不负责创建、复制、销毁或重新绑定实例。
+DSP SCI 侧是轮询实现，不使用 SCI 中断或 DMA。SCI CTRL GPIO（若配置）在
+发送前置为 TX-active，发送完成后等待 TX FIFO empty 和 TXEMPTY，再恢复
+为接收状态。未配置 CTRL 时不执行方向 GPIO 操作。
 
-当前第一版不建立对象注册表、实例魔数或复杂运行时合法性
-检查，因此上述约束必须由 CCS 集成代码和工程文件严格遵守。
+## 5. TI device support 与硬件责任
 
-## 10. 初始化与裸机轮询顺序
+DSP 平台代码通过 TI device support/bitfield 接口完成 SCI 外设和 GPIO
+配置。用户 CCS 工程必须提供：
 
-固定流程为：
+- 正确的 TMS320F28377D 设备头文件和寄存器定义；
+- 与目标板匹配的时钟、启动和链接配置；
+- 所选 SCI 模块对应的 RX/TX GPIO 复用与电气连接；
+- 若使用 CTRL GPIO，匹配收发器方向控制的电平极性；
+- 与 SCI 端点匹配的物理收发器、地线和电平；
+- 外部算法源码及其依赖（若选择 external_reference）。
 
-```text
-用户现有底层/器件初始化
-→ C2837xBlock_PlatformInit()
-→ 检查返回值
-→ 逐实例 C2837xBlock_Init()
-→ while (1) 中按用户确定的固定顺序逐实例 C2837xBlock_Run()
-```
+App 能力文件只保证生成配置在目标能力范围内，不会验证目标板上实际跳线、
+收发器或连接器是否正确。本文不把 half-duplex 方向控制描述为已经完成
+硬件验证。
 
-- `C2837xBlock_PlatformInit()` 在项目中只调用一次。
-- 返回值小于零后，不得调用 `Init`、`Run` 或其他实例通信 API；应进入用户定义的故障处理路径。
-- 对每个生成实例显式调用一次 `C2837xBlock_Init()`。
-- 主循环必须持续轮询全部启用实例，顺序由用户程序显式决定。
-- 当前没有 `RunAll()`、`InitAll()`、默认实例、RTOS 调度或动态实例注册。
-- 某个用户算法长时间不返回会阻塞整个裸机轮询循环。
-- `C2837xBlock_GetLastError()` 只返回每实例最近的本地错误，不是线缆错误历史。
+不要在 CCS 工程中增加 bootloader "A" 握手、autobaud 或固定延时来补偿
+协议。DSP 平台代码已关闭 SCI autobaud；PC 和 DSP 应使用同一生成的请求
+波特率合同。
 
-可复制的双实例代码见 [`examples/dual_instance_main.c`](examples/dual_instance_main.c)。示例使用 `g_current_loop`、`g_voltage_loop`，初始化和轮询顺序均为 `current_loop` 后 `voltage_loop`。
+## 6. W5300、SCI 和混合工程差异
 
-## 11. 后续 CCS 证据记录
+| 工程类型 | 需要的传输源 | PlatformInit 行为 |
+| --- | --- | --- |
+| 仅 W5300 | W5300 HAL/socket/channel | 初始化 W5300 与网络 |
+| 仅 SCI | SCI 头文件与 c 文件 | 设置 LSPCLK 并初始化 SCI |
+| 混合 | 两组传输源都需要 | 按生成 descriptor 启用两种设备 |
 
-用户后续应记录：
+网络字段在 Project V4 中始终存在，但 SCI-only 工程不会因这些字段被用于
+SCI 运行时；App 只在有 W5300 实例时执行网络语义验证。
 
-- CCS 版本；
-- C2000 Compiler 版本；
-- 目标器件；
-- ABI；
-- 实际 Include Search Path；
-- 实际编译的 `.c` 文件列表；
-- 编译命令或 build log；
-- warning/error 数量；
-- 是否存在重复符号、缺失符号或 Core API mismatch；
-- DSP/CCS 编译结果；
-- 实机验证状态。
+## 7. 双实例注意事项
 
-未提供真实证据前，相关项目统一保持：**已实现，待用户编译或实机验证**。
+双实例的公共平台初始化只有一次。实例之间的 I/O、协议 step、传输资源和
+错误状态独立。使用两个 SCI 实例时，必须选择不同的 SCI module；即使两个
+模块的 baud 相同，也不能复用同一 SCI 资源或冲突 GPIO。
+
+混合示例的原则是：
+
+~~~text
+C2837xBlock_PlatformInit()      once
+C2837xBlock_Init(instance_A)    once
+C2837xBlock_Init(instance_B)    once
+loop:
+    C2837xBlock_Run(instance_A)
+    C2837xBlock_Run(instance_B)
+~~~
+
+现有 [dual_instance_main.c](examples/dual_instance_main.c) 是仓库中的双
+W5300 示例，可用于理解 main 的调用顺序。混合 W5300/SCI 工程应以本次
+Generate 的 c2837x_block_project.h/.c 和实例符号为准，不要照抄旧实例名
+或旧传输初始化代码。
+
+## 8. 错误和停止行为
+
+PlatformInit 返回负值表示平台初始化失败；当前错误类别覆盖 Timer、
+W5300 初始化/内存/网络和 SCI 初始化。失败后应用应记录错误并停止实例，
+而不是继续调用 Run。
+
+运行时错误由实例错误状态保存，PC 侧生成的 PcError 也会带 instance、
+传输类别、阶段以及 SCI 的 requested/actual baud 等诊断信息。应用代码应
+保留这些诊断，不要在 main 中静默清除后继续通信。
+
+当前通信实现没有自动重连、重试、重发或固定 sleep。目标板复位、线缆、
+收发器或参数变化后，应由上层停止并重新初始化整个会话。
+
+## 9. CCS 集成检查清单
+
+在下载前确认：
+
+- 只使用同一次 Generate 的 inc/src 文件；
+- 公共核心和 project C 文件没有重复编译；
+- 工程 ABI 与 Project V4 一致；
+- F28x_Project.h、TI device support 和链接文件来自目标工程；
+- SCI descriptor 的 module、RX/TX GPIO、baud 和 CTRL 电平与硬件一致；
+- 混合工程同时包含两类传输的条件文件；
+- 所有实例的 algorithm、I/O 和配置源文件来自同一生成批次；
+- PlatformInit 在 Init/Run 之前且只调用一次；
+- PlatformInit 失败路径不会进入 Run；
+- 下载前保存并记录 CCS 工程使用的生成目录。
+
+## 10. 当前验证状态
+
+| 项目 | 状态 |
+| --- | --- |
+| 源文件/头文件清单与当前生成器 | 已按当前实现核对 |
+| Project V4、SCI descriptor 和 PlatformInit 顺序 | 已按当前实现核对 |
+| DSP/CCS target build | NOT_EXECUTED / 待用户编译 |
+| CCS 编译 | 未执行 |
+| DSP 下载/运行 | 未执行 |
+| SCI 实际收发和双实例目标板 | 未执行 |
+| 用户最终 CCS 工程验证 | 待用户验证 |

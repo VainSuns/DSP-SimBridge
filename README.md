@@ -1,207 +1,304 @@
 # DSP-SimBridge
 
-DSP-SimBridge 是面向算法研发、调试和 Simulink—DSP 联合仿真的多实例通信桥。当前产品使用 V2 项目格式，为一个 TMS320F28377D 裸机工程生成静态多实例 DSP 文件，并为每个实例生成独立的 C MEX S-Function 源码。
+DSP-SimBridge 是面向 TI TMS320F28377D PTP 目标的 Simulink S-Function
+与 DSP 侧运行时桥接工程。当前产品格式为 Project V4，支持在同一个工程中
+配置多个实例，并按实例选择 W5300/TCP 或 SCI/串口传输。
 
-## Current V1 Scope
+本文档描述当前可交付的使用边界。与旧工程格式有关的内容仅放在迁移章节，
+不应作为新工程的配置方法。
 
-- 目标 DSP：TMS320F28377D。
-- 第一版 IoDevice：W5300 TCP；一个项目对应一个物理 W5300。
-- 实例在同一个裸机 `main` 循环中按用户定义的顺序串行轮询。
-- 实例及其 Socket、TCP port、缓冲区、协议状态和算法绑定均在编译期静态确定。
-- 每个 DSP 实例对应一个独立生成、独立构建的 C MEX S-Function。
-- Wire protocol 保持历史 V1 兼容，当前协议版本为 `1`。
-- PC 基线为 MATLAB/Simulink R2024b 或更高版本，使用桌面 Normal mode。
-- 项目级 ABI 支持 `eabi` 和 `coffabi`；用户 CCS 工程必须与 App 项目选择一致。
-- I/O 类型支持 `int16`、`uint16`、`int32`、`uint32`、`single` 和 `double`，每个变量是固定长度的一维标量或向量。
+## 当前版本与能力
 
-逻辑 `double` 在线缆上固定为 8 wire octet IEEE 754 binary64。DSP 生成代码使用 `long double` 并执行当前需求规定的编译期宽度与表示检查；ABI 不改变 wire 编码。
+| 项目 | 当前约定 |
+| --- | --- |
+| Project | V4，<code>protocol_version = 1</code> |
+| Core API | version 2 |
+| DSP 目标 | <code>TMS320F28377D</code> |
+| 封装 | <code>PTP</code> |
+| ABI | <code>eabi</code> 或 <code>coffabi</code> |
+| Wire | 小端字节序，固定协议版本 1 |
+| 传输 | W5300/TCP、SCI/串口，可混合使用 |
+| SCI 时钟 | SYSCLK 200 MHz，LSPCLK = SYSCLK / 4 = 50 MHz |
+| SCI 支持 | SCI-A、SCI-B、SCI-C、SCI-D；9600、19200、38400、57600、115200 |
+| SCI PC 侧 | Windows MEX，Simulink Normal mode |
 
-## Architecture
+每个实例独立保存 I/O、算法、采样时间、最大 payload 和传输配置。实例之间
+共享协议与平台初始化代码，但资源仍按实际 SCI 模块、GPIO、W5300 socket
+和 TCP 端口做冲突检查。
 
-DSP 生成路径：
+## 架构概览
 
-```text
-App
-→ V2 project validation / Preview / Generate
-→ <dsp_root>/inc + <dsp_root>/src
-→ DSP public Core
-→ project-level static bindings
-→ per-instance algorithm / config / typed I/O / W5300 channel
-→ W5300 TCP
-```
+~~~text
+App / Project V4
+        |
+        +--> DSP output: common core + project + instance files
+        |                 + W5300 files when a W5300 instance exists
+        |                 + SCI files when an SCI instance exists
+        |
+        +--> S-Function output: one 11-file set per instance
+                          + pc_socket pair for W5300
+                          + pc_serial pair for SCI
+        |
+        +--> Simulink block
+              W5300: zero S-Function parameters
+              SCI: one COM Port Number parameter
+~~~
 
-Simulink 生成路径：
+公共 DSP 核心负责协议、实例调度、Timer2 和错误状态；传输层只在工程中
+出现对应设备时生成。SCI 的 DSP 侧采用轮询，不使用 SCI 中断或 DMA；PC 侧
+串口采用 Windows 独占打开、8N1、无流控和绝对截止时间。
 
-```text
-App
-→ <sfun_root>/<internal_name>/
-→ build_<internal_name>_sfun.m
-→ <internal_name>_sfun.<mexext>
-→ ordinary Simulink S-Function Block
-```
+## Project V4
 
-每个实例独立管理输入/输出对象、RX/TX 软件缓冲区、Socket、TCP port、连接与会话、协议阶段、`step_index`、收发进度、超时状态、算法生命周期、PC context 和最近错误。MAC、IP、gateway、subnet、W5300 公共初始化和 CPU Timer 2 等真正的平台资源只在项目级共享。
+MAT 文件默认保存为 <code>dsp_simbridge_project.mat</code>，顶层变量名为
+<code>project</code>。当前持久化结构至少包含以下字段：
 
-## Key Features
+~~~text
+project.format_version
+project.common.dsp_model
+project.common.package
+project.common.protocol_version
+project.common.abi
+project.common.network.mac
+project.common.network.ip
+project.common.network.gateway
+project.common.network.subnet
+project.instances
+project.output.dsp_root
+project.output.sfun_root
+~~~
 
-- V2 `.mat` 项目保存、加载、dirty 状态和旧单实例配置迁移。
-- 多实例 Add、Copy、Delete、命名和资源冲突校验。
-- 强类型 I/O、确定性 wire layout、逐实例 Interface Hash 和内存报告。
-- 不写盘的 Preview、候选文件比较、用户文件保护和快照复核。
-- 确定性生成 DSP Core、项目级绑定、实例文件及自包含 S-Function 目录。
-- 显式实例 DSP API、设备无关的非阻塞 Core、CPU Timer 2 通信超时和 W5300 通道状态机。
-- 同步 Normal-mode step、PC 临时输出解码与原子提交、结构化错误文本。
+每个 <code>project.instances(i)</code> 包含：
 
-## Requirements
+~~~text
+display_name
+internal_name
+iodevice
+sample_time_sec
+max_payload_size_bytes
+inputs
+outputs
+algorithm
+interface_hash
+~~~
 
-[SCI IoDevice V1.0 frozen requirements](requirements/requirements_sci_iodevice_v1.0_frozen.md) 是当前 SCI 增量需求事实源；[SCI approved implementation plan](plan.md) 是当前任务拆分和阶段门禁入口，不是需求事实源。SCI 功能仍按计划实施，不因规范入口切换而视为已经完成。
+W5300 实例使用 <code>socket_number</code> 和 <code>tcp_port</code>。SCI 实例使用：
 
-已完成 V1.0 周期的规范证据保留为历史资料，不再作为当前 SCI implementation authority：
+~~~text
+module
+baud
+rx_gpio
+tx_gpio
+rx_pin_type
+rx_qualification
+tx_pin_type
+ctrl_gpio
+ctrl_pin_type
+ctrl_tx_active_level
+~~~
 
-- [Frozen V1.0 Rev.2 requirements](requirements/archive/requirements_multi_iodevice_v1.0_frozen_rev2.md)
-- [Completed V1.0 implementation plan](docs/archive/plan_multi_instance_v1_completed.md)
-- [Historical V1.0 267-FR traceability](docs/archive/requirements_traceability_multi_instance_v1.md)
+SCI 项目不保存 COM 号，也不保存 <code>pin_group</code>、<code>com_port</code> 或 W5300 的
+socket/TCP 字段。COM 号属于 Simulink S-Function 参数；SCI 引脚必须由目标
+能力文件和当前工程资源共同验证。
 
-## Quick Start
+<code>common.network</code> 在 V4 结构中始终存在，但只有包含 W5300 实例的
+工程才对网络字段执行语义检查。SCI-only 工程仍需保存合法的结构字段；这不
+表示 SCI 运行时会访问网络。
 
-1. 按 [App 项目与迁移指南](docs/app_project_and_migration_guide.md) 启动 App，并创建或加载 V2 项目。
-2. 配置项目公共网络、ABI、输出根、实例、Socket/TCP port 和 I/O。
-3. 在 App 中执行 Preview，核对 Interface Hash、内存报告和候选动作，再执行 Generate。
-4. 按 [CCS 集成和双实例 main 指南](docs/ccs_integration_and_dual_instance_main.md) 将 `<dsp_root>/inc` 与 `<dsp_root>/src` 集成到用户 CCS 工程。
-5. 按 [Simulink 与 MEX 使用指南](docs/simulink_mex_user_guide.md) 分别运行每个实例的构建脚本。
-6. 将实例目录加入 MATLAB Path，在模型中放置普通 S-Function Block，并把 `FunctionName` 设为 `<internal_name>_sfun`。
-7. 按 App 的 I/O 顺序连接端口，使用 Normal mode；用户执行 Update Diagram 后再联机运行。
-8. 按 [测试方案](docs/test_plan.md) 执行软件、CCS、DSP 和硬件验收，并将真实结果写入验收记录。
+V2、V3 和旧顶层 <code>config</code> 的迁移规则见
+[App 项目与迁移指南](docs/app_project_and_migration_guide.md)。迁移只在加载
+时建立内存中的 V4 项目，不回写旧 MAT 文件。
 
-App 不生成或修改用户 `.slx`，也不自动构建 MEX、创建 CCS 工程、下载 DSP 或执行硬件测试。
+## 快速开始
 
-## Documentation
+1. 启动 <code>C2837xBlockConfigurator</code>，新建或加载 Project V4。
+2. 在 Project 页面确认 DSP Model、Protocol Version、ABI、MAC、IP、Gateway、
+   Subnet 以及 DSP/S-Function 输出根目录。
+3. 添加实例并选择传输：
 
-- [App 项目与迁移指南](docs/app_project_and_migration_guide.md)
-- [CCS 集成和双实例 main 指南](docs/ccs_integration_and_dual_instance_main.md)
-- [Simulink 与 MEX 使用指南](docs/simulink_mex_user_guide.md)
-- [测试方案](docs/test_plan.md)
-- [问题反馈模板](docs/problem_feedback_template.md)
-- [验收记录模板](docs/acceptance_record_template.md)
-- [历史 V1.0 267-FR 需求追踪](docs/archive/requirements_traceability_multi_instance_v1.md)
+   | 传输 | 必填/关键设置 |
+   | --- | --- |
+   | W5300/TCP | socket number、TCP port |
+   | SCI/串口 | SCI Module、Requested Baud、RX GPIO、TX GPIO；CTRL GPIO 可选 |
 
-## Generated Outputs
+   SCI 的 RX/TX 是独立端点，可分别属于当前模块的不同 GPIO 候选。选择
+   <code>CTRL GPIO = None</code> 时不使用方向控制；使用 CTRL 时还需确认 pin type
+   和 TX active level。
 
-DSP 输出根固定包含：
+4. 点击 Preview，解决结构、能力、资源和接口问题后再点击 Generate。
+5. 将 DSP 输出目录加入 CCS 工程，将对应的 S-Function 输出目录用于 MEX
+   构建。CCS 和 MEX 构建步骤见：
 
-```text
-<dsp_root>/inc/   public/generated headers and per-instance headers
-<dsp_root>/src/   public Core, project bindings, per-instance I/O and algorithms
-```
+   - [CCS 集成与双实例 main](docs/ccs_integration_and_dual_instance_main.md)
+   - [Simulink/MEX 使用指南](docs/simulink_mex_user_guide.md)
 
-S-Function 输出按实例隔离：
+6. SCI S-Function 在 Simulink 中填写 COM Port Number；这是正整数、
+   有限、非复数、可表示为 <code>uint32</code> 的标量。W5300 S-Function 没有参数。
+7. 更新模型后重新编译受影响的 MEX，并以 Normal mode 运行。首次联调还需
+   按目标板实际 SCI 模块、GPIO 复用、收发器和电平检查硬件连接。
 
-```text
-<sfun_root>/<internal_name>/
-```
+## 生成输出
 
-每个实例目录包含实例专用 S-Function、typed I/O、PC Socket、V1 protocol、自动配置头、用户配置头和 `build_<internal_name>_sfun.m`。完整文件职责和构建规则见 [App 指南](docs/app_project_and_migration_guide.md)与 [Simulink/MEX 指南](docs/simulink_mex_user_guide.md)。本文是 V2 多实例项目的当前入口；仓库中仍可能物理保留的旧单实例源码或说明与当前 V2 多实例 App 不一致，不作为当前用法或历史参考教程，也不得与 V2 输出混合编译或加载。
+DSP 输出根目录下生成：
 
-## DSP Public API
+~~~text
+inc/
+src/
+~~~
 
-当前公共原型以 [`dsp/inc/c2837x_block.h`](dsp/inc/c2837x_block.h) 为准：
+所有工程都有公共核心、协议、平台、Timer2、项目描述和实例文件；W5300
+传输文件仅在存在 W5300 实例时生成，SCI 文件仅在存在 SCI 实例时生成。
+每个实例还生成独立的配置、用户配置、算法和 I/O 文件。算法使用
+<code>external_reference</code> 时，生成目录引用用户提供的外部 <code>.c</code> 文件，自动算法
+文件不作为可编辑候选。
 
-```c
+每个实例的 S-Function 输出严格为 11 个文件：
+
+~~~text
+<name>_sfun.c
+<name>_sfun.h
+<name>_sfun_io.c
+<name>_sfun_config.h
+<name>_sfun_user_config.h
+<name>_pc_error.h
+<name>_<pc_socket|pc_serial>.c
+<name>_<pc_socket|pc_serial>.h
+<name>_protocol.c
+<name>_protocol.h
+build_<name>_sfun.m
+~~~
+
+SCI 实例使用 <code>pc_serial</code>，W5300 实例使用 <code>pc_socket</code>。构建脚本按实例
+显式列出源文件和头文件，不依赖整个目录通配；App 只生成文件和构建脚本，
+不会自动调用 MEX、修改 MATLAB path 或更新 Simulink 模型。
+
+## DSP 集成
+
+DSP 侧公共 API 位于 <code>inc/c2837x_block.h</code>：
+
+~~~c
 int16 C2837xBlock_PlatformInit(void);
 void C2837xBlock_Init(C2837xBlock *instance);
 void C2837xBlock_Run(C2837xBlock *instance);
-C2837xBlock_Error C2837xBlock_GetLastError(const C2837xBlock *instance);
-```
+C2837xBlock_Error C2837xBlock_GetLastError(
+    const C2837xBlock *instance);
+~~~
 
-`C2837xBlock` 对用户保持不透明。用户只能传入生成的项目实例，不得自行创建、复制或重新绑定实例对象。
+典型 main 顺序是：
 
-## Execution Model
+~~~c
+if (C2837xBlock_PlatformInit() < 0) {
+    /* 记录平台初始化错误并停止 */
+}
 
-```text
-C2837xBlock_PlatformInit() once
-→ C2837xBlock_Init(&instance) once for each generated instance
-→ repeatedly call C2837xBlock_Run(&instance) in user-defined order
-```
+C2837xBlock_Init(&g_instance_a);
+C2837xBlock_Init(&g_instance_b);
 
-`PlatformInit()` 失败后不得继续调用实例通信 API。DSP Core 不提供 scheduler、`RunAll()`、RTOS task 或按 sample time 的 DSP 调度；用户裸机主循环的调用顺序就是实例推进顺序。
+for (;;) {
+    C2837xBlock_Run(&g_instance_a);
+    C2837xBlock_Run(&g_instance_b);
+}
+~~~
 
-W5300 通道关闭返回 ERROR 时，仅当前 Socket 进入私有 `faulted` 状态，不复位整个 W5300，也不恢复 `open/listen`；该 Socket 只有在后续一次成功的 `C2837xBlock_PlatformInit()` 或 DSP 复位后才可恢复。普通用户重新启动 PC simulation 不解除此门禁。
+实际生成的实例变量和实例数量以 <code>c2837x_block_project.h/.c</code> 为准。不能在
+<code>PlatformInit</code> 失败后继续运行实例。
 
-## Simulink Integration
+<code>C2837xBlock_PlatformInit</code> 的实际顺序为：
 
-每个实例的 S-Function/MEX 基名都是：
+1. 初始化 Timer2。
+2. 若工程含 W5300，初始化 W5300、内存、网络。
+3. 若工程含 SCI，验证生成的 SCI 描述符，设置 LSPCLK，再初始化 SCI
+   GPIO 复用、pin options 和外设。
+4. 完成平台初始化并返回结果。
 
-```text
-<internal_name>_sfun
-```
+SCI 平台初始化使用 TI device support/bitfield 接口完成 GPIO 和 SCI 配置；
+用户仍需在 CCS 工程中提供对应的设备初始化头文件、链接配置和目标板连接。
+方向控制 GPIO 在发送前置为 TX-active，等待 TX FIFO empty 与 TXEMPTY 后恢复
+为接收状态。
 
-它用于普通 Simulink S-Function Block，当前只保证桌面 Normal mode。`sample_time_sec` 只影响 Simulink simulation-time scheduling；`mdlOutputs()` 同步等待一个完整 DSP step，它不表示 DSP wall-clock 周期。配置变化后按用户指南重新 Generate，并在需要时重建对应 MEX。
+## SCI 时钟与波特率
 
-## Protocol
+当前固定时钟合同为：
 
-当前保持 V1 wire protocol：4 wire octet Header，消息 `SIM_START`、`INPUT_DATA`、`OUTPUT_DATA`、`SIM_STOP` 和 `RESPONSE`，little-endian 编码，`step_index` 为 `uint32`。详细行为、固定长度和错误码仍以 frozen requirements、当前 protocol source 和 protocol tests 为准；README 不定义第二份协议规范。
+~~~text
+SYSCLK = 200 MHz
+LSPCLK divisor = 4
+LOSPCP encoding = 2
+LSPCLK = 50 MHz
+actual_baud = LSPCLK / (8 * (BRR + 1))
+~~~
 
-## User Editable Files
+生成器对请求波特率计算 16-bit BRR，在候选值中选择绝对误差最小者；误差
+相同时选择更小的 BRR。当前支持值为 9600、19200、38400、57600 和 115200。
+这些值都通过当前验证器；当前实现没有额外的误差阈值拒绝规则。
 
-DSP 用户维护：
+SCI 页面同时显示 Requested Baud、Actual Baud 和
+Baud Error (Actual - Requested)。实际 baud、BRR、LSPCLK 和 SCI 引脚配置
+会写入生成的 descriptor；不要在用户代码中再手工改一份 baud 配置。
 
-```text
-<internal_name>_user_config.h
-<internal_name>_algorithm.c
-user main.c
-user CCS project configuration
-```
+## Interface Hash
 
-`external_reference` 模式下，算法源由用户在原路径维护并加入 CCS 工程。
+Interface Hash 只描述 DSP/PC 之间的接口，不是硬件配置 hash。其输入包括：
 
-PC 用户维护：
+~~~text
+protocol_version
+wire byte order
+ordered input/output count
+ordered input/output name/type/dimension
+input/output payload encoding
+max_payload_size_bytes
+~~~
 
-```text
-<internal_name>_sfun_user_config.h
-```
+它不包括 SCI module、baud、BRR、RX/TX/CTRL GPIO、pin type、COM 号、网络
+地址、package 或 sample time。修改这些硬件、传输或运行参数仍可能使已生成
+候选失效并需要重新 Generate，但不会改变接口 hash；修改端口、类型、维度、
+顺序或最大 payload 才会改变 hash。
 
-其他 generated files、Interface Hash、尺寸、协议副本和构建脚本不应手工维护。DSP 用户配置头只承载 `INTERACTION_TIMEOUT`、`TRANSFER_TIMEOUT`；PC 用户配置头只承载 `CONNECT_TIMEOUT_MS`、`STEP_TIMEOUT_MS`、`TERMINATE_TIMEOUT_MS`。
+## Simulink 与 MEX
 
-## Validation Status
+两种传输的生命周期都包含初始化、启动会话、按 step 交换数据和终止会话。
+SCI 的启动流程额外包含 COM 参数解析、串口独占打开、8N1 配置和显式清空
+RX/TX 队列。SCI 只支持 Windows MEX 和 Simulink Normal mode，生成代码中
+会拒绝非 Normal mode 的 MATLAB MEX 用法；W5300 构建脚本可接受 Windows 和
+POSIX 主机。
 
-当前实现具有 App、protocol、DSP Host、PC Mock、S-Function source/build-path 和 Normal-mode 相关的软件测试基础。软件或 Host 证据只能说明对应机制和生成逻辑，不能替代用户环境中的 TI CCS 编译、DSP 下载或 W5300 实机证据。
+SCI 不会自动重连、重试或重发，不使用固定 sleep，也不使用 bootloader 的
+<code>"A"</code> 握手。DSP 侧关闭 autobaud；PC 与 DSP 必须使用生成的同一请求波特率
+配置和匹配的硬件连接。
 
-验证结论必须分层记录：
+## 当前验证状态
 
-- App/protocol/DSP Host/PC 测试按实际 runner 和日志记录。
-- 某一环境没有可用 C MEX compiler 时，MEX rebuild 为 `NOT_EXECUTED / CAPABILITY`；不得推断构建成功或产品失败。
-- 用户手工 Update Diagram 和 Normal-mode 联机仍按实际验收记录填写。
-- EABI 和 COFF CCS build 必须分别由用户实际执行并提供证据。
-- DSP download、W5300 full hardware matrix、dual-instance hardware matrix 和 Erratum hardware matrix 在无用户证据时保持 `USER_VALIDATION_PENDING`。
-- 未执行的项目不表示 PASS；不使用 “fully tested”、“hardware verified” 或 “production ready” 描述当前交付。
+| 范围 | 状态 |
+| --- | --- |
+| Project V4 结构、默认值、切换、复制、迁移文档 | 已按当前实现核对 |
+| SCI 能力、GPIO/模块资源和 W5300 资源规则 | 已按当前实现核对 |
+| SCI 50 MHz LSPCLK、BRR 计算、接口 hash 边界 | 已按当前实现核对 |
+| 生成文件清单、S-Function 参数和构建脚本 | 已按当前实现核对 |
+| MATLAB 单元测试、MEX 编译 | 未执行 |
+| DSP/CCS target build | NOT_EXECUTED |
+| Real COM hardware | NOT_EXECUTED |
+| Real Simulink communication | NOT_EXECUTED |
+| SCI hardware | USER_VALIDATION_PENDING |
+| Half-duplex hardware | NOT_EXECUTED |
+| Mixed W5300/SCI hardware | NOT_EXECUTED |
+| Final LSPCLK hardware confirmation | USER_VALIDATION_PENDING |
+| 用户最终模型联调 | 待用户验证 |
 
-已完成 V1.0 周期的证据边界与逐 FR 状态见[历史 V1.0 267-FR 需求追踪](docs/archive/requirements_traceability_multi_instance_v1.md)；该历史矩阵不代表尚未实施的 SCI FR 状态。
+本次文档更新不修改产品代码、App 代码、DSP 代码、Simulink/MEX 代码、
+测试、需求、计划、generator、schema、LSPCLK、BRR、PcError 或 MEX 实现。
 
-## Unsupported / Not Guaranteed in V1
+## 已知边界
 
-以下能力不在 V1 保证或验收范围；这不表示它们在所有环境中技术上绝对不能工作：
+- SCI PC 侧为 Windows-only；串口使用独占打开，COM 号由 S-Function 参数提供。
+- SCI DSP 侧为轮询实现，没有中断或 DMA 通道。
+- 当前没有自动重连、重试、重发、固定 sleep 或 autobaud 流程。
+- CTRL GPIO 是可选的；若使用，必须通过能力和资源验证。
+- S-Function 输出为桌面 MEX/Normal mode 运行路径，不承诺 Accelerator、
+  Rapid Accelerator、模型代码生成或并行 MEX。
+- 目标板上的 TI device support、时钟启动、SCI 物理收发器、引脚连线、
+  CCS 工程链接和外部算法源码仍由用户工程负责。
 
-- dynamic instance creation or registration
-- RTOS scheduling, priorities, threads, or multi-core parallel execution
-- SCI or other first-version IoDevice support
-- 不提供 automatic reconnect、retry、resend、step recovery 或 background step
-- automatic `.slx` generation or modification
-- Accelerator, Rapid Accelerator, or Fast Restart
-- Simulink Coder/Embedded Coder deployment, TLC inline, or model-reference deployment
-- real-time target or parallel simulation
-- CCS project, linker, startup, flashing, or download generation
-- installer, release package, Toolbox, signing, or automatic update
-
-## Testing and Feedback
-
-执行和记录入口：
-
-- [测试方案](docs/test_plan.md)
-- [问题反馈模板](docs/problem_feedback_template.md)
-- [验收记录模板](docs/acceptance_record_template.md)
-
-未经实际执行及证据支持，不得把测试计划、模板、源码存在或 Host/Mock 结果记录为 DSP/hardware PASS。
-
-## License
-
-本项目采用 [MIT License](LICENSE)。
+更多字段、迁移和资源规则见
+[App 项目与迁移指南](docs/app_project_and_migration_guide.md)；DSP/CCS
+集成见 [CCS 集成与双实例 main](docs/ccs_integration_and_dual_instance_main.md)；
+MEX 构建与块参数见 [Simulink/MEX 使用指南](docs/simulink_mex_user_guide.md)。
