@@ -81,7 +81,8 @@ static void verify_error_text(const char *name, const SimStruct *S,
     const char *text = S->error_status;
     char label[128];
     (void)snprintf(label, sizeof(label), "%s_has_instance_com_baud", name);
-    check(has_text(text, "instance=axis_alpha COM=7 baud=115200"), label);
+    check(has_text(text, "instance=axis_alpha COM=7 baud=115200") &&
+            has_text(text, "actual_baud="), label);
     (void)snprintf(label, sizeof(label), "%s_has_stage_category", name);
     check(has_text(text, expected_stage) && has_text(text, expected_category),
         label);

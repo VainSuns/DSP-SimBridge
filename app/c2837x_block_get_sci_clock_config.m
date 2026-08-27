@@ -1,10 +1,12 @@
 function config = c2837x_block_get_sci_clock_config()
-%C2837X_BLOCK_GET_SCI_CLOCK_CONFIG Return the bring-up SCI clock config.
+%C2837X_BLOCK_GET_SCI_CLOCK_CONFIG Return the fixed project SCI clock.
 
 sysclkHz = 200e6;
-lspclkDivisor = 14;
+lspclkDivisor = 4;
+lospcpEncoding = 2;
 config = struct( ...
     'sysclk_hz', sysclkHz, ...
     'lspclk_divisor', lspclkDivisor, ...
+    'lospcp_encoding', lospcpEncoding, ...
     'lspclk_hz', sysclkHz / lspclkDivisor);
 end

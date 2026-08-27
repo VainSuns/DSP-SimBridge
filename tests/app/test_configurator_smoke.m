@@ -211,7 +211,7 @@ classdef test_configurator_smoke < matlab.unittest.TestCase
                 'ProjectSciClockField').Editable, ...
                 matlab.lang.OnOffSwitchState.off);
             testCase.verifyTrue(contains(findall(figure, 'Tag', ...
-                'ProjectSciClockField').Value, '14.285714 MHz (SYSCLK / 14)'));
+                'ProjectSciClockField').Value, '50.000000 MHz (SYSCLK / 4)'));
 
             invoke_dropdown(figure, 'SciModuleField', 'SCI-B');
             capability = c2837x_block_load_device_capability().capability;

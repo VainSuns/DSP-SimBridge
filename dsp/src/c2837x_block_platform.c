@@ -264,7 +264,7 @@ static void c2837x_block_sci_configure_peripheral(
 void c2837x_block_sci_lspclk_bringup(void)
 {
     EALLOW;
-    ClkCfgRegs.LOSPCP.all = 7u;
+    ClkCfgRegs.LOSPCP.all = C2837X_BLOCK_SCI_LOSPCP_VALUE;
     EDIS;
 }
 #else

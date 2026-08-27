@@ -52,7 +52,8 @@ enum
     C2837X_PC_ERROR_HAS_COM_NUMBER = 1u << 9,
     C2837X_PC_ERROR_HAS_REQUESTED_BAUD = 1u << 10,
     C2837X_PC_ERROR_HAS_SYSTEM_ERROR_TEXT = 1u << 11,
-    C2837X_PC_ERROR_HAS_OS_ERROR_CODE = 1u << 12
+    C2837X_PC_ERROR_HAS_OS_ERROR_CODE = 1u << 12,
+    C2837X_PC_ERROR_HAS_ACTUAL_BAUD = 1u << 13
 };
 
 #define C2837X_PC_ERROR_SYSTEM_TEXT_CAPACITY 128u
@@ -74,6 +75,7 @@ typedef struct
     uint32_t available;
     uint32_t com_number;
     uint32_t requested_baud;
+    double actual_baud;
     uint32_t step_index;
     uint32_t expected_step;
     uint32_t actual_step;
@@ -105,6 +107,17 @@ static inline void c2837x_pc_error_set_com_and_baud(
             C2837X_PC_ERROR_HAS_REQUESTED_BAUD;
         error->com_number = com_number;
         error->requested_baud = requested_baud;
+    }
+}
+
+static inline void c2837x_pc_error_set_com_and_actual_baud(
+    c2837x_pc_error_t *error, uint32_t com_number, uint32_t requested_baud,
+    double actual_baud)
+{
+    c2837x_pc_error_set_com_and_baud(error, com_number, requested_baud);
+    if (error != NULL) {
+        error->available |= C2837X_PC_ERROR_HAS_ACTUAL_BAUD;
+        error->actual_baud = actual_baud;
     }
 }
 
@@ -200,6 +213,10 @@ static inline int c2837x_pc_error_format(const c2837x_pc_error_t *error,
         " stage=%s category=%s",
         error->stage != NULL ? error->stage : "unknown",
         c2837x_pc_error_kind_name(error->kind));
+    if ((error->available & C2837X_PC_ERROR_HAS_ACTUAL_BAUD) != 0u) {
+        status |= c2837x_pc_error_append(buffer, capacity, &used,
+            " actual_baud=%.17g", error->actual_baud);
+    }
 #define C2837X_PC_ERROR_APPEND_IF(flag_, ...) \
     do { if ((error->available & (flag_)) != 0u) { \
         status |= c2837x_pc_error_append(buffer, capacity, &used, __VA_ARGS__); \

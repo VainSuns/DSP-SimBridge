@@ -24,11 +24,11 @@
 
 #if C2837X_BLOCK_PLATFORM_HAS_SCI
 /*
- * Stage 2 uses a project-level bring-up clock only when SCI is present.
- * The value is the TI LOSPCP encoding for SYSCLK / 14 on F2837xD.
+ * DSP-SimBridge uses one fixed project-level SCI clock when SCI is present.
+ * The value is the TI LOSPCP/LSPCLKDIV encoding for SYSCLK / 4 on F2837xD.
  */
-#define C2837X_BLOCK_SCI_LSPCLK_DIVISOR  14u
-#define C2837X_BLOCK_SCI_LOSPCP_VALUE     7u
+#define C2837X_BLOCK_SCI_LSPCLK_DIVISOR  4u
+#define C2837X_BLOCK_SCI_LOSPCP_VALUE     2u
 #endif
 
 /*
@@ -50,7 +50,7 @@ extern const C2837xBlock_PlatformConfig c2837x_block_platform_config;
 /* Define C2837X_BLOCK_PLATFORM_CONFIG_EXTERN when the project owns it. */
 
 #if C2837X_BLOCK_PLATFORM_HAS_SCI
-/* Project-level SYSCLK/14 bring-up action; no read-back is performed. */
+/* Project-level SYSCLK/4 action; no read-back is performed. */
 void c2837x_block_sci_lspclk_bringup(void);
 int16 c2837x_block_sci_platform_init(
     const C2837xBlock_SciDescriptorCollection *descriptors);

@@ -24,14 +24,16 @@ classdef test_sci_baud_calculation < matlab.unittest.TestCase
     end
 
     methods (Test)
-        function testBringUpClockConfig(testCase)
+        function testFixedClockConfig(testCase)
             config = c2837x_block_get_sci_clock_config();
 
             testCase.verifyEqual(config.sysclk_hz, 200e6, AbsTol=eps(200e6));
-            testCase.verifyEqual(config.lspclk_divisor, 14, AbsTol=eps(14));
+            testCase.verifyEqual(config.lspclk_divisor, 4, AbsTol=eps(4));
+            testCase.verifyEqual(config.lospcp_encoding, 2, AbsTol=eps(2));
             testCase.verifyEqual(config.lspclk_hz, ...
                 config.sysclk_hz / config.lspclk_divisor, ...
                 AbsTol=eps(config.lspclk_hz));
+            testCase.verifyEqual(config.lspclk_hz, 50e6, AbsTol=eps(50e6));
         end
 
         function testSupportedBaudIsOptimalAndDeterministic( ...
@@ -98,7 +100,7 @@ classdef test_sci_baud_calculation < matlab.unittest.TestCase
 
         function testInvalidRequestedBaudRejected(testCase, invalidValue)
             testCase.verifyError(@() ...
-                c2837x_block_calculate_sci_baud(200e6 / 14, invalidValue), ...
+                c2837x_block_calculate_sci_baud(50e6, invalidValue), ...
                 'C2837xBlock:SciBaud:InvalidRequestedBaud');
         end
     end

@@ -66,6 +66,11 @@ static int test_serial_mapping(void)
             (error.available & C2837X_PC_ERROR_HAS_REQUESTED_BAUD) != 0u &&
             error.requested_baud == 57600u,
             "serial context preserves COM and generated baud")) return 0;
+    c2837x_pc_error_set_com_and_actual_baud(&error, 12u, 57600u,
+        57339.449541284404);
+    if (!check((error.available & C2837X_PC_ERROR_HAS_ACTUAL_BAUD) != 0u &&
+            error.actual_baud == 57339.449541284404,
+            "serial context preserves actual generated baud")) return 0;
     if (!check((error.available & C2837X_PC_ERROR_HAS_OS_ERROR) != 0u &&
             (error.available & C2837X_PC_ERROR_HAS_OS_ERROR_CODE) != 0u &&
             error.os_error == 995 && error.os_error_code == 995u,
@@ -74,6 +79,7 @@ static int test_serial_mapping(void)
             "serial error formats")) return 0;
     if (!check(contains(formatted, "instance=axis_alpha COM=12 baud=57600") &&
             contains(formatted, "stage=recv_header category=serial") &&
+            contains(formatted, "actual_baud=57339.449541284404") &&
             contains(formatted, "os_error=995") &&
             !contains(formatted, "category=disconnect") &&
             !contains(formatted, "category=socket"),
