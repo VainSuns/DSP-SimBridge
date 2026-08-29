@@ -7,19 +7,29 @@ DSP-SimBridge 是面向 TI TMS320F28377D PTP 目标的 Simulink S-Function
 本文档描述当前可交付的使用边界。与旧工程格式有关的内容仅放在迁移章节，
 不应作为新工程的配置方法。
 
+## 当前状态
+
+DSP-SimBridge 当前已完成 Project V4、多实例、W5300/TCP、SCI IoDevice、
+Windows SCI S-Function 和代表性硬件 bring-up。SCI IoDevice v1.0
+development cycle = COMPLETE；软件实现、文档、FR-001～FR-095 final
+traceability 和 development evidence 均已完成。当前验证范围与未覆盖边界见
+[当前验证状态](#当前验证状态)。
+
 ## 当前版本与能力
 
 | 项目 | 当前约定 |
 | --- | --- |
-| Project | V4，<code>protocol_version = 1</code> |
-| Core API | version 2 |
+| Project Format Version | 4 |
+| Wire Protocol Version | 1 |
+| Core API Version | 2 |
 | DSP 目标 | <code>TMS320F28377D</code> |
 | 封装 | <code>PTP</code> |
 | ABI | <code>eabi</code> 或 <code>coffabi</code> |
 | Wire | 小端字节序，固定协议版本 1 |
 | 传输 | W5300/TCP、SCI/串口，可混合使用 |
-| SCI 时钟 | SYSCLK 200 MHz，LSPCLK = SYSCLK / 4 = 50 MHz |
-| SCI 支持 | SCI-A、SCI-B、SCI-C、SCI-D；9600、19200、38400、57600、115200 |
+| SCI 时钟 | SYSCLK 200 MHz，LOSPCP = 2，LSPCLK divisor = /4，LSPCLK = 50 MHz |
+| SCI 支持 | SCI-A、SCI-B、SCI-C、SCI-D |
+| Requested Baud options | 9600、19200、38400、57600、115200 |
 | SCI PC 侧 | Windows MEX，Simulink Normal mode |
 
 每个实例独立保存 I/O、算法、采样时间、最大 payload 和传输配置。实例之间
@@ -46,7 +56,8 @@ App / Project V4
 
 公共 DSP 核心负责协议、实例调度、Timer2 和错误状态；传输层只在工程中
 出现对应设备时生成。SCI 的 DSP 侧采用轮询，不使用 SCI 中断或 DMA；PC 侧
-串口采用 Windows 独占打开、8N1、无流控和绝对截止时间。
+串口采用 Windows 独占打开、8N1、无流控和绝对截止时间。SCI 只传输 V1
+wire protocol，不增加额外串口 framing，也不使用 autobaud。
 
 ## Project V4
 
@@ -97,9 +108,9 @@ ctrl_pin_type
 ctrl_tx_active_level
 ~~~
 
-SCI 项目不保存 COM 号，也不保存 <code>pin_group</code>、<code>com_port</code> 或 W5300 的
-socket/TCP 字段。COM 号属于 Simulink S-Function 参数；SCI 引脚必须由目标
-能力文件和当前工程资源共同验证。
+SCI 项目不保存 COM 号，也不保存 <code>com_port</code> 或 W5300 的 socket/TCP
+字段。COM 号属于 Simulink S-Function 参数；SCI 引脚必须由目标能力文件和
+当前工程资源共同验证。
 
 <code>common.network</code> 在 V4 结构中始终存在，但只有包含 W5300 实例的
 工程才对网络字段执行语义检查。SCI-only 工程仍需保存合法的结构字段；这不
@@ -107,7 +118,8 @@ socket/TCP 字段。COM 号属于 Simulink S-Function 参数；SCI 引脚必须�
 
 V2、V3 和旧顶层 <code>config</code> 的迁移规则见
 [App 项目与迁移指南](docs/app_project_and_migration_guide.md)。迁移只在加载
-时建立内存中的 V4 项目，不回写旧 MAT 文件。
+时建立内存中的 V4 项目，不回写旧 MAT 文件。旧工程的组合引脚字段只在该迁移
+指南中作为历史输入处理。
 
 ## 算法模式
 
@@ -288,26 +300,29 @@ SCI 不会自动重连、重试或重发，不使用固定 sleep，也不使用 
 
 ## 当前验证状态
 
+当前验证结论聚焦代表性场景，不代表所有 SCI 模块、Baud、GPIO 或长期运行
+组合均已验证。
+
 | 范围 | 状态 |
 | --- | --- |
-| Project V4 结构、默认值、切换、复制、迁移文档 | 已按当前实现核对 |
-| SCI 能力、GPIO/模块资源和 W5300 资源规则 | 已按当前实现核对 |
-| SCI 50 MHz LSPCLK、BRR 计算、接口 hash 边界 | 已按当前实现核对 |
-| 生成文件清单、S-Function 参数和构建脚本 | 已按当前实现核对 |
-| SCI-S5-03/R1 MEX/MATLAB product tests | NOT_EXECUTED / NOT_REQUIRED |
-| Representative SCI MEX from SCI-S5-02 (MinGW64 8.1.0) | REUSED PASS |
-| Focused MATLAB/software tests from SCI-S5-02 / earlier closed stages | REUSED EVIDENCE |
+| Project V4、多实例、W5300/TCP、SCI IoDevice、Windows SCI S-Function | COMPLETE |
+| FR-001～FR-095 final traceability | COMPLETE |
+| Representative single SCI hardware | PASS（用户提供的代表性硬件结果） |
+| Representative single W5300 hardware | PASS（用户提供的代表性硬件结果） |
+| Representative 1 SCI + 1 W5300 mixed hardware | PASS（用户提供的代表性硬件结果） |
 | DSP/CCS target build | NOT_EXECUTED |
 | Real COM hardware | NOT_EXECUTED |
 | Real Simulink communication | NOT_EXECUTED |
-| SCI hardware | USER_VALIDATION_PENDING |
+| Multi-SCI hardware | NOT_EXECUTED / NOT_REQUIRED |
 | Half-duplex hardware | NOT_EXECUTED |
-| Mixed W5300/SCI hardware | NOT_EXECUTED |
+| Full Baud/GPIO matrix | NOT_EXECUTED / NOT_REQUIRED |
+| Long-duration stability matrix | NOT_EXECUTED / NOT_REQUIRED |
 | Final LSPCLK hardware confirmation | USER_VALIDATION_PENDING |
-| 用户最终模型联调 | 待用户验证 |
+| 用户最终 CCS / Simulink / MEX 联调 | USER_VALIDATION_PENDING |
 
-本次文档更新不修改产品代码、App 代码、DSP 代码、Simulink/MEX 代码、
-测试、需求、计划、generator、schema、LSPCLK、BRR、PcError 或 MEX 实现。
+上述 PASS 仅覆盖列出的代表性单实例和 1 SCI + 1 W5300 场景；不能推断
+SCI-A/B/C/D 全部通过、五个 Requested Baud、全部 RX/TX GPIO、CTRL/half-duplex、
+multi-SCI、完整 mixed 组合、长期稳定性或最终 LSPCLK 寄存器确认已通过。
 
 ## 已知边界
 
@@ -320,7 +335,14 @@ SCI 不会自动重连、重试或重发，不使用固定 sleep，也不使用 
 - 目标板上的 TI device support、时钟启动、SCI 物理收发器、引脚连线、
   CCS 工程链接和外部算法源码仍由用户工程负责。
 
-更多字段、迁移和资源规则见
-[App 项目与迁移指南](docs/app_project_and_migration_guide.md)；DSP/CCS
-集成见 [CCS 集成与双实例 main](docs/ccs_integration_and_dual_instance_main.md)；
-MEX 构建与块参数见 [Simulink/MEX 使用指南](docs/simulink_mex_user_guide.md)。
+## 文档
+
+- [Frozen SCI requirements](requirements/requirements_sci_iodevice_v1.0_frozen.md)
+- [Implementation plan](plan.md)
+- [Final FR traceability](docs/requirements_traceability.md)
+- [App 项目与迁移指南](docs/app_project_and_migration_guide.md)
+- [CCS 集成与双实例 main](docs/ccs_integration_and_dual_instance_main.md)
+- [Simulink/MEX 使用指南](docs/simulink_mex_user_guide.md)
+- [V1 protocol vectors](Protocol_Test_Vectors.md)
+
+历史材料保留在 archive 目录中，仅用于历史追溯。

@@ -1,17 +1,19 @@
 # DSP-SimBridge SCI-S5-04 最终 Traceability
 
-> 本文只覆盖冻结需求中的 FR-001～FR-095，保留“需求 → 实现 → 证据 → 状态”正式矩阵；不执行 SCI-G5，不把未实际提供或未执行的用户 DSP/CCS、真实 COM、真实 Simulink 联机或硬件项目推断为 PASS；用户明确提供的代表性硬件结果按原范围记录。
+> 本文只覆盖冻结需求中的 FR-001～FR-095，保留“需求 → 实现 → 证据 → 状态”正式矩阵；SCI-G5 已完成并闭合；不把未实际提供或未执行的用户 DSP/CCS、真实 COM、真实 Simulink 联机或硬件项目推断为 PASS；用户明确提供的代表性硬件结果按原范围记录。
 >
-> Final authority audit: `PASS`; `CURRENT_AUTHORITY_BLOCKERS=0`. SCI-G5 executed=`NO`; SCI-G5 readiness=`READY`。
+> Final authority audit: `PASS`; `CURRENT_AUTHORITY_BLOCKERS=0`。`SCI_G5_RESULT = PASS`；`SCI_G5_STATUS = CLOSED`；`SCI_STAGE_5_STATUS = CLOSED`。
 
 ## 1. 审计基线与当前 authority
 
 - 当前唯一冻结需求：`requirements/requirements_sci_iodevice_v1.0_frozen.md`，应以其中 95 个 `### FR-xxx` 标题为本矩阵的唯一 FR 集合。
-- 当前增量计划：根目录 `plan.md`，其中的 SCI-S5-04 定义本矩阵、Final Audit、历史归档审计和协议/热路径审计；SCI-G5 是独立后续 Gate。
+- 当前增量计划：根目录 `plan.md`，其中的 SCI-S5-04 定义本矩阵、Final Audit、历史归档审计和协议/热路径审计；本 SCI 周期的 SCI-G5 状态为 `PASS / CLOSED`。
 - 当前实现 authority：本仓库实际 App、DSP、Simulink/PC、生成器和测试源文件；证据还包括已关闭阶段/Gate 的 Git 与测试材料。
 - 契约：Project Format V4、Wire Protocol V1、Core API V2；目标固定为 `TMS320F28377D + PTP`。
 - 最终 SCI 平台时钟：SYSCLK 200 MHz，LSPCLK = SYSCLK/4 = 50 MHz，LOSPCP=2；该值由 SCI-S5-02 收敛并由当前代码/文档保持一致。
-- Final traceability/audit code baseline：`631bf5616104fed49005d5d904fd547f9e60fdbc`；Local HEAD 与 `origin/feature/sci-iodevice-v1` Remote HEAD 均为该提交。直接 parent `0b0a4e29e600a5ee4f18b3c4ca7d386e4a84a768` 仅作为修复前历史基线，不是当前最终实现 HEAD。
+- repository current branch state is the implementation authority；以下 SHA 仅表示稳定的历史基线/证据，不表示动态的仓库位置。
+- `FINAL_PRODUCT_IMPLEMENTATION_BASELINE = 631bf5616104fed49005d5d904fd547f9e60fdbc`：最后一次 SCI/W5300 产品实现相关修复，完成 W5300 EMIF1 GPIO ownership/initialization correction；其直接 parent `0b0a4e29e600a5ee4f18b3c4ca7d386e4a84a768` 仅作修复前历史基线。
+- `TRACEABILITY_CLOSURE_COMMIT = 304b1085e17a221698bb4395507cf421badb2c22`：SCI-S5-04 中同步代表性硬件 bring-up 结果的 traceability closure commit；该 SHA 仅用于历史提交定位。
 - 历史 V1 协议基线：tag `legacy-v1-protocol-baseline`，commit `f209302ce3efc0fa15d217550f6d9b1dc00487fb`。
 - Historical V1 validation documents are not current SCI authority; historical versions remain available through Git history。
 
@@ -125,7 +127,7 @@
 | FR-091 | 明确不实现 CRC/ACK/retry/retransmission/reconnect/resync/watchdog/autobaud/interrupt/DMA/industrial diagnostics。 | `dsp/inc/c2837x_block_protocol.h`<br>`dsp/src/c2837x_block_sci.c`<br>`simulink/c2837x_block_protocol.c` | SCI-G0/G2/G4 CLOSED | `tests/protocol/test_legacy_v1_protocol_baseline.m`<br>`README.md` | GOVERNANCE_PASS | 非目标静态审计通过；不把非目标误报为缺陷或硬件结果。 |
 | FR-092 | Host 固定 Windows，DSP 固定 F28377D PTP；不支持 Linux/macOS serial、ZWT/PZP、package selector 或 multi-device capability。 | `simulink/c2837x_block_pc_serial.c`<br>`app/c2837x_block_create_default_project.m`<br>`app/capabilities/TMS320F28377D_PTP.json` | SCI-G1/G4 CLOSED；SCI-S5-03 | `tests/app/test_device_capability.m`<br>`docs/simulink_mex_user_guide.md` | STATIC_AUDIT_PASS | 平台范围已静态确认。 |
 | FR-093 | 旧 requirements、旧 plan 和历史材料仅作 archive/historical evidence。 | `requirements/archive/requirements_multi_iodevice_v1.0_frozen_rev2.md`<br>`docs/archive/plan_multi_instance_v1_completed.md`<br>`docs/archive/requirements_traceability_multi_instance_v1.md` | SCI-G0/S5-04 authority audit | `tests/protocol/test_stage0_repository_baseline.m`<br>`docs/archive/requirements_traceability_multi_instance_v1.md` | GOVERNANCE_PASS | 267-FR 矩阵保留为历史证据，不作为当前矩阵。 |
-| FR-094 | 只使用新的 `plan.md` 增量 FR/SCI stage 约束，不恢复旧 Stage 6 或重跑旧 G0-G5。 | `plan.md`<br>`docs/requirements_traceability.md` | SCI-S5-04 | `plan.md`<br>`docs/simulink_mex_user_guide.md` | GOVERNANCE_PASS | SCI-G5 本次未执行；历史 V1 validation documents are not current SCI authority。 |
+| FR-094 | 只使用新的 `plan.md` 增量 FR/SCI stage 约束，不恢复旧 Stage 6 或重跑旧 G0-G5。 | `plan.md`<br>`docs/requirements_traceability.md` | SCI-S5-04 | `plan.md`<br>`docs/simulink_mex_user_guide.md` | GOVERNANCE_PASS | SCI-G5 已完成并闭合；历史 V1 validation documents are not current SCI authority。 |
 | FR-095 | 当前规范集合由冻结 SCI requirements、新 plan、Project Source/current Dynamic Context/current batch 构成；旧 archive 非当前 authority，FR 编号稳定。 | `requirements/requirements_sci_iodevice_v1.0_frozen.md`<br>`plan.md`<br>`docs/requirements_traceability.md` | SCI-S5-04 authority audit | `plan.md`<br>`docs/requirements_traceability.md` | GOVERNANCE_PASS | 需求标题审计为连续 95 项；当前矩阵只保留 FR-001～FR-095。 |
 
 ## 4. Status 汇总与 Final Audit
@@ -141,9 +143,8 @@
 - Current requirements: `requirements/requirements_sci_iodevice_v1.0_frozen.md`。
 - Current plan: `plan.md`。
 - Current SCI traceability: `docs/requirements_traceability.md`。
-- `FINAL_TRACEABILITY_HEAD = 631bf5616104fed49005d5d904fd547f9e60fdbc`；该值同时是当前 Local HEAD 和 `origin/feature/sci-iodevice-v1` Remote HEAD。
-- `631bf561` 的直接 parent `0b0a4e29e600a5ee4f18b3c4ca7d386e4a84a768` 仅是修复前历史基线；当前最终实现 authority 不停留在该 parent 或更早的 `0700f3ab` 审计基线。
-- 当前 HEAD 的新增修复是 W5300 EMIF1 Platform GPIO ownership/initialization correction：同步 Platform Reserved Resources、W5300 HAL 与对应 App/Host focused fixtures；不属于 V1 protocol、Core Run、W5300 channel/runtime、PC `pc_socket` hot-path 重构。
+- `FINAL_PRODUCT_IMPLEMENTATION_BASELINE` (`631bf5616104fed49005d5d904fd547f9e60fdbc`) 的直接 parent `0b0a4e29e600a5ee4f18b3c4ca7d386e4a84a768` 仅是修复前历史基线；当前实现 authority 不依赖某个固定 SHA。
+- 产品实现基线对应的新增修复是 W5300 EMIF1 Platform GPIO ownership/initialization correction：同步 Platform Reserved Resources、W5300 HAL 与对应 App/Host focused fixtures；不属于 V1 protocol、Core Run、W5300 channel/runtime、PC `pc_socket` hot-path 重构。
 - Historical V1 validation documents are not current SCI authority; historical versions remain available through Git history。
 - Final authority audit: `PASS`; `CURRENT_AUTHORITY_BLOCKERS=0`。
 
@@ -151,12 +152,12 @@
 
 - 历史 source/tag：`legacy-v1-protocol-baseline` → `f209302ce3efc0fa15d217550f6d9b1dc00487fb`。
 - 当前协议证据：`dsp/inc/c2837x_block_protocol.h`、`dsp/src/c2837x_block_protocol.c`、`simulink/c2837x_block_protocol.c`、`tests/protocol/legacy_v1_golden_frames.m`、`Protocol_Test_Vectors.md`。
-- 从 S5-01 evidence baseline `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 到当前最终 HEAD `631bf5616104fed49005d5d904fd547f9e60fdbc` 的 changed-path audit：V1 protocol implementation paths 无变更；`631bf561` 只对 W5300 HAL 的 EMIF1 GPIO ownership/initialization 做 focused correction。Core Run、W5300 channel/runtime hot path 和 PC `pc_socket` hot path 均未改变。`app/templates/protocol.c.in`/`.h.in` 是共享生成模板，未发现新增 wire framing、magic、CRC、实例 ID 或新握手。
+- 从 S5-01 evidence baseline `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 到 `FINAL_PRODUCT_IMPLEMENTATION_BASELINE` (`631bf5616104fed49005d5d904fd547f9e60fdbc`) 的 changed-path audit：V1 protocol implementation paths 无变更；该 baseline 只对 W5300 HAL 的 EMIF1 GPIO ownership/initialization 做 focused correction。Core Run、W5300 channel/runtime hot path 和 PC `pc_socket` hot path 均未改变。`app/templates/protocol.c.in`/`.h.in` 是共享生成模板，未发现新增 wire framing、magic、CRC、实例 ID 或新握手。
 - 结论：`REUSED_EVIDENCE_PASS / NO RELEVANT PROTOCOL CHANGE`；本次没有机械重跑完整 V1 suite。
 
 ### 4.4 W5300 / hot-path audit
 
-- 当前最终 HEAD `631bf5616104fed49005d5d904fd547f9e60fdbc` 相对直接 parent `0b0a4e29e600a5ee4f18b3c4ca7d386e4a84a768` 的实际变更仅涉及 `app/c2837x_block_get_platform_reserved_resources.m`、`dsp/src/c2837x_w5300_hal.c`、`tests/app/test_sci_iodevice_validation.m` 和 `tests/dsp_host/w5300_hal_init_test.c`。
+- `FINAL_PRODUCT_IMPLEMENTATION_BASELINE` (`631bf5616104fed49005d5d904fd547f9e60fdbc`) 相对直接 parent `0b0a4e29e600a5ee4f18b3c4ca7d386e4a84a768` 的实际变更仅涉及 `app/c2837x_block_get_platform_reserved_resources.m`、`dsp/src/c2837x_w5300_hal.c`、`tests/app/test_sci_iodevice_validation.m` 和 `tests/dsp_host/w5300_hal_init_test.c`。
 - 该提交在 W5300 侧只修正 PlatformInit 使用的 EMIF1 GPIO ownership/initialization：W5300 不再声明或初始化实际未使用的 GPIO，释放的 GPIO 可供 SCI 使用；App resource-validation fixture 与 W5300 HAL focused host fixture 已同步。
 - Changed-path audit 确认 `dsp/src/c2837x_w5300_channel.c`、`dsp/src/c2837x_w5300_socket.c`、`dsp/src/c2837x_block.c`、`simulink/c2837x_block_sfun.c` 和 `simulink/c2837x_block_pc_socket.c` 未改变。因此 W5300 channel/runtime hot path、Core Run hot path、PC `pc_socket` hot path 和 V1 wire protocol 未因该 correction 改变。
 - 结论：`REUSED_EVIDENCE_PASS / NO W5300 CHANNEL-RUNTIME HOT-PATH REGRESSION FOUND BY CHANGED-PATH AUDIT`；本次不机械重跑历史 V1 全套测试。
@@ -178,7 +179,10 @@
 
 ### 4.6 Final evidence status
 
-- `FINAL_TRACEABILITY_HEAD = 631bf5616104fed49005d5d904fd547f9e60fdbc`
+- `SCI_G5_RESULT = PASS`
+- `SCI_G5_STATUS = CLOSED`
+- `SCI_STAGE_5_STATUS = CLOSED`
+- `SCI IoDevice v1.0 software/documentation/evidence cycle = CLOSED`
 - `CURRENT_AUTHORITY_BLOCKERS = 0`
 - `SINGLE_SCI_HARDWARE = PASS`
 - `SINGLE_W5300_HARDWARE = PASS`
@@ -188,8 +192,6 @@
 - `FULL_BAUD_GPIO_MATRIX = NOT_EXECUTED / NOT_REQUIRED`
 - `LONG_STABILITY = NOT_EXECUTED / NOT_REQUIRED`
 - `FINAL_LSPCLK_HARDWARE_CONFIRMATION = USER_VALIDATION_PENDING`
-- `SCI_G5_EXECUTED = NO`
-- `SCI_G5_READINESS = READY`
 
 ## 5. Evidence boundary
 
@@ -230,8 +232,8 @@
 
 - Product files modified by this task：`NONE`。
 - Tests modified by this task：`NONE`。
-- Final traceability HEAD：`631bf5616104fed49005d5d904fd547f9e60fdbc`。
+- Traceability closure history：`TRACEABILITY_CLOSURE_COMMIT = 304b1085e17a221698bb4395507cf421badb2c22`；该 SHA 仅用于历史提交定位。
 - SCI-S5-04 Final Audit：`PASS`；当前 authority blocker count：`0`。
-- SCI-G5 executed：`NO`。
-- SCI-G5 readiness：`READY`；SCI-G5 仍须作为独立后续 Gate 决定，不能在本任务中宣称 PASS。
+- `SCI_G5_RESULT = PASS`；`SCI_G5_STATUS = CLOSED`；`SCI_STAGE_5_STATUS = CLOSED`。
+- `SCI IoDevice v1.0 software/documentation/evidence cycle = CLOSED`。
 - Product tests executed：`NOT_EXECUTED / NOT_REQUIRED`；本任务仅执行文档级检查。
