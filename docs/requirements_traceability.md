@@ -15,7 +15,9 @@
 - 当前实现 authority：本仓库实际 App、DSP、Simulink/PC、生成器和测试源文件；证据还包括已关闭阶段/Gate 的 Git 与测试材料。
 - 契约：Project Format V4、Wire Protocol V1、Core API V2；目标固定为 `TMS320F28377D + PTP`。
 - 最终 SCI 平台时钟：SYSCLK 200 MHz，LSPCLK = SYSCLK/4 = 50 MHz，LOSPCP=2；该值由 SCI-S5-02 收敛并由当前代码/文档保持一致。
-- 审计 HEAD：`0700f3ab390aeac396723cb016fdf616ea96058b`；远端同一分支 HEAD 相同。
+- SCI-S5-04 implementation audit baseline / starting HEAD：`0700f3ab390aeac396723cb016fdf616ea96058b`。产品实现及 S5-01→该 baseline 的 protocol/W5300 changed-path audit 以此提交状态为基础；该 SHA 不是当前分支或远端 HEAD。
+- SCI-S5-04 closing commit / current local and remote HEAD：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`。该提交包含最终 traceability、三份 legacy V1 validation artifacts 的 archive moves；当前 `feature/sci-iodevice-v1` 的 local/upstream HEAD 均为该 SHA。
+- `0700f3ab390aeac396723cb016fdf616ea96058b` → `edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`：仅 documentation / traceability / archive governance change；无 product code 或 test code change。
 - 历史 V1 协议基线：tag `legacy-v1-protocol-baseline`，commit `f209302ce3efc0fa15d217550f6d9b1dc00487fb`。
 - 历史 267-FR 矩阵 `docs/archive/requirements_traceability_multi_instance_v1.md`、旧 requirements、旧 plan 和 R1 归档的三份 V1 测试资料仅作历史证据，不能作为当前 SCI FR-001～FR-095 依据；历史文件保持不变。
 
@@ -41,7 +43,7 @@
 | FR-003 | 保留现有 Core 多实例 API：PlatformInit、Init(instance)、Run(instance)、GetLastError(instance) 和 IoDeviceOps，不引入第二套 API 或共享默认上下文。 | `dsp/inc/c2837x_block.h`<br>`dsp/inc/c2837x_block_iodevice.h`<br>`dsp/src/c2837x_block.c` | SCI-G2 CLOSED；SCI-S5-01 REUSED EVIDENCE | `tests/dsp_host/test_s2_01_core_api.m`<br>`tests/dsp_host/test_s2_09_dual_instance.m` | REUSED_EVIDENCE_PASS | Core V2 证据来自已关闭阶段；本次未做 CCS 编译。 |
 | FR-004 | Project V4、Wire V1、Core API V2 独立版本化；生成代码使用预期 API 2，版本不匹配必须编译失败。 | `app/c2837x_block_render_dsp_project_files.m`<br>`dsp/inc/c2837x_block.h`<br>`dsp/inc/c2837x_block_protocol.h` | SCI-G1/G2/G3 CLOSED | `tests/app/test_dsp_output_model.m`<br>`tests/dsp_host/test_s2_01_core_api.m` | STATIC_AUDIT_PASS | 版本常量和 compile-time gate 已静态确认；目标编译未执行。 |
 | FR-005 | V1 线协议保持 4 字节头、既有消息类型/RESPONSE、little-endian、step_index、hash、错误含义和 framing；不新增 magic、CRC、实例 ID、握手或传输 framing。 | `dsp/inc/c2837x_block_protocol.h`<br>`dsp/src/c2837x_block_protocol.c`<br>`simulink/c2837x_block_protocol.c` | SCI-G0/G2/G4 CLOSED；SCI-S5-01 REUSED EVIDENCE | `tests/protocol/test_legacy_v1_protocol_baseline.m`<br>`tests/protocol/legacy_v1_golden_frames.m`<br>`Protocol_Test_Vectors.md` | REUSED_EVIDENCE_PASS | 与历史 tag/向量的协议审计无回归；未机械重跑完整 V1 套件。 |
-| FR-006 | W5300 及其 hot path 不变；Run 不做完整静态校验，PC step 不做全量复制/堆分配，端口/元素/端序由生成期固定。 | `dsp/src/c2837x_block.c`<br>`simulink/c2837x_block_pc_socket.c`<br>`app/c2837x_block_render_dsp_instance_io_files.m` | SCI-S5-01 baseline `15f1311`；SCI-S5-04 focused audit | `tests/dsp_host/test_s2_07_core_protocol.m`<br>`tests/app/test_dsp_output_model.m` | REUSED_EVIDENCE_PASS | 从 S5-01 基线到 HEAD 无 Core/W5300/PC socket hot-path 改动。 |
+| FR-006 | W5300 及其 hot path 不变；Run 不做完整静态校验，PC step 不做全量复制/堆分配，端口/元素/端序由生成期固定。 | `dsp/src/c2837x_block.c`<br>`simulink/c2837x_block_pc_socket.c`<br>`app/c2837x_block_render_dsp_instance_io_files.m` | SCI-S5-01 baseline `15f1311`；SCI-S5-04 focused audit | `tests/dsp_host/test_s2_07_core_protocol.m`<br>`tests/app/test_dsp_output_model.m` | REUSED_EVIDENCE_PASS | 从 S5-01 基线到 SCI-S5-04 implementation audit baseline `0700f3ab390aeac396723cb016fdf616ea96058b` 无 Core/W5300/PC socket hot-path 改动。 |
 | FR-007 | V4 项目必须包含规定的 common、network、output、instances 字段，并固定 target/package。 | `app/c2837x_block_create_default_project.m`<br>`app/c2837x_block_validate_project_structure.m` | SCI-G1 CLOSED | `tests/app/test_project_v4_sci_model.m`<br>`tests/app/test_project_validation.m` | REUSED_EVIDENCE_PASS | V4/target/PTP 结构已由既有 App 测试支持。 |
 | FR-008 | network 始终存在；仅 W5300 项目校验/生成网络字段，SCI-only 保留 network 但不因无效网络阻塞，mixed 同时生成两侧。 | `app/c2837x_block_validate_project.m`<br>`app/c2837x_block_iodevice_w5300_tcp_definition.m`<br>`app/c2837x_block_build_dsp_output_model.m` | SCI-G1/G3 CLOSED | `tests/app/test_project_validation.m`<br>`tests/app/test_dsp_generation_flow.m` | REUSED_EVIDENCE_PASS | W5300-only/SCI-only 条件分支已在源码和候选生成器中确认。 |
 | FR-009 | 实例 IoDevice/type 字段支持 W5300 Socket/TCP 和 SCI module/baud/RX/TX/pin qualification/CTRL；RX/TX 只允许空或 GPIO<number>，无关字段不参与。 | `app/c2837x_block_create_iodevice.m`<br>`app/c2837x_block_iodevice_sci_definition.m`<br>`app/c2837x_block_validate_project_structure.m` | SCI-G1/G2 CLOSED | `tests/app/test_sci_iodevice_validation.m`<br>`tests/app/test_project_v4_sci_model.m` | REUSED_EVIDENCE_PASS | 字段集合及类型约束已验证；硬件 pinmux 未执行实机确认。 |
@@ -111,7 +113,7 @@
 | FR-073 | 保留 OS error/text；partial timeout 仍为 TIMEOUT，带 expected/actual length，不改成 DISCONNECT。 | `simulink/c2837x_block_pc_serial.c`<br>`simulink/c2837x_block_pc_error.h`<br>`app/templates/protocol.c.in` | SCI-G4 CLOSED | `tests/pc/pc_serial_host_test.c`<br>`tests/pc/pc_error_host_test.c` | REUSED_EVIDENCE_PASS | partial/error source 和 Host seam 证据复用。 |
 | FR-074 | 协议诊断进入 mdlStart/mdlOutputs；不可恢复错误通过 ssSetErrorStatus 清理并终止，不复用旧输出。 | `app/c2837x_block_render_sfun_files.m`<br>`simulink/c2837x_block_pc_error.h` | SCI-G4 CLOSED | `tests/app/test_sci_s4_03_sfun_lifecycle.m`<br>`tests/app/test_sfun_step_candidates.m` | REUSED_EVIDENCE_PASS | 生成生命周期和 atomic output helper 已审计。 |
 | FR-075 | terminate cleanup 错误不产生新的 simulation error、不覆盖主错误；不保留长 serial log/history。 | `app/c2837x_block_render_sfun_files.m`<br>`simulink/c2837x_block_pc_serial.c` | SCI-G4 CLOSED | `tests/app/test_sci_s4_03_sfun_lifecycle.m` | REUSED_EVIDENCE_PASS | terminate best-effort 语义来自既有软件证据。 |
-| FR-076 | 每实例 S-Function root 自包含；W5300 使用 pc_socket，SCI 使用 pc_serial，只包含当前 transport，不共享 PC runtime。 | `app/c2837x_block_build_sfun_output_model.m`<br>`app/c2837x_block_render_sfun_files.m`<br>`app/c2837x_block_render_sfun_build_files.m` | SCI-G3/G4 CLOSED；SCI-S5-01 REUSED EVIDENCE | `tests/app/test_sfun_build_candidates.m`<br>`tests/app/test_sci_s4_04_transport_build_generation.m` | REUSED_EVIDENCE_PASS | 从 S5-01 到 HEAD 无 W5300 PC socket hot-path 改动。 |
+| FR-076 | 每实例 S-Function root 自包含；W5300 使用 pc_socket，SCI 使用 pc_serial，只包含当前 transport，不共享 PC runtime。 | `app/c2837x_block_build_sfun_output_model.m`<br>`app/c2837x_block_render_sfun_files.m`<br>`app/c2837x_block_render_sfun_build_files.m` | SCI-G3/G4 CLOSED；SCI-S5-01 REUSED EVIDENCE | `tests/app/test_sfun_build_candidates.m`<br>`tests/app/test_sci_s4_04_transport_build_generation.m` | REUSED_EVIDENCE_PASS | 从 S5-01 到 SCI-S5-04 implementation audit baseline `0700f3ab390aeac396723cb016fdf616ea96058b` 无 W5300 PC socket hot-path 改动。 |
 | FR-077 | TCP/SCI 共用同一 V1 protocol template/logic，不维护两套独立协议。 | `app/templates/protocol.h.in`<br>`app/templates/protocol.c.in`<br>`simulink/c2837x_block_protocol.c` | SCI-G3/G4 CLOSED；SCI-S5-04 protocol audit | `tests/protocol/test_legacy_v1_protocol_baseline.m`<br>`tests/app/test_pc_protocol_candidates.m` | REUSED_EVIDENCE_PASS | 共享模板和当前 protocol constants/frames 已核对。 |
 | FR-078 | 生成 config 包含 device/baud/actual/protocol/hash/sample/payload/I/O；COM 不编译进去；用户只配置三个 timeout。 | `app/c2837x_block_render_dsp_instance_config_files.m`<br>`app/c2837x_block_render_sfun_files.m`<br>`app/c2837x_block_render_sfun_build_files.m` | SCI-G3/G4 CLOSED；SCI-S5-02 REUSED EVIDENCE | `tests/app/test_dsp_output_model.m`<br>`tests/app/test_sfun_build_candidates.m` | STATIC_AUDIT_PASS | 生成配置边界已审计；本次不 build MEX。 |
 | FR-079 | build script 显式列出 pc_socket/pc_serial；先检查 Windows/prerequisite/writable/loaded MEX，再删除重建；失败保留旧 MEX。 | `app/c2837x_block_render_sfun_build_files.m`<br>`app/c2837x_block_build_sfun_candidates.m` | SCI-G4 CLOSED | `tests/app/test_sfun_build_candidates.m`<br>`tests/app/test_sci_s4_04_transport_build_generation.m` | REUSED_EVIDENCE_PASS | 仅静态/既有候选测试证据；本次未运行 mex。 |
@@ -139,7 +141,7 @@
 - 冻结需求标题：95 个；最小 FR-001，最大 FR-095；无缺号、无重复。
 - 当前矩阵行：95 个；每个 FR 恰好一行；无额外 FR 行。
 - 正式 implementation path references：237 个，由 S5-04 路径审计逐一 `Test-Path` 验证；`INVALID_PATHS=0`。
-- 当前矩阵唯一新建仓库产物：`docs/requirements_traceability.md`。
+- 当前矩阵唯一新建 SCI traceability artifact：`docs/requirements_traceability.md`；这不等同于 SCI-S5-04 closing commit 的全部文件变更。
 
 ### 4.2 现有 authority 审计
 
@@ -155,14 +157,16 @@
 
 - 历史 source/tag：`legacy-v1-protocol-baseline` → `f209302ce3efc0fa15d217550f6d9b1dc00487fb`。
 - 当前协议证据：`dsp/inc/c2837x_block_protocol.h`、`dsp/src/c2837x_block_protocol.c`、`simulink/c2837x_block_protocol.c`、`tests/protocol/legacy_v1_golden_frames.m`、`Protocol_Test_Vectors.md`。
-- 从 S5-01 关闭基线 `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 到当前 HEAD 的 changed-path audit：协议实现路径无变更；W5300/Core/PC socket hot path 无变更。`app/templates/protocol.c.in`/`.h.in` 是共享生成模板，审计未发现新增 wire framing、magic、CRC、实例 ID 或新握手。
+- 从 S5-01 evidence baseline `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 到 SCI-S5-04 implementation audit baseline `0700f3ab390aeac396723cb016fdf616ea96058b` 的 changed-path audit：协议实现路径无变更；W5300/Core/PC socket hot path 无变更。`app/templates/protocol.c.in`/`.h.in` 是共享生成模板，审计未发现新增 wire framing、magic、CRC、实例 ID 或新握手。
 - 结论：`REUSED_EVIDENCE_PASS / NO RELEVANT PROTOCOL CHANGE`；本次没有机械重跑完整 V1 suite。
 
 ### 4.4 W5300 / hot-path audit
 
-- S5-01 基线到 HEAD 的 changed-path 总数为 18；协议路径变更 0，关键路径检查中的 `dsp/src/c2837x_block.c`、W5300 DSP source、`simulink/c2837x_block_sfun.c`、`simulink/c2837x_block_pc_socket.c` 均无变更。
+- S5-01 evidence baseline `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 到 SCI-S5-04 implementation audit baseline `0700f3ab390aeac396723cb016fdf616ea96058b` 的 changed-path 总数为 18；协议路径变更 0，关键路径检查中的 `dsp/src/c2837x_block.c`、W5300 DSP source、`simulink/c2837x_block_sfun.c`、`simulink/c2837x_block_pc_socket.c` 均无变更。
 - 期间变更的 `app/c2837x_block_render_pc_files.m`、`app/c2837x_block_render_sfun_files.m` 属于 SCI serial binding/生成器路径；不改变 W5300 socket 实现或 Core Run hot path。
 - 结论：`REUSED_EVIDENCE_PASS / NO W5300 HOT-PATH REGRESSION FOUND BY CHANGED-PATH AUDIT`。
+- Protocol/W5300 implementation audit：`REUSED AUDIT EVIDENCE`。
+- SCI-S5-04 closing documentation commit `edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`：仅 documentation / traceability / archive governance change；`NO PRODUCT CODE CHANGE`。
 
 ### 4.5 Status summary
 
@@ -203,19 +207,31 @@
 - Product files modified by this task：`NONE`。
 - Tests modified by this task：`NONE`。
 - R2 documentation modification：仅 `docs/requirements_traceability.md` 的 blocker resolution/status 文本；95 行矩阵、Implementation Evidence、Verification Evidence 和状态边界未重写。
+- R3 documentation modification：仅修正 implementation audit baseline、closing commit/current HEAD 与 closing-files summary 表述；95 个 FR 的 Requirement Summary、Implementation Evidence、Task/Gate、Verification Evidence、Status 和状态边界未重写，仅更新 FR-006/FR-076 Notes 中的审计终点表述。
 - SCI-S5-04 Final Audit：`PASS`；R1 已解除旧 `docs/test_plan.md` 及其同组历史模板造成的 authority blocker。
 - SCI-G5 executed：`NO`。
 - SCI-G5 readiness：`READY`；SCI-G5 仍须作为独立后续 Gate 决定，不能在本任务中宣称 PASS。
+- Product tests executed：`NOT_EXECUTED / NOT_REQUIRED`；本任务仅执行文档级检查。
+
+### SCI-S5-04 closing commit changed-files
+
+- New current SCI traceability artifact：`docs/requirements_traceability.md`。
+- Legacy V1 validation artifacts archived：
+  - `docs/acceptance_record_template.md` → `docs/archive/multi_instance_v1/acceptance_record_template.md`
+  - `docs/problem_feedback_template.md` → `docs/archive/multi_instance_v1/problem_feedback_template.md`
+  - `docs/test_plan.md` → `docs/archive/multi_instance_v1/test_plan.md`
+- Product code modified：`NONE`。
+- Test code modified：`NONE`。
 
 ## 7. Git / low-cost checks
 
 本次任务不执行 reset、checkout、merge、rebase、commit 或 push。最终检查应记录：
 
 - `git status --short --branch`：工作分支为 `feature/sci-iodevice-v1`；初始状态 clean；Git 两次报告无法读取 `C:\Users\Sun/.config/git/ignore` 的权限 warning，但未显示工作区改动。
-- `git diff --check`：应为通过；新文件无 whitespace error。
-- `git diff --stat`：只应显示新追踪矩阵文件。
+- `git diff --check`：应为通过；修改后的 traceability 文档无 whitespace error。
+- `git diff --stat`：只应显示 `docs/requirements_traceability.md` 的 R3 文档修正；archive moves 已属于 closing commit，不是本次工作区修改。
 - `git diff --name-only`：只应显示 `docs/requirements_traceability.md`。
-- `git status --short --branch`（final）：除新文件未提交状态外，不应有其他路径。
+- `git status --short --branch`（final）：只应显示 `M docs/requirements_traceability.md`，不应有其他路径。
 
 ## 8. SCI-S5-04 跨对话移交摘要
 
@@ -223,15 +239,24 @@
 
 - Repository：`VainSuns/DSP-SimBridge`
 - Branch：`feature/sci-iodevice-v1`
-- Local/remote HEAD：`0700f3ab390aeac396723cb016fdf616ea96058b`
+- Implementation audit baseline：`0700f3ab390aeac396723cb016fdf616ea96058b`
+- SCI-S5-04 closing commit：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`
+- Current HEAD before R3 commit：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`
+- Current local HEAD：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`
+- Remote/upstream HEAD：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`
 - S5-01 closing baseline：无独立 S5-01 commit；按历史顺序以 `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 作为最后一个 S4-05 evidence baseline。
 
 ### 本次文件和计数
 
-- Only new file：`docs/requirements_traceability.md`
+- New current SCI traceability artifact：`docs/requirements_traceability.md`
+- Legacy V1 validation artifacts archived：
+  - `docs/acceptance_record_template.md` → `docs/archive/multi_instance_v1/acceptance_record_template.md`
+  - `docs/problem_feedback_template.md` → `docs/archive/multi_instance_v1/problem_feedback_template.md`
+  - `docs/test_plan.md` → `docs/archive/multi_instance_v1/test_plan.md`
 - FR rows：95；FR range：FR-001～FR-095；duplicates/missing：0
 - Implementation path audit：`PATH_REFERENCES=237` 已逐一验证；`INVALID_PATHS=0`
-- Product/tests modified：NONE
+- Product code modified：NONE
+- Test code modified：NONE
 
 ### 已完成的新检查
 
@@ -240,8 +265,8 @@
 - Current traceability row count/range/duplicate/missing audit
 - Formal implementation path reference existence audit
 - Current authority vs historical archive audit
-- S5-01 baseline→HEAD changed-path protocol audit
-- S5-01 baseline→HEAD W5300/Core/PC socket hot-path audit
+- S5-01 evidence baseline→SCI-S5-04 implementation audit baseline changed-path protocol audit
+- S5-01 evidence baseline→SCI-S5-04 implementation audit baseline W5300/Core/PC socket hot-path audit
 - `git diff --check`、`git diff --stat`、`git diff --name-only`、final `git status --short --branch`
 
 ### 复用、未执行和待用户验证
@@ -252,7 +277,7 @@
 
 ### Protocol / hot-path / resolved issues / next action
 
-- Protocol：V1 framing and shared logic unchanged by S5-01→HEAD changed-path audit。
+- Protocol：V1 framing and shared logic unchanged by S5-01 evidence baseline→SCI-S5-04 implementation audit baseline changed-path audit。
 - W5300/hot path：no relevant implementation path changed; SCI generator binding changes are isolated。
 - Resolved authority finding：SCI-S5-04-R1 archived the three legacy V1 test materials under `docs/archive/multi_instance_v1/` and added historical notices；current authority blocker count is 0。
 - Readiness：`SCI-S5-04 PASS`；`SCI-G5 READY`。
