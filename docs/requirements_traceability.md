@@ -1,12 +1,8 @@
-# DSP-SimBridge SCI-S5-04 最终 Traceability 与 SCI Final Audit
+# DSP-SimBridge SCI-S5-04 最终 Traceability
 
-> 审计任务：SCI-S5-04。本文只覆盖冻结需求中的 FR-001～FR-095；不执行 SCI-G5，不把用户 DSP/CCS、真实 COM、真实 Simulink 联机或硬件结果推断为 PASS。
+> 本文只覆盖冻结需求中的 FR-001～FR-095，保留“需求 → 实现 → 证据 → 状态”正式矩阵；不执行 SCI-G5，不把用户 DSP/CCS、真实 COM、真实 Simulink 联机或硬件结果推断为 PASS。
 >
-> Initial SCI-S5-04 audit finding (preserved): `BLOCKED` because the legacy V1 `docs/test_plan.md`, `docs/acceptance_record_template.md`, and `docs/problem_feedback_template.md` remained in top-level `docs` and were presented as the current test-material set.
->
-> Resolved by SCI-S5-04-R1: the three historical V1 multi-instance/W5300 267-FR artifacts were moved to `docs/archive/multi_instance_v1/` and marked historical.
->
-> Final authority audit: `PASS`; `CURRENT_AUTHORITY_BLOCKERS=0`. SCI-S5-04 Final Audit=`PASS`; SCI-G5 executed=`NO`; SCI-G5 readiness=`READY`.
+> Final authority audit: `PASS`; `CURRENT_AUTHORITY_BLOCKERS=0`. SCI-G5 executed=`NO`; SCI-G5 readiness=`READY`。
 
 ## 1. 审计基线与当前 authority
 
@@ -15,11 +11,8 @@
 - 当前实现 authority：本仓库实际 App、DSP、Simulink/PC、生成器和测试源文件；证据还包括已关闭阶段/Gate 的 Git 与测试材料。
 - 契约：Project Format V4、Wire Protocol V1、Core API V2；目标固定为 `TMS320F28377D + PTP`。
 - 最终 SCI 平台时钟：SYSCLK 200 MHz，LSPCLK = SYSCLK/4 = 50 MHz，LOSPCP=2；该值由 SCI-S5-02 收敛并由当前代码/文档保持一致。
-- SCI-S5-04 implementation audit baseline / starting HEAD：`0700f3ab390aeac396723cb016fdf616ea96058b`。产品实现及 S5-01→该 baseline 的 protocol/W5300 changed-path audit 以此提交状态为基础；该 SHA 不是当前分支或远端 HEAD。
-- SCI-S5-04 closing commit / current local and remote HEAD：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`。该提交包含最终 traceability、三份 legacy V1 validation artifacts 的 archive moves；当前 `feature/sci-iodevice-v1` 的 local/upstream HEAD 均为该 SHA。
-- `0700f3ab390aeac396723cb016fdf616ea96058b` → `edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`：仅 documentation / traceability / archive governance change；无 product code 或 test code change。
 - 历史 V1 协议基线：tag `legacy-v1-protocol-baseline`，commit `f209302ce3efc0fa15d217550f6d9b1dc00487fb`。
-- 历史 267-FR 矩阵 `docs/archive/requirements_traceability_multi_instance_v1.md`、旧 requirements、旧 plan 和 R1 归档的三份 V1 测试资料仅作历史证据，不能作为当前 SCI FR-001～FR-095 依据；历史文件保持不变。
+- Historical V1 validation documents are not current SCI authority; historical versions remain available through Git history。
 
 ## 2. 状态和证据边界
 
@@ -64,12 +57,12 @@
 | FR-024 | CTRL 默认 Standard/High；选择 None 时禁用并隐藏相关配置。 | `app/c2837x_block_iodevice_sci_definition.m`<br>`app/C2837xBlockConfigurator.m` | SCI-G1/G2 CLOSED | `tests/app/test_sci_iodevice_validation.m`<br>`tests/app/test_configurator_smoke.m` | REUSED_EVIDENCE_PASS | CTRL None 语义覆盖 UI 与 descriptor。 |
 | FR-025 | RX/TX endpoint 独立 capability 下拉；module 切换清除无效选择；CTRL 仅 None/GPIO 列表。 | `app/C2837xBlockConfigurator.m`<br>`app/c2837x_block_iodevice_sci_definition.m`<br>`app/c2837x_block_load_device_capability.m` | SCI-G1/G2 CLOSED | `tests/app/test_sci_iodevice_validation.m`<br>`tests/app/test_device_capability.m` | REUSED_EVIDENCE_PASS | endpoint 选择不做 Cartesian pairing；硬件 pinmux 待用户确认。 |
 | FR-026 | Pin Type 仅 Standard/Pull-up；RX qualification 仅 Sync/Async；TX/CTRL 无 qualification 选项。 | `app/C2837xBlockConfigurator.m`<br>`app/c2837x_block_iodevice_sci_definition.m` | SCI-G1/G2 CLOSED | `tests/app/test_sci_iodevice_validation.m`<br>`tests/dsp_host/platform_sci_modes_test.c` | REUSED_EVIDENCE_PASS | UI、descriptor 和 platform mode 保持一致。 |
-| FR-027 | Project 页只读显示 LSPCLK 和每个 SCI requested/actual/error；LSPCLK 不是用户参数。 | `app/C2837xBlockConfigurator.m`<br>`app/c2837x_block_get_sci_clock_config.m`<br>`app/c2837x_block_calculate_sci_baud.m` | SCI-S5-02 `c48e4aa` CLOSED；SCI-S5-03/R1 | `tests/app/test_sci_baud_calculation.m`<br>`docs/app_project_and_migration_guide.md` | REUSED_EVIDENCE_PASS | App/生成结果已统一到 50 MHz；最终硬件时钟仍待用户确认。 |
+| FR-027 | Project 页只读显示 LSPCLK 和每个 SCI requested/actual/error；LSPCLK 不是用户参数。 | `app/C2837xBlockConfigurator.m`<br>`app/c2837x_block_get_sci_clock_config.m`<br>`app/c2837x_block_calculate_sci_baud.m` | SCI-S5-02 `c48e4aa` CLOSED；SCI-S5-03 | `tests/app/test_sci_baud_calculation.m`<br>`docs/app_project_and_migration_guide.md` | REUSED_EVIDENCE_PASS | App/生成结果已统一到 50 MHz；最终硬件时钟仍待用户确认。 |
 | FR-028 | 实例表显示 instance/name/type/algorithm/source/sample time/transport summary/hash/status，并按类型摘要。 | `app/C2837xBlockConfigurator.m`<br>`app/c2837x_block_build_transport_summary.m` | SCI-G1/G3 CLOSED | `tests/app/test_configurator_smoke.m`<br>`tests/app/test_project_v4_sci_model.m` | REUSED_EVIDENCE_PASS | transport summary 不泄露无关参数。 |
 | FR-029 | SCI copy 复制非独占字段但清空 module/RX/TX，CTRL 回到 None 语义；不复制独占硬件绑定。 | `app/c2837x_block_project_session.m`<br>`app/c2837x_block_create_iodevice.m` | SCI-G1 CLOSED | `tests/app/test_project_v4_sci_model.m`<br>`tests/app/test_sci_iodevice_validation.m` | REUSED_EVIDENCE_PASS | copy 行为来自 session 级软件证据。 |
 | FR-030 | capability 失败阻塞 SCI 项目，但不阻塞 W5300-only 项目。 | `app/c2837x_block_load_device_capability.m`<br>`app/c2837x_block_validate_project.m` | SCI-G1/G2 CLOSED | `tests/app/test_device_capability.m`<br>`tests/app/test_project_validation.m` | REUSED_EVIDENCE_PASS | 条件阻塞边界已在校验路径中确认。 |
 | FR-031 | bring-up 使用 200 MHz `/14`；无 SCI 时 PlatformInit 不改 LSPCLK；有 SCI 时项目级初始化前设置一次，不能由实例/App 编辑。 | `app/c2837x_block_get_sci_clock_config.m`<br>`dsp/src/c2837x_block_platform.c`<br>`dsp/src/c2837x_block_platform.h` | SCI-G2 CLOSED；SCI-S5-02 `c48e4aa` CLOSED | `tests/dsp_host/test_s2_02_platform_init.m`<br>`tests/app/test_sci_baud_calculation.m` | REUSED_EVIDENCE_PASS | bring-up 历史边界和最终 `/4` 代码已一致；目标寄存器实测未执行。 |
-| FR-032 | 最终 LSPCLK 综合五个 baud、平台共享约束和误差选择；最终固定平台并同步 App/BRR/actual/error/生成 DSP。 | `app/c2837x_block_get_sci_clock_config.m`<br>`app/c2837x_block_calculate_sci_baud.m`<br>`app/c2837x_block_render_dsp_project_files.m` | SCI-S5-02 `c48e4aa` CLOSED；SCI-S5-03/R1 | `tests/app/test_sci_baud_calculation.m`<br>`docs/simulink_mex_user_guide.md` | REUSED_EVIDENCE_PASS | S5-02 证据复用；不执行额外大矩阵，硬件最终确认 pending。 |
+| FR-032 | 最终 LSPCLK 综合五个 baud、平台共享约束和误差选择；最终固定平台并同步 App/BRR/actual/error/生成 DSP。 | `app/c2837x_block_get_sci_clock_config.m`<br>`app/c2837x_block_calculate_sci_baud.m`<br>`app/c2837x_block_render_dsp_project_files.m` | SCI-S5-02 `c48e4aa` CLOSED；SCI-S5-03 | `tests/app/test_sci_baud_calculation.m`<br>`docs/simulink_mex_user_guide.md` | REUSED_EVIDENCE_PASS | S5-02 证据复用；不执行额外大矩阵，硬件最终确认 pending。 |
 | FR-033 | BRR 为 16-bit H/L；solver 候选 1..65535，公式为 LSPCLK/(8*(BRR+1))，按绝对误差及较小 BRR tie-break。 | `app/c2837x_block_calculate_sci_baud.m`<br>`app/c2837x_block_iodevice_sci_definition.m`<br>`dsp/inc/c2837x_block_sci.h` | SCI-G2 CLOSED；SCI-S5-02 REUSED EVIDENCE | `tests/app/test_sci_baud_calculation.m`<br>`tests/app/test_sci_iodevice_validation.m` | REUSED_EVIDENCE_PASS | BRR=0 不作为 solver candidate；DSP runtime 不重算。 |
 | FR-034 | PC 使用 nominal requested baud，不把 DSP actual baud 当作 PC 配置参数。 | `app/c2837x_block_render_pc_files.m`<br>`app/c2837x_block_render_sfun_files.m` | SCI-G4 CLOSED；SCI-S5-02 REUSED EVIDENCE | `tests/app/test_sci_s4_03_sfun_lifecycle.m`<br>`tests/app/test_sci_s4_05_software_loop.m` | STATIC_AUDIT_PASS | 生成诊断同时保留 requested/actual；真实 COM 配置未执行。 |
 | FR-035 | SCI 固定 8N1、无 parity/flow control、async/full-duplex；关闭 autobaud/loopback/interrupt，FIFO 开启、delay=0、polling。 | `dsp/src/c2837x_block_platform.c`<br>`dsp/src/c2837x_block_sci.c`<br>`app/c2837x_block_render_sfun_files.m` | SCI-G2/G3/G4 CLOSED | `tests/dsp_host/test_s2_03_sci.m`<br>`tests/dsp_host/sci_platform_init_test.c` | REUSED_EVIDENCE_PASS | Host/静态证据支持配置；没有真实 SCI 示波或硬件证据。 |
@@ -103,7 +96,7 @@
 | FR-063 | 固定 8N1，关闭 flow control，DTR/RTS inactive 且不是协议字段。 | `simulink/c2837x_block_pc_serial.c`<br>`app/c2837x_block_render_pc_files.m` | SCI-G4 CLOSED | `tests/pc/pc_serial_host_test.c`<br>`tests/pc/pc_error_host_test.c` | STATIC_AUDIT_PASS | OS serial 配置已静态确认；无真实 USB-serial 设备验证。 |
 | FR-064 | PC 使用 raw V1 octet，无额外 framing；按协议所需字节读取，不读取全部 available，也不引入第二 parser。 | `simulink/c2837x_block_protocol.c`<br>`simulink/c2837x_block_protocol.h`<br>`app/templates/protocol.c.in` | SCI-G0/G4 CLOSED；SCI-S5-04 protocol audit | `tests/protocol/test_legacy_v1_protocol_baseline.m`<br>`tests/pc/pc_serial_host_test.c` | REUSED_EVIDENCE_PASS | 共享协议模板和当前 PC 协议实现无 framing 扩展。 |
 | FR-065 | serial/USB/protocol error 终止 simulation 并 close；无 reopen/retry/resend/skip/re-SIM_START/CTS 等恢复。 | `app/c2837x_block_render_sfun_files.m`<br>`simulink/c2837x_block_pc_serial.c`<br>`simulink/c2837x_block_pc_error.h` | SCI-G4 CLOSED | `tests/app/test_sci_s4_03_sfun_lifecycle.m`<br>`tests/pc/pc_error_host_test.c` | REUSED_EVIDENCE_PASS | 终止和错误分类证据复用；真实 Simulink 错误窗口未执行。 |
-| FR-066 | PC 端仅 Windows desktop MATLAB/Simulink Normal，使用 native Win32 或等价接口，不依赖 MathWorks 私有 binary。 | `simulink/c2837x_block_pc_serial.c`<br>`app/c2837x_block_render_sfun_build_files.m`<br>`README.md` | SCI-G4 CLOSED；SCI-S5-03/R1 | `tests/pc/pc_serial_host_test.c`<br>`docs/simulink_mex_user_guide.md` | STATIC_AUDIT_PASS | Windows/Normal 边界已写入当前文档；其他平台不在范围内。 |
+| FR-066 | PC 端仅 Windows desktop MATLAB/Simulink Normal，使用 native Win32 或等价接口，不依赖 MathWorks 私有 binary。 | `simulink/c2837x_block_pc_serial.c`<br>`app/c2837x_block_render_sfun_build_files.m`<br>`README.md` | SCI-G4 CLOSED；SCI-S5-03 | `tests/pc/pc_serial_host_test.c`<br>`docs/simulink_mex_user_guide.md` | STATIC_AUDIT_PASS | Windows/Normal 边界已写入当前文档；其他平台不在范围内。 |
 | FR-067 | 不依赖 Instrument Control Toolbox、Python、pyserial 或第三方 serial library；PC C 源码自包含。 | `simulink/c2837x_block_pc_serial.c`<br>`simulink/c2837x_block_pc_serial.h`<br>`app/c2837x_block_render_sfun_build_files.m` | SCI-G4 CLOSED | `tests/pc/pc_serial_host_test.c`<br>`tests/app/test_sfun_build_candidates.m` | STATIC_AUDIT_PASS | 依赖扫描和 build candidate 路径已检查。 |
 | FR-068 | COM 是逻辑编号；COM10 用 native path；Update Diagram 只接受正整数静态参数；仅 mdlStart 打开，不枚举设备/VID/PID/刷新 UI。 | `simulink/c2837x_block_pc_serial.c`<br>`app/c2837x_block_render_sfun_files.m`<br>`app/C2837xBlockConfigurator.m` | SCI-G4 CLOSED | `tests/app/test_sci_s4_03_sfun_lifecycle.m`<br>`tests/pc/pc_serial_host_test.c` | REUSED_EVIDENCE_PASS | Windows path/参数边界有源码证据；实际 COM10 未执行。 |
 | FR-069 | 多 SCI 可用不同 COM/mixed；同一 COM 由 OS exclusive open 失败；无 global registry。 | `simulink/c2837x_block_pc_serial.c`<br>`app/c2837x_block_render_sfun_files.m` | SCI-G4 CLOSED | `tests/pc/pc_serial_host_test.c`<br>`tests/app/test_sci_s4_03_sfun_lifecycle.m` | REUSED_EVIDENCE_PASS | per-instance context 与 OS exclusive 语义已审计；双 COM 实机未执行。 |
@@ -120,18 +113,18 @@
 | FR-080 | App 只负责 source/build script 生成，不自动 mex/delete/load/path/model edit。 | `app/c2837x_block_app_coordinator.m`<br>`app/c2837x_block_render_sfun_build_files.m`<br>`app/c2837x_block_validate_candidate_actions.m` | SCI-G3/G4 CLOSED | `tests/app/test_sfun_build_candidates.m`<br>`tests/app/test_candidate_files.m` | STATIC_AUDIT_PASS | App action boundary 已确认。 |
 | FR-081 | Update Diagram 只静态编译配置，不执行 COM open/purge/SIM_START/DSP communication/device enumeration。 | `app/c2837x_block_render_sfun_files.m`<br>`app/C2837xBlockConfigurator.m` | SCI-G4 CLOSED | `tests/app/test_configurator_smoke.m`<br>`tests/app/test_sci_s4_03_sfun_lifecycle.m` | STATIC_AUDIT_PASS | runtime 动作只在 mdlStart/step/terminate 生成路径。 |
 | FR-082 | device change 是 contract change；COM 由用户修改 .slx 参数；App 不自动重写 model。 | `app/c2837x_block_project_session.m`<br>`app/c2837x_block_app_coordinator.m`<br>`app/C2837xBlockConfigurator.m` | SCI-G1/G4 CLOSED | `tests/app/test_project_v4_sci_model.m`<br>`tests/app/test_sfun_build_candidates.m` | STATIC_AUDIT_PASS | Project 与 .slx COM 边界已静态确认。 |
-| FR-083 | 只支持 desktop Normal；不支持 Fast Restart 持久 COM 或 Accelerator/Rapid/codegen/realtime/parallel。 | `app/c2837x_block_render_sfun_files.m`<br>`app/c2837x_block_render_sfun_build_files.m`<br>`README.md` | SCI-G4 CLOSED；SCI-S5-03/R1 | `tests/app/test_sci_s4_03_sfun_lifecycle.m`<br>`docs/simulink_mex_user_guide.md` | STATIC_AUDIT_PASS | 当前文档明确 Normal-only；其他模式不执行。 |
+| FR-083 | 只支持 desktop Normal；不支持 Fast Restart 持久 COM 或 Accelerator/Rapid/codegen/realtime/parallel。 | `app/c2837x_block_render_sfun_files.m`<br>`app/c2837x_block_render_sfun_build_files.m`<br>`README.md` | SCI-G4 CLOSED；SCI-S5-03 | `tests/app/test_sci_s4_03_sfun_lifecycle.m`<br>`docs/simulink_mex_user_guide.md` | STATIC_AUDIT_PASS | 当前文档明确 Normal-only；其他模式不执行。 |
 | FR-084 | 只执行必要测试，不要求 coverage matrix。 | `plan.md`<br>`app/c2837x_block_app_coordinator.m` | SCI-S5-01/S5-04 | `tests/README.md`<br>`docs/simulink_mex_user_guide.md` | GOVERNANCE_PASS | 本次按低成本 focused audit 执行，未跑 full suite。 |
 | FR-085 | 最小测试集合覆盖 capability/schema、冲突、迁移、SCI/W5300/mixed 确定性生成、代表性 serial partial/deadline/SIM_START/step 和相关错误；允许复用不变证据。 | `plan.md`<br>`tests/app/test_sci_s4_03_sfun_lifecycle.m`<br>`tests/app/test_sci_s4_04_transport_build_generation.m` | SCI-S5-01 REUSED EVIDENCE；SCI-S5-04 | `tests/app/test_device_capability.m`<br>`tests/app/test_sci_iodevice_validation.m`<br>`tests/pc/pc_serial_host_test.c` | REUSED_EVIDENCE_PASS | 最小集合证据已映射；不扩展为多硬件矩阵。 |
 | FR-086 | 不机械重跑完整 V1 suite；仅按当前影响范围复用/执行必要证据。 | `plan.md`<br>`tests/protocol/test_legacy_v1_protocol_baseline.m` | SCI-S5-01/S5-04 | `tests/protocol/test_legacy_v1_protocol_baseline.m`<br>`Protocol_Test_Vectors.md` | GOVERNANCE_PASS | 本次未执行 full V1 suite，协议采用 changed-path/static audit。 |
 | FR-087 | 若编译器可用至少一个真实 SCI MEX；否则明确 NOT_EXECUTED/CAPABILITY。 | `app/c2837x_block_render_sfun_build_files.m`<br>`app/c2837x_block_build_sfun_candidates.m` | SCI-G4 CLOSED；SCI-S5-01 REUSED EVIDENCE | `tests/app/test_sci_s4_05_software_loop.m`<br>`docs/simulink_mex_user_guide.md` | REUSED_EVIDENCE_PASS | 代表性 SCI MEX（MinGW64 8.1.0）来自 SCI-S5-02，当前 S5-04 不重建且不伪造新结果。 |
 | FR-088 | 不要求多 SCI/多硬件 matrix；mixed 只做确定性生成证据。 | `app/c2837x_block_build_dsp_candidates.m`<br>`app/c2837x_block_build_project_candidates.m`<br>`app/c2837x_block_build_sfun_candidates.m` | SCI-S5-01 REUSED EVIDENCE；SCI-S5-04 | `tests/app/test_dsp_generation_flow.m`<br>`tests/app/test_sfun_build_candidates.m` | GOVERNANCE_PASS | mixed hardware 未执行，确定性候选生成是边界内证据。 |
-| FR-089 | 最终 SCI 硬件、用户 LSPCLK/baud/CTRL/mixed/稳定性由用户验证；无真实硬件不得写 PASS。 | `app/c2837x_block_get_sci_clock_config.m`<br>`app/c2837x_block_render_dsp_project_files.m`<br>`docs/ccs_integration_and_dual_instance_main.md` | SCI-S5-02 CLOSED；SCI-S5-03/R1 | `docs/simulink_mex_user_guide.md`<br>`docs/ccs_integration_and_dual_instance_main.md` | IMPLEMENTED / USER_VALIDATION_PENDING | SCI hardware、mixed hardware、最终 LSPCLK 硬件确认仍 pending。 |
-| FR-090 | CCS/MEX/Simulink/hardware 未执行项必须显式标记，不能隐含为 PASS。 | `README.md`<br>`docs/ccs_integration_and_dual_instance_main.md`<br>`docs/simulink_mex_user_guide.md` | SCI-S5-03/R1 `f84f6e1`/`0700f3a` CLOSED；SCI-S5-04 | `docs/simulink_mex_user_guide.md`<br>`plan.md` | GOVERNANCE_PASS | 当前状态表已明确 NOT_EXECUTED、REUSED PASS、USER_VALIDATION_PENDING。 |
+| FR-089 | 最终 SCI 硬件、用户 LSPCLK/baud/CTRL/mixed/稳定性由用户验证；无真实硬件不得写 PASS。 | `app/c2837x_block_get_sci_clock_config.m`<br>`app/c2837x_block_render_dsp_project_files.m`<br>`docs/ccs_integration_and_dual_instance_main.md` | SCI-S5-02 CLOSED；SCI-S5-03 | `docs/simulink_mex_user_guide.md`<br>`docs/ccs_integration_and_dual_instance_main.md` | IMPLEMENTED / USER_VALIDATION_PENDING | SCI hardware、mixed hardware、最终 LSPCLK 硬件确认仍 pending。 |
+| FR-090 | CCS/MEX/Simulink/hardware 未执行项必须显式标记，不能隐含为 PASS。 | `README.md`<br>`docs/ccs_integration_and_dual_instance_main.md`<br>`docs/simulink_mex_user_guide.md` | SCI-S5-03 CLOSED；SCI-S5-04 | `docs/simulink_mex_user_guide.md`<br>`plan.md` | GOVERNANCE_PASS | 当前状态表已明确 NOT_EXECUTED、REUSED PASS、USER_VALIDATION_PENDING。 |
 | FR-091 | 明确不实现 CRC/ACK/retry/retransmission/reconnect/resync/watchdog/autobaud/interrupt/DMA/industrial diagnostics。 | `dsp/inc/c2837x_block_protocol.h`<br>`dsp/src/c2837x_block_sci.c`<br>`simulink/c2837x_block_protocol.c` | SCI-G0/G2/G4 CLOSED | `tests/protocol/test_legacy_v1_protocol_baseline.m`<br>`README.md` | GOVERNANCE_PASS | 非目标静态审计通过；不把非目标误报为缺陷或硬件结果。 |
-| FR-092 | Host 固定 Windows，DSP 固定 F28377D PTP；不支持 Linux/macOS serial、ZWT/PZP、package selector 或 multi-device capability。 | `simulink/c2837x_block_pc_serial.c`<br>`app/c2837x_block_create_default_project.m`<br>`app/capabilities/TMS320F28377D_PTP.json` | SCI-G1/G4 CLOSED；SCI-S5-03/R1 | `tests/app/test_device_capability.m`<br>`docs/simulink_mex_user_guide.md` | STATIC_AUDIT_PASS | 平台范围已静态确认。 |
-| FR-093 | 旧 requirements、旧 plan 和历史材料仅作 archive/historical evidence。 | `requirements/archive/requirements_multi_iodevice_v1.0_frozen_rev2.md`<br>`docs/archive/plan_multi_instance_v1_completed.md`<br>`docs/archive/requirements_traceability_multi_instance_v1.md` | SCI-G0/S5-04 authority audit | `tests/protocol/test_stage0_repository_baseline.m`<br>`docs/archive/requirements_traceability_multi_instance_v1.md` | GOVERNANCE_PASS | 267-FR 矩阵 untouched 且不作为当前矩阵；R1 已将三份遗留 V1 测试资料归档并加 historical notice。 |
-| FR-094 | 只使用新的 `plan.md` 增量 FR/SCI stage 约束，不恢复旧 Stage 6 或重跑旧 G0-G5。 | `plan.md`<br>`docs/requirements_traceability.md` | SCI-S5-04/R1/R2 | `plan.md`<br>`docs/simulink_mex_user_guide.md` | GOVERNANCE_PASS | SCI-G5 本次未执行；R1 已解除旧测试方案的 authority blocker。 |
+| FR-092 | Host 固定 Windows，DSP 固定 F28377D PTP；不支持 Linux/macOS serial、ZWT/PZP、package selector 或 multi-device capability。 | `simulink/c2837x_block_pc_serial.c`<br>`app/c2837x_block_create_default_project.m`<br>`app/capabilities/TMS320F28377D_PTP.json` | SCI-G1/G4 CLOSED；SCI-S5-03 | `tests/app/test_device_capability.m`<br>`docs/simulink_mex_user_guide.md` | STATIC_AUDIT_PASS | 平台范围已静态确认。 |
+| FR-093 | 旧 requirements、旧 plan 和历史材料仅作 archive/historical evidence。 | `requirements/archive/requirements_multi_iodevice_v1.0_frozen_rev2.md`<br>`docs/archive/plan_multi_instance_v1_completed.md`<br>`docs/archive/requirements_traceability_multi_instance_v1.md` | SCI-G0/S5-04 authority audit | `tests/protocol/test_stage0_repository_baseline.m`<br>`docs/archive/requirements_traceability_multi_instance_v1.md` | GOVERNANCE_PASS | 267-FR 矩阵保留为历史证据，不作为当前矩阵。 |
+| FR-094 | 只使用新的 `plan.md` 增量 FR/SCI stage 约束，不恢复旧 Stage 6 或重跑旧 G0-G5。 | `plan.md`<br>`docs/requirements_traceability.md` | SCI-S5-04 | `plan.md`<br>`docs/simulink_mex_user_guide.md` | GOVERNANCE_PASS | SCI-G5 本次未执行；历史 V1 validation documents are not current SCI authority。 |
 | FR-095 | 当前规范集合由冻结 SCI requirements、新 plan、Project Source/current Dynamic Context/current batch 构成；旧 archive 非当前 authority，FR 编号稳定。 | `requirements/requirements_sci_iodevice_v1.0_frozen.md`<br>`plan.md`<br>`docs/requirements_traceability.md` | SCI-S5-04 authority audit | `plan.md`<br>`docs/requirements_traceability.md` | GOVERNANCE_PASS | 需求标题审计为连续 95 项；当前矩阵只保留 FR-001～FR-095。 |
 
 ## 4. Status 汇总与 Final Audit
@@ -140,33 +133,28 @@
 
 - 冻结需求标题：95 个；最小 FR-001，最大 FR-095；无缺号、无重复。
 - 当前矩阵行：95 个；每个 FR 恰好一行；无额外 FR 行。
-- 正式 implementation path references：237 个，由 S5-04 路径审计逐一 `Test-Path` 验证；`INVALID_PATHS=0`。
-- 当前矩阵唯一新建 SCI traceability artifact：`docs/requirements_traceability.md`；这不等同于 SCI-S5-04 closing commit 的全部文件变更。
+- 正式 implementation evidence paths 全部有效；`INVALID_PATHS=0`。
 
 ### 4.2 现有 authority 审计
 
 - Current requirements: `requirements/requirements_sci_iodevice_v1.0_frozen.md`。
 - Current plan: `plan.md`。
 - Current SCI traceability: `docs/requirements_traceability.md`。
-- Historical multi-instance materials: `requirements/archive/requirements_multi_iodevice_v1.0_frozen_rev2.md`、`docs/archive/plan_multi_instance_v1_completed.md`、`docs/archive/requirements_traceability_multi_instance_v1.md`、`docs/archive/multi_instance_v1/test_plan.md`、`docs/archive/multi_instance_v1/acceptance_record_template.md`、`docs/archive/multi_instance_v1/problem_feedback_template.md`。
-- Initial blocker finding retained: the three legacy top-level paths `docs/test_plan.md`、`docs/acceptance_record_template.md` and `docs/problem_feedback_template.md` belonged to the historical V1 multi-instance/W5300 267-FR cycle and had been presented as current-looking test materials.
-- Resolved by SCI-S5-04-R1: those three files now exist only under `docs/archive/multi_instance_v1/`, each with a historical notice and no current SCI authority role.
-- Final authority audit: `PASS`; `CURRENT_AUTHORITY_BLOCKERS=0`. No second current S5-04 or current Project V2 test plan remains.
+- Historical V1 validation documents are not current SCI authority; historical versions remain available through Git history。
+- Final authority audit: `PASS`; `CURRENT_AUTHORITY_BLOCKERS=0`。
 
 ### 4.3 V1 protocol audit
 
 - 历史 source/tag：`legacy-v1-protocol-baseline` → `f209302ce3efc0fa15d217550f6d9b1dc00487fb`。
 - 当前协议证据：`dsp/inc/c2837x_block_protocol.h`、`dsp/src/c2837x_block_protocol.c`、`simulink/c2837x_block_protocol.c`、`tests/protocol/legacy_v1_golden_frames.m`、`Protocol_Test_Vectors.md`。
-- 从 S5-01 evidence baseline `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 到 SCI-S5-04 implementation audit baseline `0700f3ab390aeac396723cb016fdf616ea96058b` 的 changed-path audit：协议实现路径无变更；W5300/Core/PC socket hot path 无变更。`app/templates/protocol.c.in`/`.h.in` 是共享生成模板，审计未发现新增 wire framing、magic、CRC、实例 ID 或新握手。
+- 从 S5-01 evidence baseline `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 到 SCI-S5-04 focused audit：协议实现路径无变更；W5300/Core/PC socket hot path 无变更。`app/templates/protocol.c.in`/`.h.in` 是共享生成模板，未发现新增 wire framing、magic、CRC、实例 ID 或新握手。
 - 结论：`REUSED_EVIDENCE_PASS / NO RELEVANT PROTOCOL CHANGE`；本次没有机械重跑完整 V1 suite。
 
 ### 4.4 W5300 / hot-path audit
 
-- S5-01 evidence baseline `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 到 SCI-S5-04 implementation audit baseline `0700f3ab390aeac396723cb016fdf616ea96058b` 的 changed-path 总数为 18；协议路径变更 0，关键路径检查中的 `dsp/src/c2837x_block.c`、W5300 DSP source、`simulink/c2837x_block_sfun.c`、`simulink/c2837x_block_pc_socket.c` 均无变更。
-- 期间变更的 `app/c2837x_block_render_pc_files.m`、`app/c2837x_block_render_sfun_files.m` 属于 SCI serial binding/生成器路径；不改变 W5300 socket 实现或 Core Run hot path。
+- S5-01 evidence baseline `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 到 SCI-S5-04 focused audit：关键路径中的 `dsp/src/c2837x_block.c`、W5300 DSP source、`simulink/c2837x_block_sfun.c`、`simulink/c2837x_block_pc_socket.c` 均无变更。
 - 结论：`REUSED_EVIDENCE_PASS / NO W5300 HOT-PATH REGRESSION FOUND BY CHANGED-PATH AUDIT`。
 - Protocol/W5300 implementation audit：`REUSED AUDIT EVIDENCE`。
-- SCI-S5-04 closing documentation commit `edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`：仅 documentation / traceability / archive governance change；`NO PRODUCT CODE CHANGE`。
 
 ### 4.5 Status summary
 
@@ -182,20 +170,26 @@
 | `NOT_EXECUTED / MATRIX_NOT_REQUIRED` | 0 |
 | Total | 95 |
 
-## 5. Evidence boundary handoff
+## 5. Evidence boundary
 
 ### REUSED EVIDENCE
 
 - SCI-S5-01 / earlier closed stages：App V4/migration、capability/resource validation、Core API V2、DSP SCI/runtime、CTRL、deterministic generator、W5300/SCI/mixed candidate generation、Windows `pc_serial`、S-Function/COM、PcError、representative SCI software loop。
 - SCI-S5-02 commit `c48e4aa`：最终 LSPCLK/baud solver/BRR/diagnostics 收敛到 SYSCLK 200 MHz、LSPCLK 50 MHz、LOSPCP=2；代表性 MinGW64 8.1.0 SCI MEX 结果只作为 reused evidence。
-- SCI-S5-03 commits `f84f6e1` 和 `0700f3a`：README、App/migration、CCS、Simulink/MEX 当前使用和状态边界文档。
+- SCI-S5-03：README、App/migration、CCS、Simulink/MEX 当前使用和状态边界文档。
 - V1 protocol golden/vector 与既有 Host/MATLAB evidence：本次仅做 changed-path/static audit，不重跑 full suite。
 
 ### NOT_EXECUTED
 
-- 本次 S5-04 未运行 full test suite、完整 V1 suite、MATLAB/Simulink 全量回归、MEX rebuild、CCS target build/download、DSP target test、真实 COM、真实 Simulink communication、SCI hardware、half-duplex hardware、mixed W5300/SCI hardware。
-- SCI-S5-04 自身 MEX build：`NOT_EXECUTED / NOT_REQUIRED`；没有新增二进制或构建结论。
-- 不执行多 SCI/多硬件 matrix；mixed 仅保留 deterministic generation evidence。
+- Representative SCI MEX from S5-02：`REUSED PASS`。
+- DSP/CCS target build：`NOT_EXECUTED`。
+- Real COM：`NOT_EXECUTED`。
+- Real Simulink communication：`NOT_EXECUTED`。
+- SCI hardware：`USER_VALIDATION_PENDING`。
+- Final LSPCLK hardware confirmation：`USER_VALIDATION_PENDING`。
+- Half-duplex hardware：`NOT_EXECUTED`。
+- Mixed W5300/SCI hardware：`NOT_EXECUTED`。
+- SCI-S5-04 product tests and MEX build：`NOT_EXECUTED / NOT_REQUIRED`。
 
 ### USER_VALIDATION_PENDING
 
@@ -206,80 +200,7 @@
 
 - Product files modified by this task：`NONE`。
 - Tests modified by this task：`NONE`。
-- R2 documentation modification：仅 `docs/requirements_traceability.md` 的 blocker resolution/status 文本；95 行矩阵、Implementation Evidence、Verification Evidence 和状态边界未重写。
-- R3 documentation modification：仅修正 implementation audit baseline、closing commit/current HEAD 与 closing-files summary 表述；95 个 FR 的 Requirement Summary、Implementation Evidence、Task/Gate、Verification Evidence、Status 和状态边界未重写，仅更新 FR-006/FR-076 Notes 中的审计终点表述。
-- SCI-S5-04 Final Audit：`PASS`；R1 已解除旧 `docs/test_plan.md` 及其同组历史模板造成的 authority blocker。
+- SCI-S5-04 Final Audit：`PASS`；当前 authority blocker count：`0`。
 - SCI-G5 executed：`NO`。
 - SCI-G5 readiness：`READY`；SCI-G5 仍须作为独立后续 Gate 决定，不能在本任务中宣称 PASS。
 - Product tests executed：`NOT_EXECUTED / NOT_REQUIRED`；本任务仅执行文档级检查。
-
-### SCI-S5-04 closing commit changed-files
-
-- New current SCI traceability artifact：`docs/requirements_traceability.md`。
-- Legacy V1 validation artifacts archived：
-  - `docs/acceptance_record_template.md` → `docs/archive/multi_instance_v1/acceptance_record_template.md`
-  - `docs/problem_feedback_template.md` → `docs/archive/multi_instance_v1/problem_feedback_template.md`
-  - `docs/test_plan.md` → `docs/archive/multi_instance_v1/test_plan.md`
-- Product code modified：`NONE`。
-- Test code modified：`NONE`。
-
-## 7. Git / low-cost checks
-
-本次任务不执行 reset、checkout、merge、rebase、commit 或 push。最终检查应记录：
-
-- `git status --short --branch`：工作分支为 `feature/sci-iodevice-v1`；初始状态 clean；Git 两次报告无法读取 `C:\Users\Sun/.config/git/ignore` 的权限 warning，但未显示工作区改动。
-- `git diff --check`：应为通过；修改后的 traceability 文档无 whitespace error。
-- `git diff --stat`：只应显示 `docs/requirements_traceability.md` 的 R3 文档修正；archive moves 已属于 closing commit，不是本次工作区修改。
-- `git diff --name-only`：只应显示 `docs/requirements_traceability.md`。
-- `git status --short --branch`（final）：只应显示 `M docs/requirements_traceability.md`，不应有其他路径。
-
-## 8. SCI-S5-04 跨对话移交摘要
-
-### 当前仓库、分支、HEAD
-
-- Repository：`VainSuns/DSP-SimBridge`
-- Branch：`feature/sci-iodevice-v1`
-- Implementation audit baseline：`0700f3ab390aeac396723cb016fdf616ea96058b`
-- SCI-S5-04 closing commit：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`
-- Current HEAD before R3 commit：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`
-- Current local HEAD：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`
-- Remote/upstream HEAD：`edf6be2f092964ffd9aeaa28bed8cb6c5aa4a490`
-- S5-01 closing baseline：无独立 S5-01 commit；按历史顺序以 `15f131119f7ee25c9917fd58b57d2602cd5b6aaf` 作为最后一个 S4-05 evidence baseline。
-
-### 本次文件和计数
-
-- New current SCI traceability artifact：`docs/requirements_traceability.md`
-- Legacy V1 validation artifacts archived：
-  - `docs/acceptance_record_template.md` → `docs/archive/multi_instance_v1/acceptance_record_template.md`
-  - `docs/problem_feedback_template.md` → `docs/archive/multi_instance_v1/problem_feedback_template.md`
-  - `docs/test_plan.md` → `docs/archive/multi_instance_v1/test_plan.md`
-- FR rows：95；FR range：FR-001～FR-095；duplicates/missing：0
-- Implementation path audit：`PATH_REFERENCES=237` 已逐一验证；`INVALID_PATHS=0`
-- Product code modified：NONE
-- Test code modified：NONE
-
-### 已完成的新检查
-
-- Git repository/remote/branch/local HEAD/upstream HEAD/status baseline
-- Frozen FR heading count/range/duplicate/missing audit
-- Current traceability row count/range/duplicate/missing audit
-- Formal implementation path reference existence audit
-- Current authority vs historical archive audit
-- S5-01 evidence baseline→SCI-S5-04 implementation audit baseline changed-path protocol audit
-- S5-01 evidence baseline→SCI-S5-04 implementation audit baseline W5300/Core/PC socket hot-path audit
-- `git diff --check`、`git diff --stat`、`git diff --name-only`、final `git status --short --branch`
-
-### 复用、未执行和待用户验证
-
-- Reused：SCI-S5-01/earlier closed-stage App/DSP/generator/PC/S-Function/PcError/representative software-loop evidence；SCI-S5-02 final clock and representative MinGW64 8.1.0 MEX evidence；SCI-S5-03/R1 current docs；V1 protocol vectors。
-- Not executed：SCI-G5、S5-04 MEX rebuild、full suites、CCS/DSP target build/download、real COM、real Simulink、SCI/half-duplex/mixed hardware。
-- User pending：SCI hardware、final LSPCLK hardware confirmation、baud/CTRL/stability/mixed and user CCS/Simulink acceptance。
-
-### Protocol / hot-path / resolved issues / next action
-
-- Protocol：V1 framing and shared logic unchanged by S5-01 evidence baseline→SCI-S5-04 implementation audit baseline changed-path audit。
-- W5300/hot path：no relevant implementation path changed; SCI generator binding changes are isolated。
-- Resolved authority finding：SCI-S5-04-R1 archived the three legacy V1 test materials under `docs/archive/multi_instance_v1/` and added historical notices；current authority blocker count is 0。
-- Readiness：`SCI-S5-04 PASS`；`SCI-G5 READY`。
-- Next allowed action：only an independent SCI-G5 may be considered；SCI-G5 was not executed here。
-- Next prohibited action within this handoff：do not add new features, do not enter later stages, do not infer hardware PASS, do not run unneeded full regressions, and do not modify the historical 267-FR archive。
