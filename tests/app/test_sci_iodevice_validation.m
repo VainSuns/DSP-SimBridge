@@ -214,13 +214,28 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
 
         function testMixedProjectConflictsWithActiveW5300Gpios(testCase)
             w5300 = w5300_instance('network');
-            sci = sci_instance('sci_a', 'SCI-A', 'GPIO28', 'GPIO29');
+            sci = sci_instance('sci_a', 'SCI-A', 'GPIO28', 'GPIO8');
             conflict = gpio_conflicts([w5300 sci]);
 
-            testCase.verifyNumElements(conflict, 2);
-            testCase.verifyTrue(all(ismember({conflict.field_path}, { ...
-                'project.instances(2).iodevice.settings.rx_gpio', ...
-                'project.instances(2).iodevice.settings.tx_gpio'})));
+            testCase.verifyNumElements(conflict, 1);
+            testCase.verifyEqual(conflict.field_path, ...
+                'project.instances(2).iodevice.settings.rx_gpio');
+        end
+
+        function testW5300AndSciAReleaseGpio64(testCase)
+            w5300 = w5300_instance('network');
+            sci = sci_instance('sci_a', 'SCI-A', 'GPIO64', 'GPIO8');
+            conflict = gpio_conflicts([w5300 sci]);
+
+            testCase.verifyEmpty(conflict);
+        end
+
+        function testW5300AndSciAReleaseGpio35And36(testCase)
+            w5300 = w5300_instance('network');
+            sci = sci_instance('sci_a', 'SCI-A', 'GPIO35', 'GPIO36');
+            conflict = gpio_conflicts([w5300 sci]);
+
+            testCase.verifyEmpty(conflict);
         end
 
         function testSciOnlyMayUseW5300ReservedGpios(testCase)
@@ -268,7 +283,7 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
             inactive = c2837x_block_get_platform_reserved_resources( ...
                 project_with_instances(sci_instance( ...
                 'sci_a', 'SCI-A', 'GPIO9', 'GPIO8')));
-            expected = [28:41 44:52 63:83 85:94 99];
+            expected = [28 31 37:41 44:52 69:83 85:93 99];
 
             testCase.verifyEqual(cellfun(@str2double, {active.key}), expected);
             testCase.verifyEmpty(inactive);

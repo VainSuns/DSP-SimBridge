@@ -107,9 +107,9 @@ static void test_emif_success_runs_reset(void)
 {
     reset_fixture(0u);
     assert(c2837x_w5300_init() == 0);
-    assert(gpio30_mux_count == 1u);
-    assert(gpio30_options_count == 1u);
-    assert(gpio30_write_count == 1u);
+    assert(gpio30_mux_count == 0u);
+    assert(gpio30_options_count == 0u);
+    assert(gpio30_write_count == 0u);
     assert(reset_write_count == 2u);
     assert(reset_values[0] == 0u);
     assert(reset_values[1] == 1u);

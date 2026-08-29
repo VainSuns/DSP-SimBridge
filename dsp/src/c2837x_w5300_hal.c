@@ -8,38 +8,70 @@ Uint16 c2837x_w5300_fifo_swap = 0;
 
 static int16 c2837x_w5300_init_emif1(void)
 {
-    Uint16 ErrCount = 0, i = 0;
+    Uint16 ErrCount = 0;
 
-    for (i = 28; i <= 52; i++)
-    {
-        if ((i != 42) && (i != 43))
-        {
-            GPIO_SetupPinMux(i, 0, 2);
-        }
-    }
-    for (i = 63; i <= 87; i++)
-    {
-        if (i != 84)
-        {
-            GPIO_SetupPinMux(i, 0, 2);
-        }
-    }
+    /* EMIF1 control signals used by the asynchronous W5300 CS4 bus. */
+    GPIO_SetupPinMux(28, 0, 2); /* EM1CS4N */
+    GPIO_SetupPinMux(31, 0, 2); /* EM1WEN */
+    GPIO_SetupPinMux(37, 0, 2); /* EM1OEN */
 
+    /* Keep the existing direct-mode address bus configuration. */
+    GPIO_SetupPinMux(38, 0, 2);
+    GPIO_SetupPinMux(39, 0, 2);
+    GPIO_SetupPinMux(40, 0, 2);
+    GPIO_SetupPinMux(41, 0, 2);
+    GPIO_SetupPinMux(44, 0, 2);
+    GPIO_SetupPinMux(45, 0, 2);
+    GPIO_SetupPinMux(46, 0, 2);
+    GPIO_SetupPinMux(47, 0, 2);
+    GPIO_SetupPinMux(48, 0, 2);
+    GPIO_SetupPinMux(49, 0, 2);
+    GPIO_SetupPinMux(50, 0, 2);
+    GPIO_SetupPinMux(51, 0, 2);
+    GPIO_SetupPinMux(52, 0, 2);
+    GPIO_SetupPinMux(86, 0, 2);
+    GPIO_SetupPinMux(87, 0, 2);
     GPIO_SetupPinMux(88, 0, 3);
     GPIO_SetupPinMux(89, 0, 3);
     GPIO_SetupPinMux(90, 0, 3);
     GPIO_SetupPinMux(91, 0, 3);
     GPIO_SetupPinMux(92, 0, 3);
     GPIO_SetupPinMux(93, 0, 3);
-    GPIO_SetupPinMux(94, 0, 2);
 
-    for (i = 69; i <= 85; i++)
-    {
-        if (i != 84)
-        {
-            GPIO_SetupPinOptions(i, 0, 0x31);
-        }
-    }
+    /* EM1D0-EM1D15 are GPIO69-83 and GPIO85. */
+    GPIO_SetupPinMux(69, 0, 2);
+    GPIO_SetupPinMux(70, 0, 2);
+    GPIO_SetupPinMux(71, 0, 2);
+    GPIO_SetupPinMux(72, 0, 2);
+    GPIO_SetupPinMux(73, 0, 2);
+    GPIO_SetupPinMux(74, 0, 2);
+    GPIO_SetupPinMux(75, 0, 2);
+    GPIO_SetupPinMux(76, 0, 2);
+    GPIO_SetupPinMux(77, 0, 2);
+    GPIO_SetupPinMux(78, 0, 2);
+    GPIO_SetupPinMux(79, 0, 2);
+    GPIO_SetupPinMux(80, 0, 2);
+    GPIO_SetupPinMux(81, 0, 2);
+    GPIO_SetupPinMux(82, 0, 2);
+    GPIO_SetupPinMux(83, 0, 2);
+    GPIO_SetupPinMux(85, 0, 2);
+
+    GPIO_SetupPinOptions(69, 0, 0x31);
+    GPIO_SetupPinOptions(70, 0, 0x31);
+    GPIO_SetupPinOptions(71, 0, 0x31);
+    GPIO_SetupPinOptions(72, 0, 0x31);
+    GPIO_SetupPinOptions(73, 0, 0x31);
+    GPIO_SetupPinOptions(74, 0, 0x31);
+    GPIO_SetupPinOptions(75, 0, 0x31);
+    GPIO_SetupPinOptions(76, 0, 0x31);
+    GPIO_SetupPinOptions(77, 0, 0x31);
+    GPIO_SetupPinOptions(78, 0, 0x31);
+    GPIO_SetupPinOptions(79, 0, 0x31);
+    GPIO_SetupPinOptions(80, 0, 0x31);
+    GPIO_SetupPinOptions(81, 0, 0x31);
+    GPIO_SetupPinOptions(82, 0, 0x31);
+    GPIO_SetupPinOptions(83, 0, 0x31);
+    GPIO_SetupPinOptions(85, 0, 0x31);
 
     EALLOW;
 #ifdef CPU1
@@ -109,10 +141,6 @@ int16 c2837x_w5300_init(void)
 
     if (c2837x_w5300_init_emif1() != 0)
         return -1;
-
-    GPIO_SetupPinMux(30, GPIO_MUX_CPU1, 0);
-    GPIO_SetupPinOptions(30, GPIO_OUTPUT, GPIO_PUSHPULL);
-    GPIO_WritePin(30, 1);
 
     c2837x_w5300_reset();
     return 0;

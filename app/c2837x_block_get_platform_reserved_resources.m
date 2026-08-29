@@ -10,7 +10,7 @@ if isempty(project.instances) || ~any(arrayfun(@(instance) ...
     return;
 end
 
-gpioNumbers = [28:41 44:52 63:83 85:94 99];
+gpioNumbers = [28 31 37:41 44:52 69:83 85:93 99];
 claims = repmat(prototype, 1, numel(gpioNumbers));
 for index = 1:numel(gpioNumbers)
     number = gpioNumbers(index);
