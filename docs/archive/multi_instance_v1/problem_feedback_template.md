@@ -1,5 +1,13 @@
 # DSP-SimBridge Problem Feedback
 
+> **Historical notice — V1.0 multi-instance/W5300 artifact.**
+>
+> This file belongs to the completed historical 267-FR cycle. It is not current SCI implementation authority.
+>
+> Current SCI authority: `requirements/requirements_sci_iodevice_v1.0_frozen.md` and `plan.md`.
+> Current SCI traceability: `docs/requirements_traceability.md`.
+> Linked current guides may have evolved after this historical artifact.
+
 > 复制本模板后填写并提交。所有字段都应填写；不适用时写 `N/A`。请附文件名或附件路径，不要把巨大二进制文件直接粘贴进 Markdown。不要截断第一条错误、CCS build log 的相关完整上下文或 Simulink error status。（FR-241）
 
 ## 1. Issue Summary

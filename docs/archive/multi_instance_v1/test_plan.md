@@ -1,8 +1,16 @@
 # DSP-SimBridge 测试方案
 
+> **Historical notice — V1.0 multi-instance/W5300 artifact.**
+>
+> This file belongs to the completed historical 267-FR cycle. It is not current SCI implementation authority.
+>
+> Current SCI authority: `requirements/requirements_sci_iodevice_v1.0_frozen.md` and `plan.md`.
+> Current SCI traceability: `docs/requirements_traceability.md`.
+> Linked current guides may have evolved after this historical artifact.
+
 ## 1. 目的、范围和状态规则
 
-本文是 Stage 5 / S5-04 的长期测试方案，定义 DSP-SimBridge V1 多实例交付的软件回归、用户 CCS 编译和 DSP/W5300 实机验收。使用说明见 [App 项目与迁移指南](app_project_and_migration_guide.md)、[CCS 集成和双实例 main 指南](ccs_integration_and_dual_instance_main.md)以及 [Simulink 与 MEX 使用指南](simulink_mex_user_guide.md)；这些文档说明“如何使用”，本文说明“如何验证”。
+本文是 Stage 5 / S5-04 的长期测试方案，定义 DSP-SimBridge V1 多实例交付的软件回归、用户 CCS 编译和 DSP/W5300 实机验收。使用说明见 [App 项目与迁移指南](../../app_project_and_migration_guide.md)、[CCS 集成和双实例 main 指南](../../ccs_integration_and_dual_instance_main.md)以及 [Simulink 与 MEX 使用指南](../../simulink_mex_user_guide.md)；这些文档说明“如何使用”，本文说明“如何验证”。
 
 本文不记录某一次历史测试数量或结果，不执行 S5-05 或 G5，也不以 Host、Mock 或文档检查替代用户 CCS、TMS320F28377D、W5300 和真实联机证据。（FR-233～FR-245、FR-251）
 
@@ -558,21 +566,21 @@ Erratum 证据至少记录当前 Socket、`Sn_TX_FSR`、当前 Socket TX 总容�
 
 | 类别 | 真实入口/证据文件 | 用途 |
 | --- | --- | --- |
-| 总 runner | [`../tests/run_all_tests.m`](../tests/run_all_tests.m) | `protocol`、`app`、`dsp_host`、`pc` category；记录真实 count |
-| App validation | [`../tests/app/test_project_validation.m`](../tests/app/test_project_validation.m) | 配置错误和路径边界 |
-| Hash/CRC32 | [`../tests/app/test_interface_hash.m`](../tests/app/test_interface_hash.m)、[`../tests/app/test_crc32.m`](../tests/app/test_crc32.m) | canonical hash 与 golden |
-| 文件保护 | [`../tests/app/test_preview_commit.m`](../tests/app/test_preview_commit.m)、[`../tests/app/test_candidate_files.m`](../tests/app/test_candidate_files.m) | Preview/commit、candidate/user-file 规则 |
-| PC generation/build/atomic | [`../tests/app/test_sfun_build_candidates.m`](../tests/app/test_sfun_build_candidates.m)、[`../tests/app/test_sfun_step_candidates.m`](../tests/app/test_sfun_step_candidates.m) | build script 和输出原子性生成逻辑 |
-| PC MEX/Normal-mode | [`../tests/pc/test_sfun_pc_integration.m`](../tests/pc/test_sfun_pc_integration.m) | MEX build、Normal-mode、错误场景 |
-| PC Mock matrix | [`../tests/pc/run_sfun_pc_matrix.py`](../tests/pc/run_sfun_pc_matrix.py)、[`../tests/pc/sfun_mock_endpoint.py`](../tests/pc/sfun_mock_endpoint.py) | 当前 deterministic Mock scenarios |
-| V1 protocol golden | [`../tests/protocol/test_legacy_v1_protocol_baseline.m`](../tests/protocol/test_legacy_v1_protocol_baseline.m) | frame/error-code baseline |
-| Core protocol | [`../tests/dsp_host/test_s2_07_core_protocol.m`](../tests/dsp_host/test_s2_07_core_protocol.m) | type/state/length/step/lifecycle |
-| DSP timeout/lifecycle | [`../tests/dsp_host/test_s2_08_timeout_lifecycle.m`](../tests/dsp_host/test_s2_08_timeout_lifecycle.m) | transfer/interaction timeout、cleanup、atomicity |
-| 双实例隔离 | [`../tests/dsp_host/test_s2_09_dual_instance.m`](../tests/dsp_host/test_s2_09_dual_instance.m) | 独立状态、重复 session、局部错误 |
-| SEND completion | [`../tests/dsp_host/w5300_send_completion_test.c`](../tests/dsp_host/w5300_send_completion_test.c) | pending segment、SENDOK/TIMEOUT |
-| Erratum/close | [`../tests/dsp_host/w5300_close_erratum_test.c`](../tests/dsp_host/w5300_close_erratum_test.c) | SENDOK/TIMEOUT、deadline、fault gate、generation recovery |
+| 总 runner | [`../../../tests/run_all_tests.m`](../../../tests/run_all_tests.m) | `protocol`、`app`、`dsp_host`、`pc` category；记录真实 count |
+| App validation | [`../../../tests/app/test_project_validation.m`](../../../tests/app/test_project_validation.m) | 配置错误和路径边界 |
+| Hash/CRC32 | [`../../../tests/app/test_interface_hash.m`](../../../tests/app/test_interface_hash.m)、[`../../../tests/app/test_crc32.m`](../../../tests/app/test_crc32.m) | canonical hash 与 golden |
+| 文件保护 | [`../../../tests/app/test_preview_commit.m`](../../../tests/app/test_preview_commit.m)、[`../../../tests/app/test_candidate_files.m`](../../../tests/app/test_candidate_files.m) | Preview/commit、candidate/user-file 规则 |
+| PC generation/build/atomic | [`../../../tests/app/test_sfun_build_candidates.m`](../../../tests/app/test_sfun_build_candidates.m)、[`../../../tests/app/test_sfun_step_candidates.m`](../../../tests/app/test_sfun_step_candidates.m) | build script 和输出原子性生成逻辑 |
+| PC MEX/Normal-mode | [`../../../tests/pc/test_sfun_pc_integration.m`](../../../tests/pc/test_sfun_pc_integration.m) | MEX build、Normal-mode、错误场景 |
+| PC Mock matrix | [`../../../tests/pc/run_sfun_pc_matrix.py`](../../../tests/pc/run_sfun_pc_matrix.py)、[`../../../tests/pc/sfun_mock_endpoint.py`](../../../tests/pc/sfun_mock_endpoint.py) | 当前 deterministic Mock scenarios |
+| V1 protocol golden | [`../../../tests/protocol/test_legacy_v1_protocol_baseline.m`](../../../tests/protocol/test_legacy_v1_protocol_baseline.m) | frame/error-code baseline |
+| Core protocol | [`../../../tests/dsp_host/test_s2_07_core_protocol.m`](../../../tests/dsp_host/test_s2_07_core_protocol.m) | type/state/length/step/lifecycle |
+| DSP timeout/lifecycle | [`../../../tests/dsp_host/test_s2_08_timeout_lifecycle.m`](../../../tests/dsp_host/test_s2_08_timeout_lifecycle.m) | transfer/interaction timeout、cleanup、atomicity |
+| 双实例隔离 | [`../../../tests/dsp_host/test_s2_09_dual_instance.m`](../../../tests/dsp_host/test_s2_09_dual_instance.m) | 独立状态、重复 session、局部错误 |
+| SEND completion | [`../../../tests/dsp_host/w5300_send_completion_test.c`](../../../tests/dsp_host/w5300_send_completion_test.c) | pending segment、SENDOK/TIMEOUT |
+| Erratum/close | [`../../../tests/dsp_host/w5300_close_erratum_test.c`](../../../tests/dsp_host/w5300_close_erratum_test.c) | SENDOK/TIMEOUT、deadline、fault gate、generation recovery |
 
-MATLAB category runner 示例以 [`../tests/README.md`](../tests/README.md) 为准。独立 PC Mock 命令以 [`../tests/pc/README.md`](../tests/pc/README.md) 为准。只有实际执行后才能把对应软件用例标记 `PASS`；本方案编写本身不等于执行这些 suite。
+MATLAB category runner 示例以 [`../../../tests/README.md`](../../../tests/README.md) 为准。独立 PC Mock 命令以 [`../../../tests/pc/README.md`](../../../tests/pc/README.md) 为准。只有实际执行后才能把对应软件用例标记 `PASS`；本方案编写本身不等于执行这些 suite。
 
 ## 15. S5-04 聚焦 FR trace
 

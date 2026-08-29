@@ -1,5 +1,13 @@
 # Acceptance Record
 
+> **Historical notice — V1.0 multi-instance/W5300 artifact.**
+>
+> This file belongs to the completed historical 267-FR cycle. It is not current SCI implementation authority.
+>
+> Current SCI authority: `requirements/requirements_sci_iodevice_v1.0_frozen.md` and `plan.md`.
+> Current SCI traceability: `docs/requirements_traceability.md`.
+> Linked current guides may have evolved after this historical artifact.
+
 > 本模板记录一次真实 DSP-SimBridge 验收活动。复制后填写，不要直接把模板当作结果。空白不等于通过；定稿前每个计划内 Test ID 都必须填写 `PASS`、`FAIL`、`NOT_EXECUTED`、`BLOCKED` 或 `USER_VALIDATION_PENDING`。环境能力缺失写 `NOT_EXECUTED / CAPABILITY`。只有实际执行且证据齐全才能写 `PASS`；总体可用 `PARTIAL` 表示部分完成。测试步骤和预期结果见 [测试方案](test_plan.md)。
 
 ## 1. Baseline
