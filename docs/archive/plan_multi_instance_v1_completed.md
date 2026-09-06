@@ -1,6 +1,6 @@
 # DSP-SimBridge 多实例实施计划
 
-> **Historical archive notice:** 本文件属于已完成 V1.0 周期的历史计划，不再是当前 SCI implementation authority。当前规范入口为 `requirements/requirements_sci_iodevice_v1.0_frozen.md` 与根 `plan.md`；以下历史任务、Gate 与验证事实保持原义。
+> **Historical archive notice:** 本文件属于已完成 V1.0 周期的历史计划，不再是当前 UDP implementation authority。当前规范入口为 `requirements/requirements_w5300_udp_iodevice_v1.0_frozen.md` 与根 `plan.md`；以下历史任务、Gate 与验证事实保持原义。
 
 > **计划状态：** Approved for Implementation  
 > **生成日期：** 2026-07-19  

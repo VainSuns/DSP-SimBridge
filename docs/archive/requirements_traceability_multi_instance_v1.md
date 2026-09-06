@@ -1,6 +1,6 @@
 # DSP-SimBridge V1 Requirements Traceability
 
-> **Historical archive notice:** 本文件是已完成 V1.0 周期的 267-FR traceability 历史证据，不再是当前 SCI implementation authority，也不是 SCI FR-001～FR-095 traceability。当前规范入口为 `requirements/requirements_sci_iodevice_v1.0_frozen.md` 与根 `plan.md`；以下历史映射、状态、测试数字、Gate 与验证事实保持原义。
+> **Historical archive notice:** 本文件是已完成 V1.0 周期的 267-FR traceability 历史证据，不再是当前 UDP implementation authority，也不是当前 UDP FR-001～FR-082 traceability。当前规范入口为 `requirements/requirements_w5300_udp_iodevice_v1.0_frozen.md` 与根 `plan.md`；以下历史映射、状态、测试数字、Gate 与验证事实保持原义。
 
 ## 1. Authority and scope
 

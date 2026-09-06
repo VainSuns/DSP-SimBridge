@@ -1,772 +1,1212 @@
-# DSP-SimBridge SCI IoDevice 增量实施计划
+# DSP-SimBridge W5300 UDP IoDevice 增量实施计划
 
 > **计划状态：** Approved for Implementation
-> **生成日期：** 2026-08-10
-> **批准日期：** 2026-08-10
-> **唯一需求基线：** `requirements/requirements_sci_iodevice_v1.0_frozen.md`
-> **适用分支：** `feature/sci-iodevice-v1`
-> **实施基线：** `91135a87160e18999f68b0ac262b8a35b656806f`
-> **历史 V1.0 状态：** 多实例 W5300 的历史 G0～G5 已 PASS / CLOSED，本计划不重新执行，也不把 SCI 追加为旧计划 Stage 6。
+> **生成日期：** 2026-09-06
+> **批准日期：** 2026-09-06
+> **唯一需求基线：** `requirements_w5300_udp_iodevice_v1.0_frozen.md`
+> **Repository：** `VainSuns/DSP-SimBridge`
+> **建议实施分支：** `feature/w5300-udp-iodevice-v1`（由 Stage 0 基于实际 `main` 基线建立/核对）
+> **讨论时 Remote main 基线：** `5b7466d23354a40ec58e4d14113e171d3f14bd87`
 > **V1 wire protocol 基线：** `f209302ce3efc0fa15d217550f6d9b1dc00487fb` / `legacy-v1-protocol-baseline`
+> **固定版本：** Project Format V4 / Wire Protocol V1 / Core API V2
 > **实施对象：** DSP-SimBridge / C2837xBlock
-> **计划命名规则：** 本增量周期使用 `SCI-Sx-yy` 和 `SCI-Gx`，与历史 `S0～S5 / G0～G5` 区分。
-> **进度记录规则：** 本文件只定义任务、依赖、产物、最小验证和门禁，不回写实际完成状态。真实 HEAD、工作区、测试、编译、硬件和门禁结果只记录在任务移交摘要、动态上下文、Git 历史和真实日志中。
-
-### Stage 1 Correction — SCI-S1-CORR-01
-
-本纠正批次不新增 Stage、Gate 或 FR 编号：SCI capability 保存独立 RX/TX endpoint，废除 DSP-SimBridge Cartesian PinGroup；persisted Project schema 由 V3 升级为 V4。Wire Protocol 保持 V1，Core API target 保持 V2。V3 仅作为 migration source，旧 `pin_group` 只允许存在于 V3 migration parser。
+> **计划命名规则：** 本增量周期使用 `UDP-Sx-yy` 与 `UDP-Gx`，避免与历史多实例和 SCI 周期任务编号混淆。
+> **进度记录规则：** 本文件只定义任务、依赖、产物、最小验证和门禁，不回写实际完成状态。真实 Branch、HEAD、Remote HEAD、`git status`、测试、编译、硬件和 Gate 结果只记录在每批次跨对话移交摘要、Git 历史和真实日志中。
 
 ---
 
-## 1. 计划目标与执行规则
+# 1. 计划目标与执行规则
 
-本计划只实现冻结 SCI 增量需求 FR-001～FR-095，目标是在已经完成的静态多实例 W5300 基线上新增 SCI IoDevice，并完成 Project V4、Core API V2、Capability、App、DSP SCI、Windows PC Serial S-Function、生成和必要文档适配。
+本计划只实现冻结需求 `FR-001～FR-082`，目标是在当前已完成的 W5300 TCP + SCI 多 IoDevice 基线上新增 `w5300_udp`，完成 Project/App、DSP W5300 UDP、PC UDP、mixed generation、必要测试和文档闭环。
 
-本计划不重新实现已经关闭的 V1.0 多实例/W5300 基础能力。冻结需求未明确修改的 V1.0 行为继续复用现有实现和既有证据。
+本计划不重新实现已经关闭的多实例 W5300 TCP 或 SCI 基础能力。冻结需求未明确修改的既有行为继续继承当前实现和既有证据。
 
-执行规则：
+## 1.1 执行规则
 
-1. **一个对话只执行一个边界明确的任务批次。** 每个 `SCI-Sx-yy` 原则上对应一个独立实施/审核批次；每个 `SCI-Gx` 为独立只读门禁批次。
-2. **开始任何实施任务前必须核对 Git。** 至少核对 repository、branch、HEAD、remote HEAD、`git status`、前置任务提交和前置门禁。
-3. **冻结需求优先。** 不得通过计划解释改变 FR 语义，不得恢复旧单实例 Core、shared `g_ctx`、generic S-Function、共享 PC runtime、自动 reconnect/retry/resend、自动 MEX build 或其他废弃方案。
-4. **V1 wire protocol 不变。** SCI 只增加 transport，不改变 Header、消息、错误码、step_index、Interface Hash 线缆语义或 framing。
-5. **测试服务于研发目标。** 只执行证明 SCI 新功能和关键兼容边界所必需的最小验证；不建立多 SCI、全部 Baud、全部 RX/TX/CTRL GPIO、half-duplex、mixed 硬件或长期稳定性固定矩阵。
-6. **不伪造环境能力。** 未实际执行的 MATLAB/MEX、DSP/CCS、Simulink 或硬件项目必须记录为 `NOT_EXECUTED` / `CAPABILITY` / `USER_VALIDATION_PENDING`，不得声明 PASS。
-7. **硬件不是开发门禁的默认前提。** 最终 DSP/SCI/Baud/CTRL/mixed/长期稳定性实机验证由用户根据实际研发需要执行；开发侧无真实硬件证据时只能声明“已实现，待用户实机验证”。
-8. **LSPCLK 分两阶段。** 实现与 bring-up 初期使用 `SYSCLK/14 ≈ 14.285714 MHz`；基础 SCI-PC 链路实现后再进行理论量化误差和平台影响评估，并在有条件时结合一个代表性实机结果，确定最终平台级固定 LSPCLK。最终值不预设必须为 200 MHz。
-9. **Codex 不负责 Git 提交和分支操作。** Codex 只形成待审核工作区；提交、推送、分支和 Tag 操作由用户决定。
-10. **本计划批准不代表任何实施或门禁已经通过。**
+1. **一个 Codex 对话只执行一个小任务。**
+   每个 `UDP-Sx-yy` 原则上对应一个独立 Codex 实施对话；不得在完成当前任务后顺带进入下一个 `UDP-Sx-yy`。
 
-### 1.1 状态术语
+2. **一个 ChatGPT 对话可以负责一个完整 Stage 的任务分发与审核。**
+   例如当前 ChatGPT 对话可审核整个 Stage 2，但每个 Codex 对话仍只执行 `UDP-S2-01`、`UDP-S2-02` 等单个小任务。
+
+3. **开始任何实施任务前必须核对 Git。**
+   Stage 0 至少核对：
+   - Repository；
+   - Branch；
+   - Local HEAD；
+   - Remote HEAD；
+   - `git status`；
+   - V1 protocol baseline；
+   - 前置 SCI completion baseline。
+   Stage 0 可以使用已审核确认、但尚未写入 Repository current authority 的 Frozen requirements / approved plan 正式输入文件。
+   从 `UDP-S1-01` 开始，除上述项目外还必须核对：
+   - Frozen requirements commit；
+   - approved plan / root `plan.md` commit；
+   - 前置任务提交；
+   - 前置 Gate 状态。
+   GitHub 只能证明远端事实，**本地 `git status` 必须在实际本地仓库中检查，不得从远端推断。**
+
+4. **冻结需求优先。**
+   本计划不得改变 FR 语义。发现计划与 Frozen requirements 冲突时，以 Frozen requirements 为准，并停止当前实现批次进行审核。
+
+5. **Wire V1 / Core API V2 / Project V4 不升级。**
+   本增量不得借 UDP 引入新的 wire version、Core API version 或 Project Format migration。
+
+6. **保持研发项目定位。**
+   优先结构直接、热点路径低开销、测试最小充分；不得引入产品级 ACK/retry/heartbeat/reorder/长期稳定性矩阵。
+
+7. **W5300/C2000 外设访问继续使用现有官方 TI bitfield / 当前 W5300 HAL 路径。**
+   不得通过裸地址指针重新实现 C2000 外设访问；不得绕过当前 W5300 HAL/regs/platform 分层复制第二套底层。
+
+8. **不伪造环境能力。**
+   未实际执行的 MATLAB、MEX、DSP/TI compiler、Simulink、硬件验证必须记录为：
+   - `NOT_EXECUTED / CAPABILITY`；
+   - 或 `USER_VALIDATION_PENDING`。
+   未执行项目不得声明 PASS。
+
+9. **用户最终实机验证不由 Codex 代替。**
+   W5300 UDP PIL 实机连接、连续 step、SIM_STOP/重连和 TCP/UDP 性能比较由用户执行。
+
+10. **Codex 不负责擅自提交、推送、创建 Tag 或扩大分支范围。**
+    Codex 形成待审核工作区和真实测试结果；提交/推送由用户决定，除非用户在具体任务中另有明确授权。
+
+11. **本计划批准本身不代表任何产品实现、测试、编译、硬件或 Gate 已经通过。**
+
+## 1.2 状态术语
 
 | 状态 | 含义 |
 |---|---|
 | 未开始 | 尚未实施 |
-| 已实现待审核 | 代码完成但尚未独立复核 |
-| 已通过静态审核 | 结构、职责、生成合同或源码边界已审核 |
-| 已通过 PC 测试 | MATLAB/MEX/host/mock 的实际测试通过 |
-| 待用户 DSP 编译 | 需要用户在实际 C2000/CCS 环境编译 |
-| 待用户实机验证 | 需要用户连接 TMS320F28377D/SCI/转换器验证 |
-| 已通过用户验证 | 用户提供真实证据并确认通过 |
-| `NOT_EXECUTED / CAPABILITY` | 当前环境缺少执行能力 |
-| 阻断 | 需求冲突、实现失败或前置条件缺失 |
+| 已实现待审核 | 当前小任务代码完成，但未经过独立审核 |
+| 已通过静态审核 | 源码/生成/职责边界经只读审核通过 |
+| 已通过 Host/MATLAB 测试 | 实际执行对应 host/MATLAB 自动测试并通过 |
+| 已通过 MEX 编译 | 在实际可用 MEX compiler 环境中构建通过 |
+| 已通过 DSP 编译 | 在实际 TI C2000 compiler/CCS 环境中构建通过 |
+| `NOT_EXECUTED / CAPABILITY` | 当前执行环境不具备该项能力 |
+| `USER_VALIDATION_PENDING` | 开发侧完成，但需要用户最终实机验证 |
+| 已通过用户验证 | 用户提供真实实机结果并确认通过 |
+| 阻断 | 需求冲突、测试失败、工作区异常或前置条件缺失 |
 | 废弃 | 任务取消但编号保留 |
 
-### 1.2 每个任务批次的最小交付信息
+## 1.3 每个任务批次的最小交付信息
 
-每个任务完成后必须记录：
+每个 `UDP-Sx-yy` 完成后必须输出跨对话移交摘要，至少记录：
 
-- 任务编号与对应 FR；
+- 当前任务编号与对应 FR；
 - 实际修改文件；
+- 未修改但重点复核的文件；
 - 关键设计决定；
-- 实际执行的测试/检查、命令和真实结果；
-- 未执行或无法验证项目；
-- 当前 branch、HEAD、remote HEAD、`git status`；
+- 实际执行的测试/检查及真实结果；
+- 未执行/无法验证项目；
+- 当前 Repository / Branch；
+- Local HEAD；
+- Remote HEAD；
+- `git status`；
+- 当前任务是否已提交；
+- 当前提交 SHA（若已提交）；
 - 已知问题；
-- 下一批次允许和禁止执行的内容。
+- 下一批次**允许**执行的任务；
+- 下一批次**禁止**提前执行的任务。
 
-计划文件保持静态，不在任务完成后把任务状态逐项写回本文件。
+计划文件本身保持静态，不把实际完成状态逐项写回本文件。
 
 ---
 
-## 2. SCI 增量实施起始基线
+# 2. 增量实施起始基线
 
-本增量基于已经完成的 V1.0 多实例 W5300 实现：
+当前讨论与需求冻结时确认的远端基线：
 
 ```text
-Repository : VainSuns/DSP-SimBridge
-Base HEAD  : 91135a87160e18999f68b0ac262b8a35b656806f
-New Branch : feature/sci-iodevice-v1
-V1.0 Gates : G0～G5 PASS / CLOSED
-Protocol   : V1 immutable
-Project    : V2
-Core API   : V1
-IoDevice   : W5300 TCP only
+Repository        : VainSuns/DSP-SimBridge
+Remote branch     : main
+Remote HEAD       : 5b7466d23354a40ec58e4d14113e171d3f14bd87
+Project Format    : 4
+Wire Protocol     : 1
+Core API          : 2
+Existing IoDevice : w5300_tcp + sci
 ```
 
-本计划实施前应把新的 SCI frozen requirements 和本计划切换为当前规范入口；旧 Rev.2 requirements、旧 plan 和旧 267-FR traceability 只保留历史追溯意义。
+历史 Wire V1 不可变基线：
 
-现有实现中需要保留的关键基线包括：
+```text
+Commit : f209302ce3efc0fa15d217550f6d9b1dc00487fb
+Tag    : legacy-v1-protocol-baseline
+```
 
-- 静态多实例 Core，不恢复 default instance/shared `g_ctx`；
-- `PlatformInit()`、`Init(instance)`、`Run(instance)`、`GetLastError(instance)` 公共 API 形态；
-- `C2837xBlock_IoDeviceOps` transport 抽象；
-- V1 wire protocol、Interface Hash 和 step 语义；
-- W5300 已关闭的 non-blocking、pending SEND、close/Erratum 和 faulted 行为；
-- 每实例自包含 S-Function/MEX 生成结构；
-- Preview/Snapshot/Commit 用户文件保护事务；
-- 已关闭 hot-path 优化：DSP `Run()` 不重复完整静态校验、PC 每 step 不恢复 heap/full-copy、固定端口/元素/endian 继续由生成期展开。
+**实施时必须重新核对实际 main HEAD。**
+如果 `main` 已在需求冻结后继续前进，Stage 0 必须记录新的实际实施基线，并确认新增提交没有改变本 Frozen requirements 所依赖的关键合同。
+
+当前实现中必须保留的关键基线：
+
+- static multi-instance Core；
+- `C2837xBlock_IoDeviceOps`；
+- `PlatformInit()` / `Init(instance)` / `Run(instance)` / `GetLastError(instance)`；
+- Wire V1 Header / Message / RESPONSE / `step_index`；
+- Interface Hash 既有字段集合；
+- W5300 TCP stream send/receive；
+- W5300 TCP close erratum workaround；
+- SCI 已完成行为；
+- 每 Instance 独立 S-Function/MEX 输出；
+- shared `protocol.c.in`；
+- Preview/Snapshot/Commit 用户文件保护机制；
+- DSP `Run()` 热路径不恢复重复静态配置校验；
+- PC step 热路径不恢复无必要 heap/full-frame 二次复制。
+
 
 ---
 
-## 3. 全局 FR 覆盖矩阵
+# 3. 全局 FR 覆盖矩阵
 
-| 需求范围 | 主要计划覆盖位置 |
+| FR 范围 | 主要实施位置 |
 |---|---|
-| FR-001～FR-006 | SCI-S0、SCI-S2、SCI-S3、SCI-S5；架构/版本/兼容非回退 |
-| FR-007～FR-013 | SCI-S1；Project V4、V2/V3 migration、conditional fields、COM 边界 |
-| FR-014～FR-018 | SCI-S1；Capability、Platform Reserved Resources、resource conflict |
-| FR-019～FR-030 | SCI-S1；App IoDevice-aware UI、defaults、copy、capability isolation |
-| FR-031～FR-040 | SCI-S1、SCI-S2、SCI-S5；LSPCLK/BRR、PinMux、PlatformInit、SCI_INIT |
-| FR-041～FR-050 | SCI-S2；公共 SCI driver、RX/TX/session、timeout、有界 Run |
-| FR-051～FR-055 | SCI-S2；可选 half-duplex CTRL 运行合同 |
-| FR-056～FR-070 | SCI-S4；COM 参数、Windows serial、S-Function lifecycle |
-| FR-071～FR-075 | SCI-S4；PcError SERIAL、stage、OS error、cleanup |
-| FR-076～FR-083 | SCI-S4；transport-specific S-Function generation、build、Update Diagram |
-| FR-084～FR-090 | 各阶段最小验证 + SCI-S5 最终证据收敛 |
-| FR-091～FR-095 | SCI-S0、全阶段非目标、SCI-S5 文档/治理 |
+| FR-001～FR-008 | 全局约束；UDP-S0、UDP-S2、UDP-S3、UDP-S4、UDP-S5 |
+| FR-009～FR-022 | UDP Stage 1；Project / provider / validation / App |
+| FR-023～FR-044 | UDP Stage 2～3；W5300 UDP primitives + DSP IoDevice Channel |
+| FR-045～FR-054 | UDP Stage 4；PC UDP transport / protocol binding |
+| FR-055～FR-064 | UDP Stage 5；DSP/PC generated closure 与 mixed integration |
+| FR-065～FR-075 | UDP Stage 3～4；DSP/PC error、timeout、terminate |
+| FR-076～FR-080 | 各 Stage 最小验证 + UDP Stage 6 最终软件证据收敛 |
+| FR-081 | 用户最终 W5300 UDP 实机验证，不由 Codex 宣称完成 |
+| FR-082 | 全 Stage 非目标约束 |
 
 ---
 
-# 4. SCI Stage 0：规范基线切换与实施入口
+# 4. UDP Stage 0：规范入口与实施基线
 
-Stage 0 不实现 SCI 产品功能，只把新的增量周期从历史 V1.0 周期中干净分离，并建立可以实施的唯一规范入口。
+Stage 0 不实现任何 UDP 产品代码，只建立新的增量周期规范入口和可验证实施基线。
 
-## SCI-S0-01：核对 SCI 分支与 V1.0 完成基线
+## UDP-S0-01：核对 Repository / Branch / HEAD / 工作区与前置完成基线
 
-- **对应 FR：** FR-005、FR-093～FR-095
+- **对应 FR：** FR-001～FR-005、FR-082；Frozen §0 / §8 治理要求
 - **前置任务：** 无
-- **输入：** `feature/sci-iodevice-v1`、基线 `91135a87160e18999f68b0ac262b8a35b656806f`、V1 protocol tag/commit、当前仓库
 - **目标：**
-  1. 核对新分支确实从完成的 V1.0 基线开始；
-  2. 核对工作区干净、remote 与 local 基线一致；
-  3. 核对历史 `G0～G5` 已关闭且不作为本计划待执行门禁；
-  4. 核对 V1 wire protocol tag/commit 仍存在且未漂移；
-  5. 记录新 SCI 周期的实际起始 HEAD。
-- **非目标：** 不修改产品代码；不实现 Project V4/SCI；不重新执行历史 G0～G5。
-- **最小验证：** Git/remote/branch/HEAD/status、protocol baseline commit/tag、基线祖先关系。
+  1. 核对 Repository 为 `VainSuns/DSP-SimBridge`；
+  2. 获取实际 `main` Remote HEAD；
+  3. 在本地仓库核对 Local HEAD、Remote HEAD、`git status`；
+  4. 核对当前 SCI 周期已经完成，当前 `main` 可作为 UDP 起点；
+  5. 核对 V1 wire protocol commit/tag 仍存在且未漂移；
+  6. 确认 UDP Frozen requirements 与最终 approved plan 的正式输入文件已审核确定；本任务不要求它们已经成为 Repository commit；
+  7. 确认建议新分支 `feature/w5300-udp-iodevice-v1` 是否已建立；如未建立，由用户决定创建，不由 Codex擅自扩展 Git 操作；
+  8. 记录实际 UDP 实施起始 SHA。
+- **非目标：**
+  - 不修改产品代码；
+  - 不修改 Project/App；
+  - 不实现 UDP；
+  - 不重新执行 SCI 全部 Gate。
+- **最小验证：**
+  - Git repository/branch/HEAD/status；
+  - requirements/plan 文件存在；
+  - protocol baseline commit/tag；
+  - UDP base 与 SCI completion 的祖先关系。
+- **阻断条件：**
+  - 本地存在来源不明的未提交修改；
+  - Frozen requirements / approved plan 未确定；
+  - 实际 baseline 与已知完成基线无法建立清晰祖先关系。
 
-## SCI-S0-02：切换 Repository 当前 requirements / plan 并归档历史入口
+## UDP-S0-02：切换 Repository current authority 并归档 SCI 周期入口
 
-- **对应 FR：** FR-093～FR-095
-- **前置任务：** SCI-S0-01
-- **输入：** 新 frozen requirements、本计划、旧 Rev.2 requirements、旧完成 plan、仓库中的 current-spec 引用
-- **Repository 目标：**
-  1. 将 `requirements/requirements_sci_iodevice_v1.0_frozen.md` 作为当前唯一 frozen requirements；
-  2. 用本计划替换根 `plan.md`；
-  3. 旧 Rev.2 requirements、旧完成 plan 和历史 267-FR traceability 进入明确 historical/archive 状态，不再作为 current implementation authority；
-  4. 保留完整 Git 历史和历史 G0～G5 追溯能力；
-  5. 搜索并修正仓库中会让 Codex/开发者误把旧 requirements / old plan 当作 current authority 的必要引用。
-- **固定归档策略：**
-  - `requirements/requirements_multi_iodevice_v1.0_frozen_rev2.md` → `requirements/archive/requirements_multi_iodevice_v1.0_frozen_rev2.md`；
-  - 旧根 `plan.md` → `docs/archive/plan_multi_instance_v1_completed.md`；
-  - `docs/requirements_traceability.md` → `docs/archive/requirements_traceability_multi_instance_v1.md`；
-  - 新当前入口固定为 `requirements/requirements_sci_iodevice_v1.0_frozen.md` 与根 `plan.md`；
-  - 如仓库中现有链接必须同步调整，只做维持历史可追溯和消除 current-authority 歧义所必需的最小修改。
-- **ChatGPT 项目来源维护边界：** `DSP-SimBridge_ChatGPT_Project_Instructions.md`、`DSP-SimBridge_Current_Dynamic_Context.md` 和当前 Stage 0 / SCI-G0 跨对话移交摘要由 ChatGPT/用户在 SCI-G0 关闭时同步维护；这些文件不属于研发仓库，不作为 Codex 修改目标，不进入 repository `git diff`，也不得复制或提交到 `VainSuns/DSP-SimBridge`。如继续维护 `DSP-SimBridge_Codex_Command_Guide.md`，只同步其工作方法示例/事实源路径，不作为产品 Gate。
-- **非目标：** 不重写全部用户文档；不修改产品代码；不删除历史 Git 证据；不让 Codex 修改 ChatGPT Project Source 文件。
-- **最小验证：** repository 搜索 current authority 引用；新 requirements/plan 可读取；固定 archive 路径存在且不再被标记为 current；`git diff --check`。
+- **对应 FR：** Frozen §8 治理；FR-082
+- **前置任务：** UDP-S0-01
+- **目标：**
+  1. 将 `requirements/requirements_w5300_udp_iodevice_v1.0_frozen.md` 设为当前 Frozen requirements；
+  2. 将最终批准的 UDP plan 内容切换为根 `plan.md` 当前实施计划；
+  3. 将上一 SCI Frozen requirements、SCI plan、SCI traceability 转为直接前置历史规范；
+  4. 保留历史 Git 可追溯性；
+  5. 更新 Repository 中会造成 current-authority 歧义的 README/traceability 链接；
+- **建议归档目标：**
+  - SCI Frozen requirements → `requirements/archive/requirements_sci_iodevice_v1.0_frozen.md`；
+  - 当前 SCI `plan.md` → `docs/archive/plan_sci_iodevice_v1.0_completed.md`；
+  - 当前 SCI traceability → 对应 archive 路径；
+  - UDP Frozen requirements → `requirements/requirements_w5300_udp_iodevice_v1.0_frozen.md`；
+  - UDP approved plan → root `plan.md`。
+- **非目标：**
+  - 不修改产品源码；
+  - 不重写全部文档；
+  - 不删除历史提交；
+  - 不修改 ChatGPT Project Source 私有上下文文件并提交到研发仓库。
+- **最小验证：**
+  - current authority 搜索；
+  - archive 文件可追溯；
+  - README/traceability 不再指向 SCI 作为 current；
+  - `git diff --check`。
 
-### SCI Stage 0 Gate：SCI-G0
+### UDP Stage 0 Gate：UDP-G0
 
 必须确认：
 
-- 新分支和起始 HEAD 已真实核对；
-- 新 frozen requirements 与新 `plan.md` 是唯一当前研发入口；
-- 历史 Rev.2 requirements / plan 只作历史追溯；
-- V1 wire protocol baseline 未改变；
-- Stage 0 未混入 SCI 产品实现；
-- 本地工作区和实际提交状态记录真实；
-- `SCI-G0` 通过并准备进入 Stage 1 时，分别确认两类证据：Repository 已完成当前规范入口切换与历史归档；ChatGPT/用户已将 `DSP-SimBridge_ChatGPT_Project_Instructions.md`、Dynamic Context 和 Stage 0 / SCI-G0 跨对话移交摘要同步到新分支、新 frozen requirements 和新 plan。ChatGPT Project Source 文件不得提交到研发仓库。
-
-`SCI-G0` 与历史 `G0` 无关，不重新判定历史多实例阶段。
+- Repository / Branch / actual implementation HEAD 已真实核对；
+- Local `git status` 已真实核对；
+- Frozen requirements 与 approved plan 已作为唯一当前实施入口；
+- Frozen requirements commit 与 approved plan / root `plan.md` commit 已真实确定并记录；
+- 上一 SCI 周期只作为直接前置历史规范；
+- Wire V1 baseline 未改变；
+- Stage 0 未混入 UDP 产品实现；
+- 实际提交状态和 SHA 已记录；
+- 可以进入 Stage 1。
 
 ---
 
-# 5. SCI Stage 1：Project V4、Capability 与 App 配置
+# 5. UDP Stage 1：Project V4、Provider、Resource 与 App
 
-Stage 1 先建立 SCI 的数据模型、器件能力、统一计算和用户配置边界，使后续 DSP/PC 生成只消费已经归一化和验证的 Project V4 数据。
+Stage 1 只让 Project/App 完整认识 `w5300_udp`。
+**本 Stage 不实现 DSP UDP 收发，也不实现 PC UDP socket。**
 
-## SCI-S1-01：建立 TMS320F28377D PTP Capability 与 loader
+## UDP-S1-01：新增 `w5300_udp` Provider 与 canonical Project Model
 
-- **对应 FR：** FR-014～FR-017、FR-030
-- **前置门禁：** SCI-G0
+- **对应 FR：** FR-001～FR-004、FR-009～FR-010、FR-013、FR-017、FR-022
+- **前置门禁：** UDP-G0
 - **目标：**
-  1. 新增唯一 `TMS320F28377D_PTP.json`；
-  2. 只保存固定器件事实：SCI-A/B/C/D 的独立 RX/TX endpoint、GPIO/PinMux 能力，不计算或保存 PinGroup；
-  3. 建立带 `schema_version` 的 MATLAB loader/normalizer；
-  4. 其他 App/validator/generator 只消费 normalized capability，不直接依赖 raw `jsondecode`；
-  5. W5300 EMIF/reset/GPIO 等固定占用保持 Platform Reserved Resources，不污染 capability；
-  6. capability 缺失/损坏时可以明确禁用 SCI，但不得破坏 W5300-only 工作流；
-  7. Capability 中的固定器件事实必须依据 TMS320F28377D PTP 的权威器件资料或当前 TI C2000 device-support 定义核对，并在 capability/维护文档或对应测试夹具中记录可追溯来源；不得根据记忆猜测 PinMux/GPIO 组合。
-- **非目标：** 不支持其他 package/device；不做 `.mat` cache；不加入用户配置。
-- **最小验证：** 正常 schema、unsupported schema、缺失/损坏 capability、W5300-only capability isolation，以及 capability 固定器件事实的来源可追溯性。
+  1. 新增 `w5300_udp` IoDevice definition/provider；
+  2. canonical settings 精确为：
+     ```text
+     socket_number
+     udp_port
+     ```
+  3. UDP defaults：
+     ```text
+     socket_number = 0
+     udp_port      = 5000
+     ```
+  4. Project Format 保持 V4；
+  5. 不建立 V4→V5 migration；
+  6. TCP persisted fields 保持 `socket_number + tcp_port`；
+  7. 创建/结构验证/normalize 支持 `w5300_udp`；
+  8. TCP/UDP/SCI type switch 时重建目标 canonical settings，不遗留 stale fields；
+  9. UDP `max_payload_size_bytes > 1468` 明确 validation error，不自动 clamp。
+- **非目标：**
+  - 不实现 shared W5300 socket conflict；
+  - 不修改 DSP transport；
+  - 不修改 S-Function runtime；
+  - 不加入 PC peer/local port Project 字段。
+- **最小验证：**
+  - create default UDP；
+  - V4 round-trip；
+  - exact settings fields；
+  - TCP↔UDP↔SCI switch canonicalization；
+  - UDP payload 1468/1469 边界；
+  - 现有 TCP/SCI model tests relevant regression。
 
-## SCI-S1-02：升级 Project V2/V3→V4 与 SCI Instance 模型
+## UDP-S1-02：收敛 W5300 TCP/UDP Shared Resource Validation
 
-- **对应 FR：** FR-007～FR-013、FR-019、FR-023～FR-025、FR-029
-- **前置任务：** SCI-S1-01
+- **对应 FR：** FR-011～FR-017
+- **前置任务：** UDP-S1-01
 - **目标：**
-  1. `project.format_version = 4`；
-  2. 增加 `project.common.package='PTP'`；
-  3. 保留 Project Network，但仅在存在 W5300 Instance 时参与有效性校验/生成；
-  4. Instance 增加 `IoDevice=W5300 TCP/SCI` 与 SCI 配置字段；
-  5. 新 Instance 默认 W5300；切换到 SCI 使用冻结默认值；
-  6. V2/V3 自动迁移为 V4，全部旧 Instance 保持 W5300 语义且项目 dirty，不覆盖旧 `.mat`；V3 SCI canonical group 仅在 migration parser 中转换为独立 RX/TX；
-  7. COM 不进入 Project；
-  8. SCI Copy 不复制独占 Module/RX GPIO/TX GPIO/CTRL GPIO，CTRL 仍只有 `None/GPIOxx` 两态。
-- **非目标：** 不实现 DSP/PC SCI runtime；不自动选择 SCI/RX GPIO/TX GPIO/CTRL GPIO。
-- **最小验证：** V4 round-trip、V2/V3 migration、dirty、SCI defaults、copy、Network conditional semantics、COM 不进入 `.mat`。
+  1. TCP + UDP 共享 W5300 Socket 0～7 资源域；
+  2. duplicate Socket 跨 TCP/UDP 必须阻断；
+  3. TCP port 仅在 TCP scope 内唯一；
+  4. UDP port 仅在 UDP scope 内唯一；
+  5. 同数值 TCP Port / UDP Port 合法；
+  6. any-W5300 (`tcp || udp`) 激活 `project.common.network` validation；
+  7. any-W5300 激活既有 W5300 Platform Reserved Resources；
+  8. UDP 使用独立 `UDP_PORT_INVALID` / `UDP_PORT_DUPLICATE` 等诊断，不冒充 TCP；
+  9. SCI-only 行为保持不变。
+- **非目标：**
+  - 不实现 runtime socket allocation；
+  - 不增加“总 W5300 instance 数”第二套冗余规则；
+  - 不探测真实 W5300 socket 状态。
+- **最小验证：**
+  - TCP0 + UDP0 collision；
+  - TCP5000 + UDP5000 allowed；
+  - duplicate UDP port blocked；
+  - any-W5300 Network activation；
+  - SCI-only Network bypass regression；
+  - existing W5300 GPIO reservation regression。
 
-## SCI-S1-03：建立统一 LSPCLK/BRR/Baud 计算服务
+## UDP-S1-03：实现 UDP Copy / Summary / Session Model 行为
 
-- **对应 FR：** FR-027、FR-031～FR-034
-- **前置任务：** SCI-S1-02
+- **对应 FR：** FR-018～FR-022
+- **前置任务：** UDP-S1-01～S1-02
 - **目标：**
-  1. 建立唯一 MATLAB 计算服务，输入项目级 LSPCLK 和 Requested Baud；
-  2. 根据冻结公式在 DSP-SimBridge V1 固定合法候选范围 `1..65535` 内选择绝对 Baud Error 最小的整数 BRR；若存在完全相同的绝对误差，则选择较小 BRR；实现采用何种数学求解方式由实现者决定；
-  3. 输出 BRR、Actual Baud、Baud Error；
-  4. bring-up 初始平台配置采用 `SYSCLK/14 ≈ 14.285714 MHz`；
-  5. 五个 Baud 均允许 Generate，不建立 error threshold；
-  6. 服务允许后续 SCI-S5-02 替换最终平台 LSPCLK，而无需修改计算公式；
-  7. `BRR=0` 是 TI 硬件特殊编码，但不纳入本项目 calculator candidate；首版 calculator 无需实现 `BRR=0` 的分段公式。
-- **非目标：** 本任务不选择最终 LSPCLK；不根据 Baud 自动修改 timeout。
-- **最小验证：** 五个支持 Baud 的 deterministic 计算、最小误差与 tie rule、非法输入；不验证私有求解步骤，不建立 Baud×LSPCLK 大矩阵。
+  1. IoDevice selector 支持：
+     ```text
+     W5300 TCP
+     W5300 UDP
+     SCI
+     ```
+  2. default Instance 仍为 W5300 TCP；
+  3. UDP transport summary：
+     ```text
+     Socket n / UDP port
+     ```
+     或当前统一 summary style 的等价文本；
+  4. Copy UDP 时复制非独占设置，但不允许产生资源冲突；
+  5. Copy 的新 Socket + UDP Port 由用户明确给定，不自动猜测空闲资源；
+  6. Project session/preview/report 使用统一 IoDevice-aware summary。
+- **非目标：**
+  - 不实现 GUI 布局；
+  - 不实现 UDP runtime；
+  - 不修改 Interface Hash transport 语义。
+- **最小验证：**
+  - copy UDP；
+  - summary；
+  - switch type 后无 stale setting；
+  - existing TCP/SCI copy regression。
 
-## SCI-S1-04：实现 IoDevice-aware validation 与资源冲突检查
+## UDP-S1-04：App 增加 W5300 UDP 配置界面
 
-- **对应 FR：** FR-008～FR-009、FR-018、FR-025、FR-030
-- **前置任务：** SCI-S1-01～SCI-S1-03
+- **对应 FR：** FR-018～FR-022
+- **前置任务：** UDP-S1-03
 - **目标：**
-  1. validation 合并 normalized capability、Platform Reserved Resources 和全部 Instance；
-  2. 阻断重复 SCI Module；
-  3. 阻断 RX/TX/CTRL GPIO 之间及与 W5300 固定资源的冲突；
-  4. 阻断 capability 中不存在的 Module、RX GPIO、TX GPIO、CTRL GPIO 或 PinMux；
-  5. SCI-only 项目不因 Network 非法失败；W5300 项目继续执行既有 Network 校验；
-  6. capability 故障只阻断 SCI 项目/SCI 配置，不阻断 W5300-only。
-- **非目标：** 不做运行时资源检测；不探测真实 GPIO 电气状态。
-- **最小验证：** 关键重复/冲突、SCI-only Network bypass、W5300-only capability failure isolation。
+  1. IoDevice 下拉加入 `W5300 UDP`；
+  2. UDP Detail 仅显示：
+     ```text
+     Socket Number
+     UDP Port
+     ```
+  3. 不显示 Remote IP / PC local port / peer port；
+  4. TCP/SCI UI 保持既有字段；
+  5. Instance Table / Preview / Issues 使用统一 summary；
+  6. 切换 IoDevice 时 UI 与 canonical settings 同步；
+  7. UDP payload 超限在 Issues/Generate validation 中明确显示。
+- **非目标：**
+  - 不做像素级 UI 测试；
+  - 不新增高级 UDP networking options；
+  - 不加入 peer 选择。
+- **最小验证：**
+  - App model state；
+  - dynamic field visibility；
+  - UDP defaults；
+  - summary；
+  - validation surfaced；
+  - TCP/SCI UI relevant regression。
 
-## SCI-S1-05：重构 App 为 IoDevice-aware 配置界面
-
-- **对应 FR：** FR-019～FR-030
-- **前置任务：** SCI-S1-02～SCI-S1-04
-- **目标：**
-  1. 保留现有顶层 Project / Instances / Inputs/Outputs / Issues/Interface / Generation Preview；
-  2. Selected Instance 详情形成 `General / IoDevice / Algorithm`；
-  3. IoDevice 页面按 W5300/SCI 显示对应字段；
-  4. RX GPIO、TX GPIO 和 CTRL GPIO 下拉由 capability 驱动；
-  5. CTRL=None 时相关控件禁用/隐藏；
-  6. 项目存在 SCI 时只读显示当前项目 LSPCLK；SCI Instance 显示 Requested/Actual/Error；
-  7. Instance Table 与其他摘要使用统一 transport summary：`Socket 0 / TCP 5000` 或 `SCI-A / 57600 baud`；
-  8. Module 改变时分别清空非法 RX/TX GPIO；不自动分配资源。
-- **非目标：** 不测试像素尺寸/颜色/边距；不建立项目级 SCI-A/B/C/D 固定 Panel。
-- **最小验证：** 用户行为和模型状态；UI 动态字段/默认值/summary；不做表现层像素测试。
-
-### SCI Stage 1 Gate：SCI-G1
+### UDP Stage 1 Gate：UDP-G1
 
 必须确认：
 
-- V4 model / V2/V3 migration 可独立于 UI 测试；
-- capability/schema/normalizer 边界清晰；
-- W5300 Platform Reserved Resources 未写入器件 capability；
-- 关键 resource conflict 能在 Generate 前发现；
-- SCI-only 不被无效 Network 阻断；W5300-only 不被 SCI capability 故障阻断；
-- App SCI 配置、copy、defaults、summary 与冻结需求一致；
-- bring-up LSPCLK/BRR 计算单一且 deterministic；
-- 未提前实现 DSP SCI 或 PC serial runtime。
+- Project 仍为 V4；
+- `w5300_udp` canonical settings 正确；
+- TCP schema 未被重命名；
+- TCP/UDP shared Socket collision 正确；
+- TCP/UDP Port namespace 分离；
+- any-W5300 Network/platform activation 正确；
+- UDP max payload 1468；
+- Copy/switch/summary/App 行为与 Frozen requirements 一致；
+- Stage 1 未实现 DSP/PC UDP runtime。
 
 ---
 
-# 6. SCI Stage 2：Core API V2 与 DSP SCI IoDevice
+# 6. UDP Stage 2：W5300 Socket UDP Hardware Primitives
 
-Stage 2 先用手写/测试 fixture 建立 Core V2 和公共 SCI IoDevice，不依赖正式 generator，从而先闭合 DSP 运行合同，再由 Stage 3 生成实际配置。
+Stage 2 只扩展 `c2837x_w5300_socket.*` 到足以支持 native UDP 的公共硬件/command primitives。
+**本 Stage 不接 Core IoDevice semantics，不实现 peer/session/V1 state。**
 
-## SCI-S2-01：升级 Core API V2 与 PlatformResult
+## UDP-S2-01：实现 Native UDP OPEN 与 Simple CLOSE Primitive
 
-- **对应 FR：** FR-003～FR-006、FR-039
-- **前置门禁：** SCI-G1
+- **对应 FR：** FR-023～FR-027、FR-042～FR-043
+- **前置门禁：** UDP-G1
+- **主要对象：**
+  - `dsp/inc/c2837x_w5300_socket.h`
+  - `dsp/src/c2837x_w5300_socket.c`
+  - 必要 host/mock test fixture
 - **目标：**
-  1. `C2837X_BLOCK_CORE_API_VERSION` 升为 2；
-  2. 保留现有 expected-version compile gate，generated side 后续声明 expected=2；
-  3. `C2837X_BLOCK_PLATFORM_ERROR_SCI_INIT = -5` 追加到现有枚举，不重排 0/-1/-2/-3/-4；
-  4. 公共用户 API 形态保持不变；
-  5. V1 wire protocol/Core message behavior 不变。
-- **非目标：** 不实现 SCI peripheral；不修改 wire protocol；不恢复旧 API。
-- **最小验证：** API/enum 静态审核、version mismatch compile fixture、V1 protocol existing evidence/minimal regression。
+  1. 保持现有 TCP `socket_open()` / TCP target-state 语义不变；
+  2. 增加正式 native UDP OPEN primitive；
+  3. UDP OPEN 完成条件固定为 `SOCK_UDP`；
+  4. 复用现有 command lifecycle，不 busy-wait；
+  5. UDP close 复用 generic close primitives；
+  6. close 支持现有 bounded progression 和 `close_timeout_us`；
+  7. native UDP close 不进入 TCP close erratum dummy-send path。
+- **非目标：**
+  - 不实现 PACKET-INFO；
+  - 不实现 UDP send；
+  - 不新增 peer/session；
+  - 不重构 TCP close erratum。
+- **最小验证：**
+  - UDP OPEN → SOCK_UDP；
+  - pending OPEN progression；
+  - simple CLOSE → SOCK_CLOSED；
+  - close timeout/busy contract；
+  - TCP OPEN/LISTEN/CLOSE existing regression。
 
-## SCI-S2-02：建立项目级 Platform SCI 配置合同与条件初始化
+## UDP-S2-02：实现 UDP RX Datagram FIFO Primitives
 
-- **对应 FR：** FR-031、FR-037～FR-040、FR-042
-- **前置任务：** SCI-S2-01
+- **对应 FR：** FR-028、FR-033～FR-036
+- **前置任务：** UDP-S2-01
 - **目标：**
-  1. 为 PlatformInit 建立项目级 `use_w5300` + used SCI descriptors 的静态配置合同；
-  2. bring-up 阶段有 SCI 时设置一次 `SYSCLK/14` LSPCLK；无 SCI 时不为 SCI 修改 LSPCLK；
-  3. SCI-only 不执行 W5300 init；W5300-only 不执行 SCI init；mixed 初始化两者；
-  4. mixed 任一 required resource init 失败则 PlatformInit fail，不要求 rollback；
-  5. Instance `Init()` 不重复初始化 W5300/SCI/LSPCLK/PinMux/Timer2。
-- **非目标：** 不实现 generator；本任务可先使用手写静态配置 fixture。
-- **最小验证：** SCI-only/W5300-only/mixed 的调用边界；PlatformInit failure path；无 SCI 不改 LSPCLK。
+  1. 在 SOCK_UDP 下检查 RX available；
+  2. 读取 8-octet W5300 PACKET-INFO；
+  3. 返回 Source IP / Source Port / DATA Size；
+  4. PACKET-INFO 后不立即 issue `Sn_CR_RECV`；
+  5. 支持从当前 Datagram FIFO 读取指定 DATA bytes；
+  6. 只有 Datagram 完整消费/丢弃后才 commit RECV；
+  7. commit RECV 复用现有 receive command progression；
+  8. socket primitive 不解析 V1 Message Type/Protocol Version/Hash/step。
+- **非目标：**
+  - 不实现 active peer filtering；
+  - 不判断 SIM_START；
+  - 不建立 full-frame software buffer；
+  - 不改变 TCP `socket_recv()`。
+- **最小验证：**
+  - PACKET-INFO fields；
+  - DATA staged read；
+  - no early RECV；
+  - final commit RECV；
+  - representative zero/normal DATA physical flow；
+  - TCP receive regression。
 
-## SCI-S2-03：实现公共 SCI descriptor、PinMux、FIFO 与 hardware init
+## UDP-S2-03：实现 UDP Atomic Datagram TX Primitive
 
-- **对应 FR：** FR-035～FR-039、FR-041～FR-042
-- **前置任务：** SCI-S2-02
+- **对应 FR：** FR-037～FR-040
+- **前置任务：** UDP-S2-01
 - **目标：**
-  1. 一套公共 SCI implementation 支持 A/B/C/D descriptor；
-  2. const hardware config 与 mutable channel runtime 分离；
-  3. 根据 descriptor 配置 RX/TX PinMux、pull-up、RX qualification、BRR、8N1、FIFO；
-  4. 禁用 autobaud/loopback/interrupt/DMA，FIFO delay=0，polling；
-  5. 可选 CTRL GPIO 初始化为 RX；
-  6. 未使用 SCI/GPIO 不修改；
-  7. `SCI_INIT` 只用于可实际检测的 descriptor/config 不一致，不伪造 register self-test；
-  8. `channel_init()` 只重置当前 SCI Instance 的 mutable Channel Runtime、清理软件 pending 状态并保证 CTRL 回到 RX；不得重新初始化 SCI peripheral、重新设置 BRR/PinMux/LSPCLK，也不得修改其他 SCI Instance。
-- **非目标：** 不做 read-back/loopback/外部设备探测；不增加中断/DMA。
-- **最小验证：** descriptor/config 静态检查、可 host-test 的转换/分支；真实 TI 编译若未执行必须保持 pending。
+  1. UDP send primitive 与 TCP `socket_send()` 分离；
+  2. TX free space < whole Datagram 时返回 pending/no-write；
+  3. TX free 足够后：
+     - 设置 destination IP；
+     - 设置 destination port；
+     - 一次写完整 Datagram；
+     - 设置完整 TX WRSR；
+     - issue exactly one SEND；
+  4. 复用已有 SEND command progression；
+  5. SEND pending 时不重复写 FIFO、不重复 issue SEND；
+  6. SENDOK/TIMEOUT 由上层 Channel 使用；
+  7. 不改变 TCP partial stream send。
+- **非目标：**
+  - 不定义 Core positive progress；
+  - 不绑定 Session Peer；
+  - 不实现 retransmit。
+- **最小验证：**
+  - free < whole size → no write；
+  - free >= whole size → exactly one full write/SEND；
+  - pending no recopy；
+  - SENDOK/TIMEOUT progression；
+  - existing TCP partial-send regression。
 
-## SCI-S2-04：实现 SCI logical connection、RX 与 session cleanup
-
-- **对应 FR：** FR-043～FR-047、FR-050
-- **前置任务：** SCI-S2-03
-- **目标：**
-  1. `CLOSED -> OPEN -> LISTENING` 逻辑状态；
-  2. LISTENING 无 RX 时无限等待且不启动通信 timeout；
-  3. 首个 RX octet 使 channel 报 CONNECTED，但不得被 connection probe 消耗；
-  4. adapter 私下完成 8-bit serial octet ↔ C28x `Uint16`；Core 正进度仍为偶数 wire octet；
-  5. 单 byte 可私有暂存并返回 0；
-  6. 进入新 WAIT_SIM_START 前只执行一次 FIFO/error/pending cleanup；
-  7. RXERROR/RXFFOVF 等严重错误结束当前 session，不 resync/retry；
-  8. session close 后回到等待 SIM_START，不重新配置 peripheral/Baud/PinMux；
-  9. SCI `close()` 只结束当前 logical session，并允许后续 `open -> listen -> WAIT_SIM_START`；不得模拟 TCP peer disconnect、产生 TCP-style disconnect semantics，也不得重新初始化 SCI hardware 或重新配置 Baud/PinMux/LSPCLK。
-- **非目标：** 不增加 transport-specific timeout；不做 peer-connect 模拟等待。
-- **最小验证：** 首 byte preservation、odd byte staging、one-time cleanup、RX error、bounded polling。
-
-## SCI-S2-05：实现 SCI TX pending 与物理发送完成语义
-
-- **对应 FR：** FR-048～FR-050
-- **前置任务：** SCI-S2-04
-- **目标：**
-  1. 一个 Core `send(count_octets)` 对应一个完整 pending operation；
-  2. FIFO 可跨多次 Run 填充，不等待 FIFO 空位；
-  3. pending 期间不接受第二个 operation、不重复写入/发送；
-  4. 只有全部 octets 且最后 stop bit 物理发送完成后，`send()>0` 才一次性返回完整 `count_octets`；
-  5. 所有 Run 可达路径有界，不等待 TX/TXEMPTY、不使用 `delay_us()`；
-  6. 继续使用现有 Core transfer timeout，不自动根据 Baud/LSPCLK/Payload 调整。
-- **非目标：** 不增加 SCI-specific TX timeout、自适应 timeout 或 retry。
-- **最小验证：** pending progression、no duplicate、physical-complete gate、bounded calls。
-
-## SCI-S2-06：实现可选 Half-duplex CTRL 状态
-
-- **对应 FR：** FR-051～FR-055
-- **前置任务：** SCI-S2-05
-- **目标：**
-  1. CTRL=None 走普通 SCI；GPIOxx 时启用 DSP half-duplex direction；
-  2. 新 send 首次切 CTRL→TX 并返回 0；
-  3. pending 未完成保持 TX；
-  4. 最后 stop bit 完成后切 RX，再返回正进度；
-  5. receive 仅在 RX 状态；状态矛盾按 IoDevice error；
-  6. abort/error/termination 强制 CTRL→RX；
-  7. PC 不用 RTS/DTR 做方向控制。
-- **非目标：** 不增加 DE setup delay 配置；不要求为该功能建立强制专项测试矩阵。
-- **最小验证：** 必须完成代码合同/源码审核；若现有低成本 host fixture 能自然覆盖关键状态则执行并记录，但不得为了增加覆盖率专门扩建复杂测试框架。硬件保持用户验证。
-
-### SCI Stage 2 Gate：SCI-G2
+### UDP Stage 2 Gate：UDP-G2
 
 必须确认：
 
-- Core API=2、expected version compile gate 有效；
-- PlatformResult 旧数值未重排，SCI_INIT=-5；
-- 公共 Core 不增加第二套 transport API；
-- SCI hardware config/runtime 静态独立，无 malloc/shared mutable runtime；
-- SCI-only/W5300-only/mixed PlatformInit 责任边界正确；
-- RX 首 byte、odd-byte staging、session cleanup、TX pending/physical-complete 语义闭合；
-- Run 可达 SCI 路径无固定等待/长轮询；
-- half-duplex 代码合同实现，但不把专项硬件测试升级为门禁；
-- 未实际进行的 CCS/硬件验证真实标记 pending。
+- `c2837x_w5300_socket.*` 保持最小硬件 command state；
+- peer/session/V1 语义未污染 socket layer；
+- UDP OPEN 目标是 SOCK_UDP；
+- RX PACKET-INFO / delayed RECV commit 正确；
+- TX whole-Datagram primitive 正确；
+- native UDP close 不进入 TCP erratum；
+- 相关现有 TCP socket regression 实际通过；
+- Stage 2 未实现 Core UDP Channel。
 
 ---
 
-# 7. SCI Stage 3：DSP 生成与 IoDevice 条件依赖
+# 7. UDP Stage 3：DSP `w5300_udp` IoDevice Channel
 
-Stage 3 把 Stage 1 的 Project V4/Capability 和 Stage 2 的 Core/SCI runtime 接入正式 DSP candidate generation。
+Stage 3 新增独立 UDP Channel，并接入现有 Core API V2。
 
-## SCI-S3-01：扩展 DSP 输出模型与项目级 Platform Config
+## UDP-S3-01：建立 UDP Channel 数据结构、OPEN/LISTEN 与 Candidate Peer
 
-- **对应 FR：** FR-004、FR-009、FR-012、FR-038～FR-040
-- **前置门禁：** SCI-G2
+- **对应 FR：** FR-023、FR-027～FR-030、FR-042～FR-044
+- **前置门禁：** UDP-G2
+- **新增对象：**
+  ```text
+  dsp/inc/c2837x_w5300_udp_channel.h
+  dsp/src/c2837x_w5300_udp_channel.c
+  ```
 - **目标：**
-  1. generator 从 V4 project 计算项目是否使用 W5300、使用哪些 SCI；
-  2. 生成项目级 Platform config/descriptor；
-  3. generated header 声明 `C2837X_BLOCK_EXPECTED_CORE_API_VERSION = 2`；
-  4. generated platform config 包含当前 bring-up LSPCLK/必要 SCI descriptors；
-  5. 不把 COM 写入 DSP generation。
-- **非目标：** 不生成 PC serial；不修改 protocol V1。
-- **最小验证：** SCI-only/W5300-only/mixed output model、expected Core API V2、COM absence。
+  1. 定义独立 `C2837xW5300UdpChannel`；
+  2. Channel 保存：
+     - W5300 socket；
+     - candidate/current peer endpoint state；
+     - current Datagram length/consumed/active；
+     - pending UDP TX；
+     - bounded close state/timer；
+     实现允许使用一个 endpoint storage + validity/state 标志，不要求物理保存两份 candidate/session peer。
+  3. `channel_init/open/listen/get_connection_state/close` 接入现有 IoDeviceOps；
+  4. SOCK_UDP + no Datagram → logical LISTENING；
+  5. Datagram 到达后只读取 PACKET-INFO，建立 candidate，logical CONNECTED；
+  6. `get_connection_state()` 不读取 V1 Header；
+  7. close 清所有 UDP-private state。
+- **非目标：**
+  - 不实现完整 RX payload；
+  - 不实现 TX；
+  - 不确认合法 SIM_START；
+  - 不修改 Core API。
+- **最小验证：**
+  - CLOSED→OPEN→LISTENING；
+  - candidate→CONNECTED；
+  - no V1 Header consumption；
+  - close clears state；
+  - reopen/relisten。
 
-## SCI-S3-02：生成 SCI Instance 静态绑定与硬件配置
+## UDP-S3-02：实现 DSP UDP RX Adapter 与 Peer Filtering
 
-- **对应 FR：** FR-002、FR-009、FR-012、FR-031～FR-037、FR-041
-- **前置任务：** SCI-S3-01
+- **对应 FR：** FR-030～FR-036、FR-065、FR-073～FR-074
+- **前置任务：** UDP-S3-01
 - **目标：**
-  1. SCI Instance 生成 module、BRR、独立 RX endpoint、独立 TX endpoint、Pin Type、RX Qualification、CTRL GPIO/polarity 的 const config；
-  2. BRR/Actual/Error 由 Stage 1 单一计算服务提供；DSP runtime 不重新计算；
-  3. Instance IoDevice binding 继续使用现有 ops+channel；
-  4. 每 Instance mutable channel 独立；
-  5. Interface Hash 不因 SCI hardware config 改变。
-- **非目标：** 不在 runtime 切换 transport；不生成 Instance ID 进入 wire。
-- **最小验证：** 一个代表性 SCI generated config、hash invariance、symbol isolation。
+  1. Core `receive(...,4)` 从当前 Datagram FIFO 读取 V1 Header；
+  2. transport 允许仅读取该 Header 中 `payload_length` 验证 physical boundary；
+  3. 合法条件：
+     ```text
+     M == 4 + payload_length
+     ```
+  4. Header semantic validation 仍由 Core；
+  5. 后续 payload receive 只能来自同一 Datagram；
+  6. zero-payload Frame 在 Header 完成后 commit RECV；
+  7. active session 只接受 current peer；
+  8. alien peer Datagram 完整消费/drop，`receive()` 返回 no progress；
+  9. alien peer 不刷新 Core timeout；
+  10. 无 full-frame DSP RAM buffer。
+- **关键实现边界：**
+  - UDP Channel 只能读取 `payload_length` 做 physical framing；
+  - 不解析 Message Type、Protocol Version、Hash、step index 或 RESPONSE semantic。
+- **非目标：**
+  - 不实现 reorder/retry；
+  - 不建立 peer takeover；
+  - 不改变 Core header validator。
+- **最小验证：**
+  - exact Datagram；
+  - M<4；
+  - M>1472（代表性 case：PACKET-INFO DATA size = 1473，必须 reject/session failure，且不进入 payload receive）；
+  - M!=4+N；
+  - zero payload；
+  - alien peer drop/no timeout refresh；
+  - same peer receive；
+  - no cross-Datagram concatenation。
 
-## SCI-S3-03：按 IoDevice 收敛 DSP source / dependency
+## UDP-S3-03：实现 DSP UDP Atomic IoDevice Send
 
-- **对应 FR：** FR-006、FR-038
-- **前置任务：** SCI-S3-01～SCI-S3-02
+- **对应 FR：** FR-037～FR-041、FR-065～FR-066、FR-073
+- **前置任务：** UDP-S3-01、UDP-S2-03
 - **目标：**
-  1. SCI-only candidate/source list 不要求 W5300 driver/HAL；
-  2. W5300-only 不要求 SCI driver；
-  3. mixed 同时包含两类依赖；
-  4. 不恢复共享或自动扫描源码；
-  5. W5300-only generation 保持既有文件和行为，除本增量明确要求外不改动 hot path。
-- **非目标：** 不要求生成 CCS 工程文件。
-- **最小验证：** 三种 project 类型的 deterministic source/dependency set；无多 SCI组合矩阵。
+  1. IoDevice `send()` 合同：
+     ```text
+     0                pending
+     count_octets     confirmed complete
+     <0               error
+     ```
+  2. 不允许 partial positive progress；
+  3. first call：
+     - 必须有 candidate/session destination；
+     - whole frame <= UDP max；
+     - TX free 不足 → 0 / no write；
+     - 足够 → one whole Datagram / one SEND / return 0；
+  4. pending call：
+     - 不 recopy；
+     - 不 reissue；
+     - SEND unfinished → 0；
+     - SENDOK → full positive count；
+     - TIMEOUT/error → <0；
+  5. candidate peer 可用于 initial SIM_START error RESPONSE；
+  6. session peer 用于正常 RESPONSE/OUTPUT_DATA。
+- **非目标：**
+  - 不等待 peer ACK；
+  - 不实现 retry；
+  - 不修改 Core send loop。
+- **最小验证：**
+  - atomic progress；
+  - no partial positive；
+  - no duplicate FIFO write；
+  - candidate/session destination；
+  - SENDOK / TIMEOUT；
+  - Core send-loop integration。
 
-## SCI-S3-04：接入 Preview/Snapshot/Commit 与关键 deterministic generation
+## UDP-S3-04：收敛 Session Ownership、SIM_STOP、Timeout/Error 与 Reacquisition
 
-- **对应 FR：** FR-006、FR-012、FR-018、FR-038、FR-084～FR-088
-- **前置任务：** SCI-S3-01～SCI-S3-03
+- **对应 FR：** FR-030～FR-032、FR-042～FR-044、FR-065～FR-075
+- **前置任务：** UDP-S3-02～S3-03
 - **目标：**
-  1. SCI hardware config 变化使相关 candidate/snapshot 失效；
-  2. resource validation 在写盘前阻断冲突；
-  3. SCI-only、W5300-only、mixed 生成结果 deterministic；
-  4. 用户文件 Keep/Replace、Preview no-write、Commit transaction 继续复用 V1.0 服务；
-  5. 不机械重跑未修改的 V1.0 全套测试。
-- **非目标：** 不构建 MEX；不执行硬件。
-- **最小验证：** 三种关键 generation、重复生成一致性、snapshot invalidation、关键 conflict rejection。
+  1. candidate source 在 provisional Session 期间作为 transport source filter / response destination；若现有 Core 成功接受 SIM_START 并进入 `SIM_RUNNING`，该 endpoint 在协议语义上即成为 Session Peer；不要求新增 Core→Channel promotion hook，也不要求 UDP Channel 感知或解析 SIM_START 验证结果；
+  2. invalid/non-SIM_START candidate 由现有 Core protocol state 拒绝；若 Core 拒绝 SIM_START，则沿现有 error-response → terminate → close 路径清除该 endpoint；
+  3. active peer 不可被其他 sender 抢占；
+  4. same peer 在 SIM_RUNNING 再发 SIM_START 由 Core 报现有 protocol/state error；
+  5. SIM_STOP → terminate → close → reopen；
+  6. interaction/transfer timeout 继续由 Core；
+  7. close 后新 peer 可建立新 Session；
+  8. PC crash / lost SIM_STOP 依靠 interaction timeout 回收；
+  9. late stale Datagram 在 reopen 后按新 candidate + Core WAIT_SIM_START 语义处理；
+  10. 不建立 reconnect/resume protocol。
+- **非目标：**
+  - 不增加 Core hook；
+  - 不增加 heartbeat；
+  - 不增加 force reset/takeover API。
+- **最小验证：**
+  - normal SIM_START→running→SIM_STOP→reacquire；
+  - active alien cannot steal；
+  - invalid candidate cleanup；
+  - timeout cleanup；
+  - lost SIM_STOP recovery path；
+  - close contract `>0/0/<0`。
 
-### SCI Stage 3 Gate：SCI-G3
+### UDP Stage 3 Gate：UDP-G3
 
 必须确认：
 
-- Project V4→generated Platform/SCI config 责任链闭合；
-- Core API expected version=2；
-- SCI-only / W5300-only / mixed 的 DSP source dependency 符合冻结需求；
-- W5300-only 未被无关 SCI dependency/capability 破坏；
-- SCI hardware 配置不进入 Interface Hash；
-- Preview/Snapshot/Commit 继续 deterministic 且无无关回退；
-- 没有恢复 hot-path 全量 validation/heap/full-copy；
-- 未实际执行的 DSP CCS 编译保持 pending。
+- 独立 UDP Channel 已接入现有 IoDeviceOps；
+- Core API V2 未改变；
+- logical LISTENING/CONNECTED 正确；
+- one V1 Frame = one Datagram；
+- exact physical length；
+- candidate/session peer ownership；
+- alien peer drop；
+- TX atomic positive-progress contract；
+- normal close/reopen；
+- no heartbeat/retry/session resume；
+- DSP host/mock UDP Channel tests 实际通过；
+- 相关 Core/TCP regression 实际通过。
 
 ---
 
-# 8. SCI Stage 4：Windows PC Serial 与 SCI S-Function
+# 8. UDP Stage 4：PC UDP Transport 与 Shared Protocol Binding
 
-Stage 4 在既有 instance-specific S-Function/V1 protocol 基础上新增 self-contained Windows serial transport，不复制第二套 protocol。
+Stage 4 实现 PC `SOCK_DGRAM` transport，并使用真实 OS localhost UDP socket验证 production-derived/generated transport。
 
-## SCI-S4-01：实现 self-contained Windows `pc_serial` transport
+## UDP-S4-01：新增 `pc_udp` Template / Socket / Deadline / Atomic Send
 
-- **对应 FR：** FR-059、FR-061～FR-068、FR-071～FR-073、FR-091～FR-092
-- **前置门禁：** SCI-G3
+- **对应 FR：** FR-045～FR-047、FR-052～FR-053、FR-065～FR-068
+- **前置门禁：** UDP-G3
+- **新增模板：**
+  ```text
+  app/templates/pc_udp.c.in
+  app/templates/pc_udp.h.in
+  ```
 - **目标：**
-  1. 新建实例前缀 `pc_serial.c/.h` transport；
-  2. 使用 Win32 serial API 或等价 self-contained C 实现 COM open/close/config/purge/read/write；
-  3. 8N1、无 flow control，DTR/RTS 不用于协议/方向控制；
-  4. COM10+ path 在内部处理；
-  5. 实现 write-all/read-exact 与 partial I/O；
-  6. 每个 send/recv operation 使用单一 monotonic deadline，partial progress 不重启 timeout；
-  7. 保留 numeric Windows `os_error` 和可获得的 system text；
-  8. `rtiostream_serial.c` 仅作为可用参考或等价实现依据，不依赖 MathWorks 私有 serial binary；
-  9. 不依赖 Instrument Control Toolbox/Python/pySerial/第三方 serial library；
-  10. `pc_serial` 只提供 raw V1 protocol octet stream，不增加 SOF/Magic/CRC/terminator/SLIP/COBS/额外 length prefix 或第二套 serial framing；Protocol 只请求和消费当前 Header 或当前 Payload 所需的确切 byte 数，不通过 `read all available` 建立第二套 frame parser；
-  11. 禁用 software flow control；DTR/RTS 不承担协议或 RS485 direction，并在平台允许时保持 inactive。
-- **非目标：** 不做 COM 枚举、VID/PID、auto reconnect、RS485 RTS/DTR direction。
-- **最小验证：** 可注入/模拟的 partial read/write、deadline、COM path/error formatting；不需要真实硬件。
+  1. cross-platform UDP socket 支持范围继承当前 W5300 TCP host 基线；
+  2. `SOCK_DGRAM + connect(DSP_IP,DSP_UDP_PORT)`；
+  3. OS ephemeral local port；
+  4. UDP connect 不当作 reachability handshake；
+  5. reuse existing deadline/error style；
+  6. whole V1 Frame exactly one OS send；
+  7. writable wait 使用现有 absolute deadline；
+  8. OS explicit error → SOCKET；
+  9. no response → later protocol wait TIMEOUT；
+  10. close/cleanup 与现有 PC transport lifecycle 一致，确保 socket/resource 正确释放。
+- **非目标：**
+  - 不新增 runtime local-port parameter；
+  - 不增加 ACK/retry；
+  - 不实现 receive staging（留 S4-02）。
+- **最小验证：**
+  - init/connect/close；
+  - one complete Datagram send；
+  - OS send failure mapping；
+  - deadline/writable timeout；
+  - no partial-send loop。
 
-## SCI-S4-02：扩展 PcError 与稳定 Serial stage
+## UDP-S4-02：实现 PC UDP Datagram Staging Receive 与 Framing Diagnostics
 
-- **对应 FR：** FR-065、FR-071～FR-075
-- **前置任务：** SCI-S4-01
+- **对应 FR：** FR-048～FR-053、FR-069～FR-072
+- **前置任务：** UDP-S4-01
 - **目标：**
-  1. PcError 追加 `SERIAL`，旧编号不重排；
-  2. 稳定 stage 至少区分 `serial_open / serial_configure / serial_purge / send_frame / recv_header / recv_payload / wait_response / wait_output_data`；
-  3. partial-frame timeout 归 TIMEOUT 并报告 expected/actual length；
-  4. USB/handle/ReadFile/WriteFile failure 归 SERIAL，不伪装 TCP DISCONNECT；
-  5. 主错误不被 terminate cleanup error 覆盖；
-  6. SCI 用户可见错误至少包含 `instance / COM / generated Requested Baud / stage / category`；处于 step 时继续包含 `step_index`；适用时继续包含 `expected_length / actual_length / os_error / Windows system error text`。
-- **非目标：** 不建立长期日志、packet trace 或 history ring buffer。
-- **最小验证：** 在现有 representative error-format focused validation 中验证一个或少量代表性 `SERIAL/TIMEOUT/protocol` 错误的字段、stage、length 与 os_error；不扩张错误组合矩阵。
+  1. private complete Datagram staging；
+  2. 必须能检测 >1472 oversize；
+  3. first `recv_exact(...,4)` 实际从 OS 读取整个 Datagram；
+  4. 只返回前 4 octets 给 protocol；
+  5. transport 只解析 Header `payload_length` 做 physical boundary；
+  6. later payload 从同一 staged Datagram 返回；
+  7. zero-payload Header delivery 后清 staging；
+  8. no cross-Datagram concatenation；
+  9. `<4` → TRUNCATED/recv_header；
+  10. shorter-than-declared → TRUNCATED/recv_payload；
+  11. longer-than-declared / oversize / odd physical framing → existing PAYLOAD_LENGTH/framing category；
+  12. Header+Payload 共用一个 absolute deadline。
+- **非目标：**
+  - 不解析 Message Type / Hash / step / RESPONSE；
+  - 不使用多个 Datagram 补帧；
+  - 不扩展 public error enum。
+- **最小验证：**
+  - 4-byte zero payload；
+  - normal payload；
+  - short header；
+  - short declared；
+  - long declared；
+  - oversize detection；
+  - no cross-Datagram read；
+  - absolute deadline continuity。
 
-## SCI-S4-03：生成 SCI S-Function 参数合同与 lifecycle
+## UDP-S4-03：复用单一 `protocol.c.in` 并增加 UDP Binding
 
-- **对应 FR：** FR-056～FR-065、FR-068～FR-070、FR-074～FR-078、FR-081～FR-083
-- **前置任务：** SCI-S4-01～SCI-S4-02
+- **对应 FR：** FR-045、FR-047、FR-051、FR-054、FR-065～FR-075
+- **前置任务：** UDP-S4-01～S4-02
 - **目标：**
-  1. W5300 S-Function 保持 0 transport parameter；SCI S-Function 固定 1 个 non-tunable `COM Port Number`；
-  2. Update Diagram 只做 COM 正整数标量和 compile-time port/type/sample-time 校验，不 open/enumerate COM；
-  3. `mdlStart`: validate COM→context→open/configure→purge once→SIM_START→RESPONSE(OK)→step=0；
-  4. `mdlOutputs` 保持同步单 step 与原子输出；
-  5. `mdlTerminate` best-effort SIM_STOP、不等 response、close；
-  6. 不 reconnect/retry/resend/pipeline/thread；
-  7. COM 不编译进 generated config，Baud 编译进去；PC COM 必须配置 generated **Requested/Nominal Baud**，不得使用 DSP 量化后的 Actual Baud；
-  8. 保留现有 `CONNECT_TIMEOUT_MS / STEP_TIMEOUT_MS / TERMINATE_TIMEOUT_MS` 三个 user-config timeout：SCI 不使用 CONNECT_TIMEOUT 虚构 peer-connect 等待；SIM_START send 与 RESPONSE receive、INPUT_DATA send 与 OUTPUT_DATA receive 各自使用独立的 STEP_TIMEOUT operation deadline，partial progress 不重启 deadline；SIM_STOP best-effort send 使用 TERMINATE_TIMEOUT；
-  9. serial open/configure 后不增加固定 sleep，不发送 bootloader `'A'` autobaud handshake；
-  10. 同 COM 冲突依赖 OS exclusive open；不建全局 registry；
-  11. 正常一个 generated instance block 只放一次，可选 per-MEX duplicate guard 但不共享 runtime。
-- **非目标：** 不自动修改 `.slx`；不支持非 Windows/非 Normal mode；不增加 serial-specific timeout 宏。
-- **最小验证：** generated block parameter contract、Requested Baud 配置、三类 timeout/deadline 合同、lifecycle static/host fixture、W5300 0-param regression。
+  1. 不新增 UDP protocol template；
+  2. 增加 `bind_udp_protocol()` 或等价明确 binding；
+  3. protocol API/semantic 保持：
+     ```text
+     SIM_START
+     RESPONSE
+     INPUT_DATA
+     OUTPUT_DATA
+     SIM_STOP
+     ```
+  4. UDP adapter 只承担 physical Datagram boundary；
+  5. protocol 继续验证 Message Type / Version / Hash / step / response；
+  6. UDP S-Function 保持 0 transport runtime parameter；
+  7. CONNECT/STEP/TERMINATE timeout macros 继续统一存在；
+  8. UDP reachability 由 SIM_START→RESPONSE 体现；
+  9. `mdlTerminate()` SIM_STOP 保持 best-effort / no ACK。
+- **非目标：**
+  - 不完成 output model/build closure（留 Stage 5）；
+  - 不修改 TCP/SCI protocol semantics。
+- **最小验证：**
+  - rendered/bound protocol symbol correctness；
+  - TCP binding regression；
+  - SCI binding regression；
+  - UDP protocol startup/step/terminate static checks。
 
-## SCI-S4-04：生成 transport-specific 文件与 MEX build script
+## UDP-S4-04：真实 localhost UDP 最小闭环测试
 
-- **对应 FR：** FR-076～FR-083
-- **前置任务：** SCI-S4-03
+- **对应 FR：** FR-066～FR-072、FR-075、FR-078
+- **前置任务：** UDP-S4-03
 - **目标：**
-  1. W5300 Instance 只生成/编译 `pc_socket`；SCI Instance 只生成/编译 `pc_serial`；
-  2. protocol 继续使用同一 V1 template/逻辑，不分裂为 TCP/SCI 两份长期实现；
-  3. build script 显式列源文件，不使用 `dir('*.c')`；
-  4. Windows/prerequisite preflight 在删除旧 MEX 前完成；
-  5. App 只生成 build script，不自动运行 mex 或改 Path/模型；
-  6. W5300↔SCI 后 block parameter contract 变化由用户更新 `.slx`。
-- **非目标：** 不自动 Build MEX；不自动安装编译器。
-- **最小验证：** SCI/W5300 candidate file lists、explicit build source list、preflight behavior、deterministic text。
+  1. 使用真实 OS localhost UDP socket；
+  2. 直接 exercise production-derived/generated `pc_udp` transport；
+  3. test peer 只实现最小 harness，不实现完整 DSP simulator；
+  4. 完成：
+     ```text
+     SIM_START
+     RESPONSE
+     INPUT_DATA
+     OUTPUT_DATA
+     SIM_STOP
+     ```
+  5. 验证 timeout；
+  6. 验证 short/mismatch Datagram diagnostics；
+  7. 验证 whole-Datagram send/staging receive。
+- **非目标：**
+  - 不建立随机 loss/reorder matrix；
+  - 不做长期稳定性；
+  - 不做性能 Gate。
+- **最小验证：**
+  - Frozen FR-078 明确列出的最小闭环与 framing/timeout cases。
+- **MEX 编译：**
+  - 若当前环境已具备可用 MEX C compiler，可在本任务末尾执行代表性 UDP MEX 编译；
+  - 若没有，记录 `NOT_EXECUTED / CAPABILITY`，不阻断进入 Stage 5 的纯源码/host 集成，但最终 G6 必须再次明确该状态。
 
-## SCI-S4-05：完成代表性 SCI 软件闭环与独立 MEX build 证据
-
-- **对应 FR：** FR-058～FR-075、FR-084～FR-090
-- **前置任务：** SCI-S4-01～SCI-S4-04
-- **目标 A——代表性 SCI 软件闭环：** 使用一个代表性 SCI 配置，直接执行本阶段实际生产 `protocol + pc_serial` 代码（或 generator 输出的同一实际生产 C 源），完成开发侧最小软件验证：
-  1. serial partial read/write；
-  2. monotonic absolute deadline；
-  3. SIM_START + RESPONSE(OK)；
-  4. 单步 INPUT_DATA→OUTPUT_DATA；
-  5. 与本增量直接相关的关键 serial/protocol error；
-  6. 错误时输出不部分更新、step 不错误增加、session 结束。
-- **目标 B——SCI MEX build：** 若当前 MATLAB 已配置 C MEX compiler，至少真实构建一个 generated SCI MEX，以证明 generated SCI S-Function + `pc_serial` + protocol 能在目标 MATLAB/MEX 环境成功编译和链接；不要求为了 MEX 再重复完整代表性协议闭环。若当前无 C MEX compiler，记录 `SCI_MEX_BUILD = NOT_EXECUTED / CAPABILITY`，不得宣称 PASS。
-- **实现方式边界：** 可以使用低成本 host/mock serial backend、virtual COM、syscall injection、测试桩或 Windows 可控 endpoint 替代外部硬件/OS 对端，但不得另写一套与生产代码平行的 serial/protocol 实现来取得 PASS；mock 只能替代外部环境，不得替代被测产品代码。不得为了测试扩建产品级通信框架。
-- **不要求：** 2×SCI、SCI-A/B/C/D 组合、全部 Baud、全部 RX/TX/CTRL GPIO、half-duplex CTRL、长期稳定性或硬件矩阵；MEX build 与代表性 protocol+pc_serial 软件闭环是两个独立证据。
-
-### SCI Stage 4 Gate：SCI-G4
+### UDP Stage 4 Gate：UDP-G4
 
 必须确认：
 
-- Windows self-contained serial transport 完成；
-- partial I/O 与 absolute deadline 行为有真实软件证据；
-- SCI S-Function 只有 COM runtime parameter，Baud 来自 generation；
-- `mdlStart/Outputs/Terminate` 与现有 V1 lifecycle 保持一致；
-- `SERIAL/TIMEOUT/protocol` 错误分类和 stage 可诊断；
-- W5300 继续 0-param / pc_socket，protocol 未复制分叉；
-- 一个直接经过生产 `protocol + pc_serial` 的代表性 SCI 软件闭环已完成；
-- SCI MEX build 作为独立证据：只在环境有 capability 时要求真实构建一个，不要求重复完整协议闭环；
-- 不把无硬件条件解释为 Gate failure，也不宣称硬件 PASS。
+- `pc_udp` 使用 SOCK_DGRAM；
+- no handshake/retry/ACK；
+- one frame one send；
+- Datagram staging/framing 正确；
+- shared protocol template 未分叉；
+- UDP S-Function transport parameter contract 正确；
+- 真实 OS localhost UDP 最小闭环实际通过；
+- 关键 timeout/framing diagnostics 实际通过；
+- MEX compile 若执行则记录真实结果，否则明确 capability 状态。
 
 ---
 
-# 9. SCI Stage 5：LSPCLK 收敛、集成文档与最终追踪
+# 9. UDP Stage 5：DSP / S-Function Generated Closure 与 Mixed Integration
 
-Stage 5 在 DSP 和 PC 基本链路实现完成后选择最终平台 LSPCLK，更新最终生成配置与用户文档，并完成 95 条增量需求追踪。
+Stage 5 把前面已经完成的 DSP/PC runtime 纳入正式生成系统。
+核心原则：**source selection 按实际 transport set 计算，而不是 TCP/SCI 二选一。**
 
-## SCI-S5-01：整理增量集成证据与最终收敛输入
+## UDP-S5-01：扩展 DSP Output Model 为 `useW5300/useTcp/useUdp/useSci`
 
-- **对应 FR：** FR-001～FR-006、FR-038、FR-076～FR-090
-- **前置门禁：** SCI-G4
+- **对应 FR：** FR-055～FR-058、FR-064、FR-079
+- **前置门禁：** UDP-G4
 - **目标：**
-  1. 汇总 SCI-G1～SCI-G4 已有真实测试和审核证据；
-  2. 判断相关代码未修改时哪些既有证据可以直接复用；
-  3. 检查 Stage 4 是否实际修改 Stage 3 generator 或 DSP generation 关键路径；
-  4. 只有相关实现发生变化时，才执行对应 focused regression；
-  5. 整理当前 MEX、DSP/CCS、Simulink、SCI hardware、LSPCLK hardware confirmation 的真实执行或 pending 状态；
-  6. 为 SCI-S5-02 最终 LSPCLK 收敛确定需要重新生成和验证的最小范围。
-- **默认规则：** 不重新执行 SCI-only / W5300-only / mixed 全套 generation；只有存在实际影响时才执行对应必要回归。最终 LSPCLK 修改后的必要 generation/regression 统一在 SCI-S5-02 完成。
-- **非目标：** 不机械重跑 Stage 3 或旧 V1.0 全套；不增加组合矩阵；不把历史 PASS 重新包装成当前新测试。
-- **最小验证：** 证据来源、代码影响判断和 pending 状态与实际仓库/测试记录一致；只有发现真实影响时执行对应 focused regression。
+  1. 显式计算：
+     ```text
+     useTcp
+     useUdp
+     useSci
+     useW5300 = useTcp || useUdp
+     ```
+  2. any-W5300 输出 shared regs/HAL/socket；
+  3. TCP channel 仅 `useTcp` 时输出；
+  4. UDP channel 仅 `useUdp` 时输出；
+  5. SCI runtime 仅 `useSci` 时输出；
+  6. UDP-only 不带 TCP channel；
+  7. mixed dependency/fingerprint 只记录真实 closure；
+  8. platform `use_w5300` 改为 any-W5300。
+- **非目标：**
+  - 不处理 project-level duplicate config ownership（留 S5-02）；
+  - 不改 PC output model。
+- **最小验证：**
+  - UDP-only；
+  - TCP-only regression；
+  - SCI-only regression；
+  - source/dependency absence/presence。
 
-## SCI-S5-02：评估并固定最终项目级 LSPCLK
+## UDP-S5-02：收敛 Shared W5300 Project Support 与 UDP Instance Binding
 
-- **对应 FR：** FR-027、FR-031～FR-034、FR-050、FR-084～FR-090
-- **前置任务：** SCI-S5-01
+- **对应 FR：** FR-015～FR-016、FR-023、FR-041、FR-059～FR-060
+- **前置任务：** UDP-S5-01
 - **目标：**
-  1. 以 TMS320F28377D 当前实际 SYSCLK/clock source 为输入，列出合法 LSPCLK prescaler；
-  2. 对五个支持 Baud 计算各候选的理论 BRR/Actual Baud/Error；
-  3. 结合平台共享 LSPCLK 影响，选择最终固定 LSPCLK；
-  4. 若用户此时具备硬件条件，可提供一个代表性 `/14` SCI-PC bring-up 结果作为辅助证据；若无硬件，不阻断理论收敛，但保持实际确认 pending；
-  5. 不建立 Baud×LSPCLK、SCI Module 或硬件组合矩阵；
-  6. 将最终 LSPCLK 同步到 App 只读显示、统一 BRR 服务、generated DSP Platform config 和 PC diagnostics；
-  7. 不根据最终 LSPCLK 自动修改 DSP/PC timeout。
-- **重要边界：** 最终值可以是 200 MHz，也可以是更合适的较低值；不得在评估前预设最大值。
-- **最小验证：** 理论计算可复现；更新后一个代表性 SCI generation/软件路径与 W5300-only focused regression。
+  1. W5300 platform config 无论 TCP/UDP 数量都只生成一次；
+  2. `c2837x_w5300_project_config` 或等价全局符号只定义一次；
+  3. TCP provider 与 UDP provider 不各自重复生成 shared project support；
+  4. UDP Instance config 静态包含 socket/udp_port；
+  5. UDP Instance Channel/IoDeviceOps 正确绑定；
+  6. TCP Instance binding 不改变；
+  7. mixed TCP+UDP 共享一套 network/platform init。
+- **非目标：**
+  - 不创建 runtime shared dispatcher；
+  - 不让 TCP/UDP channel 共用一个 instance state；
+  - 不修改 protocol hash。
+- **最小验证：**
+  - TCP+UDP generated project source 中 shared config exactly once；
+  - UDP-only binding；
+  - mixed bindings；
+  - existing TCP/SCI binding regression。
 
-## SCI-S5-03：更新 SCI / Project V4 / CCS / Simulink 使用文档
+## UDP-S5-03：扩展 S-Function Output Model / Renderer / Build Closure
 
-- **对应 FR：** FR-007～FR-013、FR-019～FR-030、FR-031～FR-040、FR-055～FR-070、FR-076～FR-083、FR-089～FR-095
-- **前置任务：** SCI-S5-02
-- **目标：** 更新现有文档而不是建立第二套冲突文档，至少说明：
-  1. Project V4 与 V2/V3 migration；
-  2. SCI capability/Module/RX GPIO/TX GPIO/CTRL 配置；
-  3. 当前最终 LSPCLK、Baud/Actual/Error 的意义；
-  4. CCS 需要加入的 SCI/W5300 条件 source/HAL 和实际 pin/CTRL 集成责任；
-  5. Simulink SCI Block 的 COM Port Number 参数；
-  6. Windows-only / Normal mode / no auto reconnect；
-  7. timeout 由用户配置，不自动按 Baud/Payload 适配；
-  8. 用户硬件验证边界；
-  9. W5300-only 既有使用路径继续有效。
-- **非目标：** 不把未执行硬件写成 PASS；不要求安装包/CI/自动烧录。
-- **最小验证：** 文档链接/API/字段/文件名与仓库实际实现一致。
-
-## SCI-S5-04：完成 FR-001～FR-095 最终追踪与 SCI Final Audit
-
-- **对应 FR：** FR-084～FR-095 以及全部 FR
-- **前置任务：** SCI-S5-01～SCI-S5-03
+- **对应 FR：** FR-045、FR-054、FR-061～FR-064
+- **前置任务：** UDP-S4-03、UDP-S5-01
 - **目标：**
-  1. 为 95 条 FR 建立逐条实现文件/状态/验证方式/备注；
-  2. 明确哪些为软件 PASS、哪些为待用户 DSP 编译/实机、哪些为 capability 未执行；
-  3. 确认历史 267-FR traceability 只属于 V1.0 历史周期；
-  4. 审核 current normative references 已收敛到新 requirements + 新 plan；
-  5. 审核 V1 wire protocol 与 W5300/hot-path 不发生非授权回退；
-  6. 输出 SCI 周期最终动态上下文/跨对话移交事实，不把 ChatGPT 文件提交到仓库。
-- **非目标：** 不为了让追踪表“全 PASS”而补做未要求的硬件矩阵或伪造结果。
-- **最小验证：** FR count=95、missing=0、duplicate=0；repository paths valid；真实测试与 pending 状态一致；`git diff --check` / final status。
+  1. transport source selection 显式三路：
+     ```text
+     w5300_tcp -> pc_socket
+     w5300_udp -> pc_udp
+     sci       -> pc_serial
+     ```
+  2. unknown type 明确 error，不 fallback TCP；
+  3. 每个 Instance 输出：
+     - shared generated sfun/common files；
+     - one protocol pair；
+     - one transport pair；
+     - one build script；
+  4. UDP MEX 只编译 `pc_udp`，不带 `pc_socket/pc_serial`；
+  5. build script source selection 与 output model 完全一致；
+  6. Interface Hash 不因 transport-specific fields 改变；
+  7. existing `max_payload_size_bytes` 继续按既有 Hash 规则参与 Hash。
+- **非目标：**
+  - 不把 mixed DSP transport 复制进单个 MEX；
+  - 不创建 transport-neutral runtime dispatcher。
+- **最小验证：**
+  - UDP generated file list；
+  - TCP/SCI regression；
+  - unknown type failure；
+  - build source list；
+  - hash transport invariance + max_payload sensitivity。
 
-### SCI Stage 5 Gate：SCI-G5
+## UDP-S5-04：Mixed Deterministic Generation / Preview / Candidate Regression
 
-最终 Gate 应确认：
+- **对应 FR：** FR-055～FR-064、FR-076、FR-079
+- **前置任务：** UDP-S5-01～S5-03
+- **目标：**
+  1. 代表性项目：
+     ```text
+     UDP only
+     TCP + UDP
+     UDP + SCI
+     TCP + UDP + SCI
+     ```
+  2. 检查 DSP source closure；
+  3. 检查 PC Instance closure；
+  4. 检查 shared W5300 project config only once；
+  5. 检查 Preview/Snapshot/Commit candidate determinism；
+  6. 检查 dependency/fingerprint；
+  7. 保持用户文件保护事务。
+- **非目标：**
+  - 不穷举所有 Instance 数量/Socket/Port/Payload；
+  - 不建立组合爆炸矩阵。
+- **最小验证：**
+  - 上述四种代表组合；
+  - deterministic regeneration；
+  - path conflict / duplicate symbol absence；
+  - existing TCP+SCI representative regression。
 
-- FR-001～FR-095 全部有实现/状态/证据映射；
-- Project V4、Capability、App、Core API V2、DSP SCI、PC Serial、generation 和文档链闭合；
-- 最终项目级 LSPCLK 已经选择并写入正式平台配置；若未有用户硬件证据，实际 LSPCLK 硬件确认仍明确 pending；
-- 开发侧最小必要 SCI 软件闭环有真实证据；
-- W5300-only / SCI-only / mixed 的 Stage 3 deterministic generation 证据仍有效；若后续相关代码发生变化，则对应必要 focused regression 已真实执行并通过；
-- 无多 SCI、全部 Baud、全部 RX/TX/CTRL GPIO、half-duplex、mixed 实机或长期稳定性矩阵门禁；
-- 未实际执行的 DSP/CCS/MEX/Simulink/hardware 项目均真实标记；
-- 当前规范不再把历史 Rev.2 requirements / 旧 plan 当作 current implementation authority；
-- V1 wire protocol 和已关闭 hot-path 基线未回退。
+### UDP Stage 5 Gate：UDP-G5
 
-`SCI-G5 = PASS` 表示本增量的软件实施、文档和证据边界闭合，不等于用户所有 DSP/SCI 硬件验证已经完成。
+必须确认：
 
----
-
-## 10. 建议提交序列
-
-以下仅为建议提交分组；实际可按任务规模继续拆分，但不得把多个 Stage 混成不可审核的大提交。
-
-| 提交组 | 建议提交信息 | 主要范围 |
-|---|---|---|
-| SCI-0 | `docs: establish sci extension baseline` | SCI-S0-01～SCI-S0-02 |
-| SCI-1A | `app: add f28377d capability and project v3` | SCI-S1-01～SCI-S1-02 |
-| SCI-1B | `app: add sci baud validation and configurator` | SCI-S1-03～SCI-S1-05 |
-| SCI-2A | `dsp: add core api v2 and sci platform config` | SCI-S2-01～SCI-S2-03 |
-| SCI-2B | `dsp: add sci polling channel runtime` | SCI-S2-04～SCI-S2-06 |
-| SCI-3 | `generator: add sci dsp generation and dependencies` | SCI-S3-01～SCI-S3-04 |
-| SCI-4A | `sfun: add windows serial transport` | SCI-S4-01～SCI-S4-02 |
-| SCI-4B | `sfun: add sci lifecycle generation and build` | SCI-S4-03～SCI-S4-05 |
-| SCI-5 | `docs: converge sci lspclk and acceptance` | SCI-S5-01～SCI-S5-04 |
-
-提交、推送和 Tag 均由用户审核后执行，Codex 不自动执行。
-
----
-
-## 11. 关键风险与控制
-
-| 风险 | 控制措施 |
-|---|---|
-| 新 SCI 需求重新扩张为完整 V1.0 重构 | 计划只映射 FR-001～FR-095；历史 V1.0 仅做必要回归 |
-| 历史 G0～G5 与新 Gate 混淆 | 新周期统一使用 `SCI-G0～SCI-G5`、`SCI-Sx-yy` |
-| Capability 混入板级 W5300 占用 | 器件 capability 与 Platform Reserved Resources 分层 |
-| capability 故障破坏 W5300-only | SCI capability failure isolation 为 SCI-G1 必查项 |
-| SCI 配置引入 Runtime 动态切换 | Instance 在 Generate 时静态绑定 IoDevice/Module |
-| LSPCLK 过早写死为 /14 或 200 MHz | /14 只做 bring-up；SCI-S5-02 后再选择最终值 |
-| Baud/timeout 被做成自动可靠性机制 | 冻结禁止 Baud×Payload×Timeout 自动适配；timeout 仍由 user config |
-| C28x 16-bit char 与 serial octet 混淆 | SCI adapter 私有完成 octet↔Uint16，Core 仍以 wire octet 长度工作 |
-| 首个 RX byte 被连接探测消费 | SCI-S2-04 明确 first-byte-preservation fixture |
-| SCI send 过早返回导致 Core step 提前推进 | 只有最后 stop bit 完成后才提交正进度 |
-| Half-duplex 提前切 RX | 物理 TX complete 后才 CTRL→RX；错误强制 RX |
-| 为 half-duplex 扩张测试框架 | 只做低成本自然覆盖；硬件专项不作为强制门禁 |
-| PC serial partial I/O 重启 timeout | 单一 monotonic absolute deadline |
-| USB/serial 错误被错误分类为 TCP disconnect | PcError SERIAL + os_error；partial timeout 仍 TIMEOUT |
-| TCP/SCI 复制成两套 protocol | protocol template/逻辑保持单一实现 |
-| SCI-only 仍被迫链接 W5300 HAL | SCI-S3-03 source/dependency gate |
-| W5300 hot-path 被 SCI 修改回退 | SCI-G3/SCI-G5 做 focused static/regression audit |
-| 测试范围膨胀 | 只要求一个代表性 SCI 软件闭环，不建立组合矩阵 |
-| 无硬件时伪造通过 | 所有 hardware 结果必须来自用户真实证据，否则 pending |
+- DSP source closure 真实按 used transport set；
+- W5300 common source/platform config 只生成一次；
+- UDP-only 无 TCP channel；
+- mixed TCP+UDP/UDP+SCI/三者混合正确；
+- 每个 MEX 只带一个 PC transport；
+- unknown IoDevice 不 fallback TCP；
+- shared protocol template；
+- Interface Hash 现有合同保持；
+- deterministic generation representative tests 实际通过。
 
 ---
 
-## 12. 本计划完成定义
+# 10. UDP Stage 6：最终软件证据、编译能力、文档与移交
 
-SCI 增量计划完成必须同时满足：
+Stage 6 不新增功能，只收敛真实软件证据、可用编译环境结果和最终用户移交。
 
-1. `SCI-G0～SCI-G5` 全部通过；
-2. 当前 repository authority 已切换为新 SCI frozen requirements + 新 `plan.md`；
-3. Project V4 和 V2/V3→V4 migration 完成；
-4. TMS320F28377D PTP capability 与 resource validation 完成；
-5. App 完成 IoDevice-aware SCI 配置；
-6. Core API V2、SCI Platform/driver/runtime 完成；
-7. DSP generator 完成 SCI-only/W5300-only/mixed 条件生成与依赖收敛；
-8. Windows `pc_serial` 与 SCI instance-specific S-Function 完成；
-9. 开发侧一个代表性 SCI 软件闭环和关键错误路径具有真实证据；
-10. 若当前 MATLAB 具备 MEX compiler，至少一个 SCI MEX 已真实构建并证明 generated SCI S-Function + `pc_serial` + protocol 可编译链接；否则保持 `NOT_EXECUTED / CAPABILITY`；该 MEX build 不要求重复完整代表性协议闭环；
-11. 最终项目级 LSPCLK 已经过理论/平台必要评估后确定并写入正式配置；硬件确认若未执行保持待用户验证；
-12. FR-001～FR-095 逐条 traceability 无缺失；
-13. W5300/V1 protocol/hot-path 不发生非授权回退；
-14. 未实际执行的 DSP/CCS/Simulink/hardware 项目没有被标记为 PASS；
-15. 不存在被误标为 current authority 的历史旧 plan / Rev.2 requirements。
+## UDP-S6-01：执行完整增量软件 Regression 与 Capability Build Check
+
+- **对应 FR：** FR-076～FR-080
+- **前置门禁：** UDP-G5
+- **目标：**
+  1. 汇总并执行 Frozen requirements 要求的实际可执行自动测试；
+  2. 至少覆盖：
+     - Project/App UDP tests；
+     - DSP host/mock UDP tests；
+     - relevant existing TCP regression；
+     - PC real localhost UDP tests；
+     - mixed deterministic generation tests；
+  3. 不建立额外大矩阵；
+  4. 检测实际 MEX compiler：
+     - 有 → 编译代表性 UDP MEX；
+     - 无 → `NOT_EXECUTED / CAPABILITY`；
+  5. 检测实际 TI C2000 compiler/CCS 能力：
+     - 有 → 编译代表性 generated DSP output；
+     - 无 → `NOT_EXECUTED / CAPABILITY`；
+  6. Host compiler 结果不得冒充 TI compile。
+- **非目标：**
+  - 不做硬件通信；
+  - 不做随机 loss/long-run；
+  - 不把性能作为 Gate。
+- **产物：**
+  - 真实测试清单与结果；
+  - 编译能力状态；
+  - 未执行项目列表。
+
+## UDP-S6-02：更新 UDP 使用文档与 Traceability
+
+- **对应 FR：** FR-076～FR-082；Frozen §8 governance
+- **前置任务：** UDP-S6-01
+- **目标：**
+  1. 更新 README/current docs 的 IoDevice 列表；
+  2. 更新 Project/App 使用说明；
+  3. 更新 Simulink/MEX UDP 使用说明；
+  4. 明确：
+     - UDP one-frame-one-Datagram；
+     - max payload 1468；
+     - no reliability/retry；
+     - PC ephemeral local port；
+     - DSP learns peer from SIM_START；
+  5. 更新 requirements traceability；
+  6. 记录真实 build/test 状态；
+  7. 未实机验证不得写成 hardware PASS；
+  8. 只更新因新增 `w5300_udp` 而已经失真的现有文档和 current-authority / traceability，不要求新建完整产品级 UDP 用户手册。
+- **非目标：**
+  - 不重写历史 SCI/W5300 文档；
+  - 不加入未实现的 roadmap 功能。
+
+## UDP-S6-03：完成 FR-001～FR-082 Final Audit 与用户实机移交
+
+- **对应 FR：** FR-001～FR-082
+- **前置任务：** UDP-S6-02
+- **目标：**
+  1. 完成 FR traceability final audit；
+  2. 确认所有开发侧必须实现的 FR 有源码/生成/测试证据；
+  3. 明确所有 `NOT_EXECUTED / CAPABILITY`；
+  4. 明确 FR-081：
+     ```text
+     USER_VALIDATION_PENDING
+     ```
+     直到用户实际验证；
+  5. 生成最终跨对话移交摘要；
+  6. 给出用户最小实机验证步骤：
+     - SIM_START；
+     - 若干连续 PIL steps；
+     - I/O correctness；
+     - SIM_STOP；
+     - 再次 Session；
+     - 可选 TCP/UDP latency/performance 比较。
+- **非目标：**
+  - Codex 不宣称硬件通过；
+  - 不新增功能；
+  - 不为 performance 设置固定百分比 Gate。
+
+### UDP Stage 6 Gate：UDP-G6
+
+开发侧 Gate 必须确认：
+
+- FR-001～FR-080、FR-082 的开发责任已经闭合；
+- FR-081 明确处于真实 `USER_VALIDATION_PENDING` 或用户已提供通过证据；
+- 所有要求的自动测试均有真实结果；
+- MEX/DSP compile 有能力则实际执行，无能力则明确标记；
+- 文档/traceability 与真实状态一致；
+- 不存在伪造 PASS；
+- 工作区、HEAD、Remote HEAD、提交状态真实记录；
+- 不存在未解决的 blocker。
+
+`UDP-G6` 通过只表示 **开发侧 UDP 增量实现闭合**。
+如果 FR-081 尚未由用户执行，最终项目状态必须明确写：
+
+```text
+Development gate : PASS
+Hardware UDP PIL : USER_VALIDATION_PENDING
+```
 
 ---
 
-## 13. 明确不进入本计划的内容
+# 11. 建议提交序列
 
-本计划不包含：
+Codex 不负责擅自提交。以下仅作为用户审核后提交时的建议粒度：
 
-- CRC、ACK/NAK、frame retry、byte retransmission；
-- 自动 reconnect / resend / resync；
-- watchdog recovery；
-- autobaud；
-- SCI interrupt / DMA；
-- COM 枚举、VID/PID、自动匹配；
-- 软件 RTS/DTR RS485 direction；
-- Linux/macOS serial；
-- ZWT/PZP / 多器件 capability；
-- Baud × Payload × Timeout 自动适配/推荐/Warning/Reject；
-- 多 SCI/2×SCI 固定测试；
-- SCI-A/B/C/D 组合矩阵；
-- 全部 Baud/RX/TX/CTRL GPIO 硬件矩阵；
-- half-duplex CTRL 强制专项测试矩阵；
-- mixed IoDevice 硬件门禁；
-- 长期稳定性门禁；
-- 自动 MEX build；
-- 自动改写 Simulink `.slx`；
-- CCS 工程生成、自动烧录、CI 硬件自动化；
-- 安装包、Toolbox、正式 release 系统；
-- 重新执行历史 V1.0 G0～G5。
+```text
+UDP-S0-02  docs: switch current authority to W5300 UDP cycle
+
+UDP-S1-01  feat(project): add w5300_udp provider and canonical settings
+UDP-S1-02  feat(project): validate shared W5300 TCP UDP resources
+UDP-S1-03  feat(app): add UDP copy and transport summaries
+UDP-S1-04  feat(app): add W5300 UDP instance configuration UI
+
+UDP-S2-01  feat(w5300): add native UDP open and close primitives
+UDP-S2-02  feat(w5300): add UDP datagram receive primitives
+UDP-S2-03  feat(w5300): add atomic UDP datagram transmit primitive
+
+UDP-S3-01  feat(dsp): add W5300 UDP channel lifecycle
+UDP-S3-02  feat(dsp): add UDP datagram receive and peer filtering
+UDP-S3-03  feat(dsp): add atomic UDP IoDevice send
+UDP-S3-04  feat(dsp): finalize UDP session cleanup and reacquisition
+
+UDP-S4-01  feat(pc): add UDP socket transport
+UDP-S4-02  feat(pc): add UDP datagram staging and framing validation
+UDP-S4-03  feat(pc): bind shared V1 protocol to UDP transport
+UDP-S4-04  test(pc): verify production UDP transport on localhost
+
+UDP-S5-01  feat(codegen): add transport-set DSP source closure
+UDP-S5-02  feat(codegen): share W5300 project support across TCP and UDP
+UDP-S5-03  feat(codegen): add UDP S-Function output and build closure
+UDP-S5-04  test(codegen): verify deterministic mixed transport generation
+
+UDP-S6-01  test: run final W5300 UDP software regression
+UDP-S6-02  docs: document W5300 UDP transport and traceability
+UDP-S6-03  docs: finalize W5300 UDP development audit
+```
+
+如果某个小任务实际只修改测试或文档，应以真实 diff 为准调整提交标题，不机械追求上述字符串。
 
 ---
 
-## 14. 计划批准结论
+# 12. 关键风险与控制
 
-本计划已经完成用户审核和 Final Plan Audit，状态更新为：
+## 12.1 TCP 回归风险
+
+**风险：** `c2837x_w5300_socket.*` 当前包含 TCP stream 和 TCP close erratum 相关状态，增加 UDP primitives 时容易破坏 TCP。
+
+**控制：**
+- UDP primitive 独立，不把 protocol branch 塞进 TCP `socket_send/recv`；
+- 每个 Stage 2 任务运行相关现有 TCP regression；
+- UDP close 明确跳过 erratum，但不删除 TCP erratum。
+
+## 12.2 Datagram 与 Core stream-shaped API 适配风险
+
+**风险：** Core 分两次读取 Header/Payload，而 UDP Datagram 必须原子。
+
+**控制：**
+- W5300 RX FIFO 作为 staging；
+- PACKET-INFO 后延迟 RECV commit；
+- transport 只读取 `payload_length` 做 physical boundary；
+- 不跨 Datagram 拼接；
+- no full-frame DSP RAM buffer。
+
+## 12.3 Candidate/Session Peer 责任错位
+
+**风险：** transport 过早把任意 Datagram source 当作长期 session peer，或在 active session 被其他 sender 抢占。
+
+**控制：**
+- candidate 与 session peer 分离；
+- legitimate SIM_START 由 Core semantic 形成 session；
+- active alien peer drop；
+- close/reopen 后才允许新 peer。
+
+## 12.4 Shared W5300 Project Support 重复定义
+
+**风险：** TCP provider 与 UDP provider 各自产生同名 `c2837x_w5300_project_config`。
+
+**控制：**
+- shared support ownership 在 Stage 5 显式收敛；
+- mixed TCP+UDP generation test 必须检查全局定义只出现一次。
+
+## 12.5 UDP `connect()` 被误当作在线判断
+
+**风险：** PC UDP connect 成功被错误解释为 DSP reachable。
+
+**控制：**
+- 文档/实现均保持 connect 只固定 endpoint；
+- SIM_START→RESPONSE 才证明 protocol peer 工作；
+- no response → STEP timeout；
+- OS explicit socket error 保留 SOCKET。
+
+## 12.6 测试过度扩张
+
+**风险：** 把 UDP 天生不可靠转化为产品级 loss/reorder/long-run 测试工程。
+
+**控制：**
+- 严格遵守 FR-076～FR-082；
+- 只做 representative framing/timeout/peer/closure tests；
+- 不把 performance improvement percentage 设置为 Gate。
+
+---
+
+# 13. 明确不进入本计划的内容
+
+本计划禁止提前实现或作为固定 Gate：
+
+- Wire Protocol V2；
+- Project Format V5；
+- Core API V3；
+- UDP ACK/NAK；
+- retransmission；
+- packet retry；
+- heartbeat / keepalive；
+- reorder buffer；
+- duplicate suppression buffer；
+- lost-step compensation；
+- automatic peer/session reconnect/resume protocol；
+- peer takeover / FORCE_CONNECT；
+- Session ID；
+- UDP Magic；
+- UDP CRC；
+- incoming IP fragmentation；
+- jumbo frame；
+- broadcast；
+- multicast；
+- 8 Socket 满载并发压力；
+- random packet-loss matrix；
+- long-duration stability matrix；
+- throughput benchmark Gate；
+- TCP→UDP 必须提升固定百分比；
+- PC local UDP port Project 参数；
+- runtime remote-peer selector；
+- 重新设计现有 TCP stream transport；
+- 重新设计现有 SCI transport；
+- 恢复旧单实例/shared `g_ctx` 方案。
+
+---
+
+# 14. 本计划完成定义
+
+W5300 UDP 增量开发侧完成需要同时满足：
+
+1. Frozen requirements `FR-001～FR-082` 已完成最终 traceability；
+2. `w5300_udp` 可作为第三种 IoDevice 在 Project/App 中配置；
+3. TCP/UDP W5300 Socket shared resource 规则正确；
+4. UDP payload 上限 1468；
+5. DSP native UDP OPEN/RX/TX/CLOSE primitives 正确；
+6. DSP UDP Channel 实现 candidate/session peer 和 one-frame-one-Datagram；
+7. PC `pc_udp` 使用 SOCK_DGRAM + OS endpoint connect；
+8. PC staging/framing 与 shared protocol binding 正确；
+9. UDP-only / TCP+UDP / UDP+SCI / TCP+UDP+SCI generation closure 正确；
+10. shared W5300 project config 只生成一次；
+11. existing TCP/SCI required regression 没有被本增量破坏；
+12. Frozen requirements 要求的软件测试有真实结果；
+13. 可用编译环境中的 MEX/TI compile 有真实结果；不可用时明确 capability 状态；
+14. 文档/traceability 与真实实现一致；
+15. 未执行的用户硬件验证明确记录，不伪造 PASS。
+
+若用户尚未执行实机 UDP PIL：
+
+```text
+Development Implementation = COMPLETE
+Development Gate           = PASS
+Hardware UDP PIL           = USER_VALIDATION_PENDING
+```
+
+仍然是合法的开发侧完成状态。
+
+---
+
+# 15. 计划审核与批准规则
+
+本文件当前状态：
 
 ```text
 Approved for Implementation
 ```
 
-Final Plan Audit 结论：
+批准结论：
+
+1. 本计划已经完成 Final Approval Audit；
+2. 计划与 Frozen requirements `FR-001～FR-082` 对齐；
+3. Stage、Gate、Codex 小任务边界已批准；
+4. Stage 0 负责将本 approved plan 切换为 Repository root `plan.md` current authority；
+5. 在 approved plan 与 Frozen requirements 都有明确 Git 提交、且 `UDP-G0` 通过前，不进入 `UDP-S1-01` 产品实现；
+6. 本批准只表示计划可实施，不代表任何 UDP-S0～S6 或 UDP-G0～G6 任务已经开始或通过。
+
+正式批准文件：
 
 ```text
-FR_NUMBER_COVERAGE              = PASS
-STAGE_DECOMPOSITION             = PASS
-DEPENDENCY_ORDER                = PASS
-PROJECT_V4_COVERAGE             = PASS
-CAPABILITY_COVERAGE             = PASS
-APP_COVERAGE                    = PASS
-CORE_API_V2_COVERAGE            = PASS
-DSP_SCI_RUNTIME_COVERAGE        = PASS
-PC_SERIAL_COVERAGE              = PASS
-GENERATION_COVERAGE             = PASS
-LSPCLK_SEQUENCE                 = PASS
-V1_PROTOCOL_COMPATIBILITY       = PASS
-W5300_NON_REGRESSION_BOUNDARY   = PASS
-USER_HARDWARE_BOUNDARY          = PASS
-MINIMUM_TEST_BOUNDARY           = PASS
-PROJECT_SOURCE_BOUNDARY         = PASS
-
-PLAN_FINAL_AUDIT                = PASS
-PLAN_APPROVAL                   = ALLOWED
+plan_w5300_udp_iodevice_v1.0_approved.md
 ```
-
-批准结论只表示：
-
-- Stage 划分、任务边界、依赖、FR 覆盖和 Gate 定义已经确定；
-- LSPCLK `/14 bring-up → 最终收敛` 顺序已经确定；
-- 开发侧最小必要测试边界已经确定；
-- 历史 V1.0 不作为 Stage 6 或重新实施对象；
-- Repository 与 ChatGPT Project Source 的责任边界已经分离。
-
-批准结论**不表示** `SCI-S0-01` 已执行、`SCI-G0` 已通过，也不表示任何软件测试、DSP/CCS 编译、MEX、Simulink 或 SCI 硬件验证已经通过。
-
-实际实施必须从 `SCI-S0-01` 开始；开始前按项目规则重新核对 repository、branch、HEAD、remote HEAD、`git status`、V1.0 完成基线和当前规范入口。

@@ -15,6 +15,10 @@ development cycle = COMPLETE；软件实现、文档、FR-001～FR-095 final
 traceability 和 development evidence 均已完成。当前验证范围与未覆盖边界见
 [当前验证状态](#当前验证状态)。
 
+当前 UDP 周期仅完成 Frozen requirements、approved implementation plan
+与历史 SCI 入口的 Repository 切换；`w5300_udp` 尚未实现，也没有 UDP
+产品测试或硬件验证 PASS 结论。
+
 ## 当前版本与能力
 
 | 项目 | 当前约定 |
@@ -337,9 +341,12 @@ multi-SCI、完整 mixed 组合、长期稳定性或最终 LSPCLK 寄存器确�
 
 ## 文档
 
-- [Frozen SCI requirements](requirements/requirements_sci_iodevice_v1.0_frozen.md)
-- [Implementation plan](plan.md)
-- [Final FR traceability](docs/requirements_traceability.md)
+- [Current UDP Frozen requirements](requirements/requirements_w5300_udp_iodevice_v1.0_frozen.md)
+- [Current UDP implementation plan](plan.md)
+- [Historical SCI requirements](requirements/archive/requirements_sci_iodevice_v1.0_frozen.md)
+- [Historical SCI implementation plan](docs/archive/plan_sci_iodevice_v1.0_completed.md)
+- [Historical SCI traceability](docs/archive/requirements_traceability_sci_iodevice_v1.0_completed.md)
+- UDP FR-001～FR-082 的最终追踪矩阵属于后续 UDP-S6 任务，当前未创建。
 - [App 项目与迁移指南](docs/app_project_and_migration_guide.md)
 - [CCS 集成与双实例 main](docs/ccs_integration_and_dual_instance_main.md)
 - [Simulink/MEX 使用指南](docs/simulink_mex_user_guide.md)

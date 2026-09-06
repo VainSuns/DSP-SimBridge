@@ -1,13 +1,15 @@
 # DSP-SimBridge SCI-S5-04 最终 Traceability
 
+> **Historical archive notice:** 本文件属于已完成 SCI-S5-04 周期的 FR-001～FR-095 traceability 历史证据，是当前 W5300 UDP 周期的直接前置历史追踪材料；不再是当前 UDP final traceability 或 implementation authority。当前 UDP 规范入口为 `requirements/requirements_w5300_udp_iodevice_v1.0_frozen.md` 与根 `plan.md`；以下历史映射、状态、测试数字、Gate 与验证事实保持原义。
+
 > 本文只覆盖冻结需求中的 FR-001～FR-095，保留“需求 → 实现 → 证据 → 状态”正式矩阵；SCI-G5 已完成并闭合；不把未实际提供或未执行的用户 DSP/CCS、真实 COM、真实 Simulink 联机或硬件项目推断为 PASS；用户明确提供的代表性硬件结果按原范围记录。
 >
 > Final authority audit: `PASS`; `CURRENT_AUTHORITY_BLOCKERS=0`。`SCI_G5_RESULT = PASS`；`SCI_G5_STATUS = CLOSED`；`SCI_STAGE_5_STATUS = CLOSED`。
 
 ## 1. 审计基线与当前 authority
 
-- 当前唯一冻结需求：`requirements/requirements_sci_iodevice_v1.0_frozen.md`，应以其中 95 个 `### FR-xxx` 标题为本矩阵的唯一 FR 集合。
-- 当前增量计划：根目录 `plan.md`，其中的 SCI-S5-04 定义本矩阵、Final Audit、历史归档审计和协议/热路径审计；本 SCI 周期的 SCI-G5 状态为 `PASS / CLOSED`。
+- 历史 SCI 冻结需求（本周期当时的唯一需求基线）：`requirements/archive/requirements_sci_iodevice_v1.0_frozen.md`，本矩阵以其中 95 个 `### FR-xxx` 标题为历史 FR 集合。
+- 历史 SCI 增量计划（本周期当时的实施计划）：`docs/archive/plan_sci_iodevice_v1.0_completed.md`，其中的 SCI-S5-04 定义本矩阵、Final Audit、历史归档审计和协议/热路径审计；本 SCI 周期的 SCI-G5 状态为 `PASS / CLOSED`。
 - 当前实现 authority：本仓库实际 App、DSP、Simulink/PC、生成器和测试源文件；证据还包括已关闭阶段/Gate 的 Git 与测试材料。
 - 契约：Project Format V4、Wire Protocol V1、Core API V2；目标固定为 `TMS320F28377D + PTP`。
 - 最终 SCI 平台时钟：SYSCLK 200 MHz，LSPCLK = SYSCLK/4 = 50 MHz，LOSPCP=2；该值由 SCI-S5-02 收敛并由当前代码/文档保持一致。
@@ -140,9 +142,9 @@
 
 ### 4.2 现有 authority 审计
 
-- Current requirements: `requirements/requirements_sci_iodevice_v1.0_frozen.md`。
-- Current plan: `plan.md`。
-- Current SCI traceability: `docs/requirements_traceability.md`。
+- Historical SCI requirements: `requirements/archive/requirements_sci_iodevice_v1.0_frozen.md`。
+- Historical SCI plan: `docs/archive/plan_sci_iodevice_v1.0_completed.md`。
+- Historical SCI traceability: `docs/archive/requirements_traceability_sci_iodevice_v1.0_completed.md`。
 - `FINAL_PRODUCT_IMPLEMENTATION_BASELINE` (`631bf5616104fed49005d5d904fd547f9e60fdbc`) 的直接 parent `0b0a4e29e600a5ee4f18b3c4ca7d386e4a84a768` 仅是修复前历史基线；当前实现 authority 不依赖某个固定 SHA。
 - 产品实现基线对应的新增修复是 W5300 EMIF1 Platform GPIO ownership/initialization correction：同步 Platform Reserved Resources、W5300 HAL 与对应 App/Host focused fixtures；不属于 V1 protocol、Core Run、W5300 channel/runtime、PC `pc_socket` hot-path 重构。
 - Historical V1 validation documents are not current SCI authority; historical versions remain available through Git history。

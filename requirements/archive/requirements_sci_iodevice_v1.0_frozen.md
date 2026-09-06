@@ -1,5 +1,7 @@
 # DSP-SimBridge SCI IoDevice 增量需求规格
 
+> **Historical archive notice:** 本文件属于上一 SCI IoDevice V1.0 周期的冻结需求，是当前 W5300 UDP IoDevice 增量的直接前置历史规范；不再是当前 UDP implementation authority。当前规范入口为 `requirements/requirements_w5300_udp_iodevice_v1.0_frozen.md` 与根 `plan.md`；以下历史需求语义、FR、Gate 与验证事实保持原义。
+
 > **状态：Frozen V1.0**  
 > **冻结日期：2026-08-10**  
 > **Erratum E1：2026-08-13**
