@@ -85,6 +85,13 @@ classdef c2837x_block_project_session < handle
                     end
                     instance.iodevice.settings.socket_number = varargin{1};
                     instance.iodevice.settings.tcp_port = varargin{2};
+                case 'w5300_udp'
+                    if numel(varargin) ~= 2
+                        instance_error('CopyResourcesRequired', ...
+                            'W5300 UDP copy requires a new socket number and UDP port.');
+                    end
+                    instance.iodevice.settings.socket_number = varargin{1};
+                    instance.iodevice.settings.udp_port = varargin{2};
                 case 'sci'
                     if ~isempty(varargin)
                         instance_error('InvalidCopyResources', ...
@@ -104,6 +111,9 @@ classdef c2837x_block_project_session < handle
             instance.inputs = source.inputs;
             instance.outputs = source.outputs;
             instance.algorithm = source.algorithm;
+            if any(strcmp(char(source.iodevice.type), {'w5300_tcp', 'w5300_udp'}))
+                instance.algorithm.source_path = '';
+            end
             validate_instance_operation(instance);
             validate_instance_conflicts(instance, session.Project.instances, []);
             project = session.Project;
@@ -363,17 +373,32 @@ if any(strcmpi(instance.internal_name, {instances(indices).internal_name}))
 end
 for index = indices
     other = instances(index);
-    if ~strcmp(char(instance.iodevice.type), 'w5300_tcp') || ...
-            ~strcmp(char(other.iodevice.type), 'w5300_tcp')
+    instanceType = char(instance.iodevice.type);
+    otherType = char(other.iodevice.type);
+    instanceIsW5300 = any(strcmp(instanceType, {'w5300_tcp', 'w5300_udp'}));
+    otherIsW5300 = any(strcmp(otherType, {'w5300_tcp', 'w5300_udp'}));
+    if ~instanceIsW5300 || ~otherIsW5300
         continue;
     end
-    if numeric_values_equal(instance.iodevice.settings.socket_number, ...
+    if isfield(instance.iodevice.settings, 'socket_number') && ...
+            isfield(other.iodevice.settings, 'socket_number') && ...
+            numeric_values_equal(instance.iodevice.settings.socket_number, ...
             other.iodevice.settings.socket_number)
         instance_error('DuplicateSocket', 'Socket number is already used.');
     end
-    if numeric_values_equal(instance.iodevice.settings.tcp_port, ...
+    if strcmp(instanceType, 'w5300_tcp') && strcmp(otherType, 'w5300_tcp') && ...
+            isfield(instance.iodevice.settings, 'tcp_port') && ...
+            isfield(other.iodevice.settings, 'tcp_port') && ...
+            numeric_values_equal(instance.iodevice.settings.tcp_port, ...
             other.iodevice.settings.tcp_port)
         instance_error('DuplicatePort', 'TCP port is already used.');
+    elseif strcmp(instanceType, 'w5300_udp') && ...
+            strcmp(otherType, 'w5300_udp') && ...
+            isfield(instance.iodevice.settings, 'udp_port') && ...
+            isfield(other.iodevice.settings, 'udp_port') && ...
+            numeric_values_equal(instance.iodevice.settings.udp_port, ...
+            other.iodevice.settings.udp_port)
+        instance_error('DuplicatePort', 'UDP port is already used.');
     end
 end
 end

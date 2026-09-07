@@ -17,6 +17,23 @@ classdef test_project_report < matlab.unittest.TestCase
             testCase.verifyEqual(report.instances(1).canonical_text, text);
         end
 
+        function testReportIncludesUnifiedTransportSummary(testCase)
+            project = report_project(1);
+            report = c2837x_block_build_project_report(project);
+
+            testCase.verifyEqual(report.instances.transport_summary, ...
+                'Socket 0 / TCP 5000');
+
+            project.instances.iodevice = ...
+                c2837x_block_create_iodevice('w5300_udp');
+            project.instances.iodevice.settings.socket_number = uint16(1);
+            project.instances.iodevice.settings.udp_port = uint16(5000);
+            report = c2837x_block_build_project_report(project);
+
+            testCase.verifyEqual(report.instances.transport_summary, ...
+                'Socket 1 / UDP 5000');
+        end
+
         function testTwoIndependentHashes(testCase)
             project = report_project(2);
             report = c2837x_block_build_project_report(project);

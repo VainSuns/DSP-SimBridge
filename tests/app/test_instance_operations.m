@@ -187,6 +187,41 @@ classdef test_instance_operations < matlab.unittest.TestCase
             verify_snapshot(testCase, session, before);
         end
 
+        function testAddUdpInstanceRejectsCrossClassSocketConflict(testCase)
+            project = project_with_instances({'motor'}, 0, 5000);
+            session = c2837x_block_project_session(project);
+            candidate = valid_udp_instance('candidate', 0, 5001);
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.addInstance(candidate), ...
+                'C2837xBlock:Instance:DuplicateSocket');
+
+            verify_snapshot(testCase, session, before);
+        end
+
+        function testAddUdpInstanceRejectsUdpPortConflict(testCase)
+            project = project_with_udp_instances({'first'}, 0, 5000);
+            session = c2837x_block_project_session(project);
+            candidate = valid_udp_instance('candidate', 1, 5000);
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.addInstance(candidate), ...
+                'C2837xBlock:Instance:DuplicatePort');
+
+            verify_snapshot(testCase, session, before);
+        end
+
+        function testAddUdpInstanceAllowsTcpPortReuse(testCase)
+            project = project_with_instances({'tcp'}, 0, 5000);
+            session = c2837x_block_project_session(project);
+            candidate = valid_udp_instance('udp', 1, 5000);
+
+            session.addInstance(candidate);
+
+            testCase.verifyEqual({session.Project.instances.internal_name}, ...
+                {'tcp', 'udp'});
+        end
+
         function testEditPreservesPositionAndUnchangedFields(testCase)
             project = project_with_instances({'first', 'second'}, [0 1], [5000 5001]);
             session = c2837x_block_project_session(project);
@@ -230,6 +265,20 @@ classdef test_instance_operations < matlab.unittest.TestCase
             verify_snapshot(testCase, session, before);
         end
 
+        function testUpdateUdpInstanceRejectsUdpPortConflict(testCase)
+            project = project_with_udp_instances({'first', 'second'}, [0 1], ...
+                [5000 5001]);
+            session = c2837x_block_project_session(project);
+            changes = struct('iodevice', struct('settings', ...
+                struct('udp_port', double(5000))));
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.updateInstance(2, changes), ...
+                'C2837xBlock:Instance:DuplicatePort');
+
+            verify_snapshot(testCase, session, before);
+        end
+
         function testCopyPreservesAllowedFieldsAndResetsState(testCase)
             source = valid_instance('source', 0, 5000);
             source.sample_time_sec = 3e-4;
@@ -259,6 +308,93 @@ classdef test_instance_operations < matlab.unittest.TestCase
             testCase.verifyEqual(copy.interface_hash, uint32(0));
             testCase.verifyEqual(session.Project.instances(1), source);
             testCase.verifyTrue(session.Dirty);
+        end
+
+        function testCopyUdpPreservesAllowedFieldsAndUsesNewResources(testCase)
+            source = valid_udp_instance('source', 0, 5000);
+            source.sample_time_sec = 3e-4;
+            source.max_payload_size_bytes = uint32(1468);
+            source.algorithm.mode = 'external_copy';
+            source.algorithm.source_path = c2837x_block_normalize_absolute_path( ...
+                fullfile(testCase.WorkFolder, 'old_algorithm.c'));
+            source.interface_hash = uint32(123);
+            project = c2837x_block_create_default_project();
+            project.instances = source;
+            session = c2837x_block_project_session(project);
+
+            session.copyInstance(1, 'Copy', 'copy', uint16(1), uint16(5001));
+            copy = session.Project.instances(2);
+
+            testCase.verifyEqual(copy.iodevice.type, 'w5300_udp');
+            testCase.verifyEqual(copy.iodevice.settings.socket_number, uint16(1));
+            testCase.verifyEqual(copy.iodevice.settings.udp_port, uint16(5001));
+            testCase.verifyFalse(isfield(copy.iodevice.settings, 'tcp_port'));
+            testCase.verifyEqual(copy.inputs, source.inputs);
+            testCase.verifyEqual(copy.outputs, source.outputs);
+            testCase.verifyEqual(copy.sample_time_sec, source.sample_time_sec, ...
+                AbsTol=eps(3e-4));
+            testCase.verifyEqual(copy.max_payload_size_bytes, ...
+                source.max_payload_size_bytes);
+            testCase.verifyEqual(copy.algorithm.mode, 'external_copy');
+            testCase.verifyEmpty(copy.algorithm.source_path);
+            testCase.verifyEqual(copy.interface_hash, uint32(0));
+            testCase.verifyEqual(session.Project.instances(1), source);
+        end
+
+        function testUdpCopyRequiresBothResources(testCase)
+            session = c2837x_block_project_session( ...
+                project_with_udp_instances({'source'}, 0, 5000));
+
+            testCase.verifyError(@() session.copyInstance(1, ...
+                'Copy', 'copy'), 'C2837xBlock:Instance:CopyResourcesRequired');
+            testCase.verifyError(@() session.copyInstance(1, ...
+                'Copy', 'copy', uint16(1)), ...
+                'C2837xBlock:Instance:CopyResourcesRequired');
+        end
+
+        function testUdpCopyRejectsDuplicateSocket(testCase)
+            source = valid_udp_instance('source', 0, 5000);
+            existing = valid_instance('tcp', 1, 5001);
+            project = c2837x_block_create_default_project();
+            project.instances = [source existing];
+            session = c2837x_block_project_session(project);
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.copyInstance(1, ...
+                'Copy', 'copy', uint16(1), uint16(5002)), ...
+                'C2837xBlock:Instance:DuplicateSocket');
+
+            verify_snapshot(testCase, session, before);
+        end
+
+        function testUdpCopyRejectsDuplicateUdpPort(testCase)
+            source = valid_udp_instance('source', 0, 5000);
+            existing = valid_udp_instance('existing', 1, 5001);
+            project = c2837x_block_create_default_project();
+            project.instances = [source existing];
+            session = c2837x_block_project_session(project);
+            before = snapshot(session);
+
+            testCase.verifyError(@() session.copyInstance(1, ...
+                'Copy', 'copy', uint16(2), uint16(5001)), ...
+                'C2837xBlock:Instance:DuplicatePort');
+
+            verify_snapshot(testCase, session, before);
+        end
+
+        function testUdpCopyAllowsTcpPortReuse(testCase)
+            source = valid_udp_instance('source', 0, 5001);
+            existing = valid_instance('tcp', 1, 5000);
+            project = c2837x_block_create_default_project();
+            project.instances = [source existing];
+            session = c2837x_block_project_session(project);
+
+            session.copyInstance(1, 'Copy', 'copy', uint16(2), uint16(5000));
+
+            copy = session.Project.instances(3);
+            testCase.verifyEqual(copy.iodevice.type, 'w5300_udp');
+            testCase.verifyEqual(copy.iodevice.settings.socket_number, uint16(2));
+            testCase.verifyEqual(copy.iodevice.settings.udp_port, uint16(5000));
         end
 
         function testCopyConflictIsAtomic(testCase)
@@ -410,6 +546,13 @@ instance.outputs = [variable('status', 'uint16', 1), ...
     variable('feedback', 'double', 2)];
 end
 
+function instance = valid_udp_instance(name, socketNumber, udpPort)
+instance = valid_instance(name, socketNumber, 5000);
+instance.iodevice = c2837x_block_create_iodevice('w5300_udp');
+instance.iodevice.settings.socket_number = uint16(socketNumber);
+instance.iodevice.settings.udp_port = uint16(udpPort);
+end
+
 function value = variable(name, type, dim)
 value = struct('name', name, 'type', type, 'dim', dim);
 end
@@ -419,6 +562,16 @@ project = c2837x_block_create_default_project();
 instances = repmat(c2837x_block_create_default_instance(), 1, numel(names));
 for index = 1:numel(names)
     instances(index) = valid_instance(names{index}, sockets(index), ports(index));
+end
+project.instances = instances;
+end
+
+function project = project_with_udp_instances(names, sockets, ports)
+project = c2837x_block_create_default_project();
+instances = repmat(c2837x_block_create_default_instance(), 1, numel(names));
+for index = 1:numel(names)
+    instances(index) = valid_udp_instance(names{index}, sockets(index), ...
+        ports(index));
 end
 project.instances = instances;
 end

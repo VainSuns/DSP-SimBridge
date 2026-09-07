@@ -21,6 +21,20 @@ classdef test_transport_summary < matlab.unittest.TestCase
             testCase.verifyEqual(actual, expected);
         end
 
+        function testW5300UdpSummary(testCase)
+            instance = c2837x_block_create_default_instance();
+            instance.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            instance.iodevice.settings.socket_number = uint16(1);
+            instance.iodevice.settings.udp_port = uint16(5000);
+
+            actual = c2837x_block_build_transport_summary(instance);
+
+            expected = struct('type_label', 'W5300 UDP', ...
+                'resource', 'Socket 1', 'link', 'UDP 5000', ...
+                'summary', 'Socket 1 / UDP 5000');
+            testCase.verifyEqual(actual, expected);
+        end
+
         function testConfiguredSciSummary(testCase)
             instance = c2837x_block_create_default_instance();
             instance.iodevice = c2837x_block_create_iodevice('sci');
