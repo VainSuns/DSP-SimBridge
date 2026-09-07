@@ -50,7 +50,7 @@ classdef test_configurator_smoke < matlab.unittest.TestCase
 
             testCase.verifyEqual(view.status, 'valid');
             testCase.verifyFalse(any(strcmp({issues.severity}, 'Error')));
-            testCase.verifyEqual(numel(view.comparisons), 35);
+            testCase.verifyEqual(numel(view.comparisons), 36);
             testCase.verifyTrue(any(startsWith({view.comparisons.target_path}, ...
                 project.output.dsp_root)));
             testCase.verifyTrue(any(startsWith({view.comparisons.target_path}, ...
@@ -254,6 +254,226 @@ classdef test_configurator_smoke < matlab.unittest.TestCase
             clear cleanup
         end
 
+        function testUdpDynamicConfigurationAndEdit(testCase)
+            app = create_hidden_app(testCase);
+            cleanup = onCleanup(@() delete(app));
+            figure = app.UIFigure;
+            root = fullfile(tempdir, 'udp_s1_04_batch3_smoke_project');
+            project = app.ProjectSession.Project;
+            project.output.dsp_root = c2837x_block_normalize_absolute_path( ...
+                fullfile(root, 'dsp'));
+            project.output.sfun_root = c2837x_block_normalize_absolute_path( ...
+                fullfile(root, 'sfun'));
+            app.Coordinator.updateProject(project);
+            refresh_via_common_field(figure);
+
+            push_button(figure, 'Instances', 'Add');
+            iodevice = findall(figure, 'Tag', 'IoDeviceTypeField');
+            testCase.verifyEqual(iodevice.Items, ...
+                {'W5300 TCP', 'W5300 UDP', 'SCI'});
+            testCase.verifyEqual(iodevice.ItemsData, ...
+                {'w5300_tcp', 'w5300_udp', 'sci'});
+            testCase.verifyEqual(iodevice.Value, 'w5300_tcp');
+
+            invoke_dropdown(figure, 'IoDeviceTypeField', 'w5300_udp');
+            instance = app.ProjectSession.Project.instances(1);
+            testCase.verifyEqual(instance.iodevice.settings, ...
+                c2837x_block_create_iodevice('w5300_udp').settings);
+            testCase.verifyFalse(isfield(instance.iodevice.settings, 'tcp_port'));
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'W5300SocketField').Parent.Visible, ...
+                matlab.lang.OnOffSwitchState.off);
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'W5300UdpSocketField').Parent.Visible, ...
+                matlab.lang.OnOffSwitchState.on);
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'SciModuleField').Parent.Visible, ...
+                matlab.lang.OnOffSwitchState.off);
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'W5300UdpSocketField').Value, '0');
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'W5300UdpPortField').Value, 5000);
+
+            instanceTable = find_table(figure, {'Display Name', ...
+                'Internal Name', 'IoDevice', 'Resource', 'Link', 'Sample Time'});
+            testCase.verifyEqual(instanceTable.Data(1, 3:5), ...
+                {'W5300 UDP', 'Socket 0', 'UDP 5000'});
+            expectedContext = ...
+                'Current Instance: Instance 1 [instance_1] | Socket 0 / UDP 5000';
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'InputsOutputsInstanceContext').Text, expectedContext);
+            testCase.verifyTrue(contains(report_text(figure), ...
+                'Transport: Socket 0 / UDP 5000'));
+
+            invoke_dropdown(figure, 'W5300UdpSocketField', '1');
+            invoke_numeric_field(figure, 'W5300UdpPortField', 5001);
+            instance = app.ProjectSession.Project.instances(1);
+            testCase.verifyEqual(instance.iodevice.settings.socket_number, ...
+                uint16(1));
+            testCase.verifyEqual(instance.iodevice.settings.udp_port, ...
+                uint16(5001));
+            testCase.verifyFalse(isfield(instance.iodevice.settings, 'tcp_port'));
+            testCase.verifyEqual(instanceTable.Data(1, 3:5), ...
+                {'W5300 UDP', 'Socket 1', 'UDP 5001'});
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'InputsOutputsInstanceContext').Text, ...
+                'Current Instance: Instance 1 [instance_1] | Socket 1 / UDP 5001');
+            clear cleanup
+        end
+
+        function testUdpSwitchCanonicalAndPayloadIssue(testCase)
+            app = create_hidden_app(testCase);
+            cleanup = onCleanup(@() delete(app));
+            figure = app.UIFigure;
+            push_button(figure, 'Instances', 'Add');
+            invoke_numeric_field(figure, 'MaxPayloadLimitField', 1469);
+
+            invoke_dropdown(figure, 'IoDeviceTypeField', 'w5300_udp');
+            instance = app.ProjectSession.Project.instances(1);
+            testCase.verifyEqual(instance.iodevice, ...
+                c2837x_block_create_iodevice('w5300_udp'));
+            testCase.verifyEqual(double(instance.max_payload_size_bytes), 1469);
+            testCase.verifyFalse(isfield(instance.iodevice.settings, 'tcp_port'));
+            invoke_dropdown(figure, 'IoDeviceTypeField', 'sci');
+            testCase.verifyEqual(app.ProjectSession.Project.instances(1).iodevice, ...
+                c2837x_block_create_iodevice('sci'));
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'W5300SocketField').Parent.Visible, ...
+                matlab.lang.OnOffSwitchState.off);
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'W5300UdpSocketField').Parent.Visible, ...
+                matlab.lang.OnOffSwitchState.off);
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'SciModuleField').Parent.Visible, ...
+                matlab.lang.OnOffSwitchState.on);
+
+            invoke_dropdown(figure, 'IoDeviceTypeField', 'w5300_tcp');
+            instance = app.ProjectSession.Project.instances(1);
+            testCase.verifyEqual(instance.iodevice, ...
+                c2837x_block_create_iodevice('w5300_tcp'));
+            testCase.verifyFalse(isfield(instance.iodevice.settings, 'udp_port'));
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'W5300SocketField').Parent.Visible, ...
+                matlab.lang.OnOffSwitchState.on);
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'W5300UdpSocketField').Parent.Visible, ...
+                matlab.lang.OnOffSwitchState.off);
+            testCase.verifyEqual(findall(figure, 'Tag', ...
+                'SciModuleField').Parent.Visible, ...
+                matlab.lang.OnOffSwitchState.off);
+
+            invoke_dropdown(figure, 'IoDeviceTypeField', 'w5300_udp');
+            instance = app.ProjectSession.Project.instances(1);
+            testCase.verifyEqual(instance.iodevice, ...
+                c2837x_block_create_iodevice('w5300_udp'));
+            testCase.verifyFalse(isfield(instance.iodevice.settings, 'tcp_port'));
+
+            issues = app.Coordinator.validateProject('instant');
+            codes = {issues.code};
+            testCase.verifyTrue(any(strcmp(codes, 'UDP_MAX_PAYLOAD_TOO_LARGE')));
+            issueTable = find_table(figure, {'Severity', 'Code', 'Instance', ...
+                'Field', 'File', 'Message'});
+            rows = issueTable.Data(strcmp(issueTable.Data(:, 2), ...
+                'UDP_MAX_PAYLOAD_TOO_LARGE'), :);
+            testCase.verifyEqual(size(rows, 1), 1);
+            testCase.verifyTrue(contains(string(rows{1, 6}), '1468'));
+            testCase.verifyEqual(double( ...
+                app.ProjectSession.Project.instances(1).max_payload_size_bytes), ...
+                1469);
+            clear cleanup
+        end
+
+        function testUdpCopyUsesExplicitResources(testCase)
+            source = configurator_source();
+            testCase.verifyNotEmpty(regexp(source, ...
+                'prompt_udp_copy_resources\(\)', 'once'));
+            testCase.verifyNotEmpty(regexp(source, ...
+                'inputdlg\(\{''Socket Number \(0-7\)'', ''UDP Port \(1-65535\)''\}', ...
+                'once'));
+            testCase.verifyNotEmpty(regexp(source, ...
+                ['case ''w5300_udp''\s*\n\s*\[accepted, socket, port\] = ' ...
+                'prompt_udp_copy_resources\(\);'], 'once'));
+            testCase.verifyNotEmpty(regexp(source, ...
+                ['if ~accepted\s*\n\s*return;\s*\n\s*end\s*\n\s*' ...
+                'app\.Coordinator\.copyInstance\(app\.SelectedInstance'], ...
+                'once'));
+            testCase.verifyNotEmpty(regexp(source, ...
+                'displayName, internalName, socket, port\);', 'once'));
+        end
+
+        function testTcpAddAvoidsUdpUsedSocket(testCase)
+            app = create_hidden_app(testCase);
+            cleanup = onCleanup(@() delete(app));
+            figure = app.UIFigure;
+
+            udp = c2837x_block_create_default_instance();
+            udp.display_name = 'UDP Instance';
+            udp.internal_name = 'udp_instance';
+            udp.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            udp.iodevice.settings.socket_number = uint16(0);
+            udp.iodevice.settings.udp_port = uint16(5000);
+            udp.inputs = struct('name', 'input_value', 'type', 'single', 'dim', 1);
+            udp.outputs = struct('name', 'output_value', 'type', 'single', 'dim', 1);
+            project = c2837x_block_create_default_project();
+            project.instances = udp;
+            app.Coordinator.updateProject(project);
+            refresh_via_common_field(figure);
+
+            push_button(figure, 'Instances', 'Add');
+            added = app.ProjectSession.Project.instances(2);
+            testCase.verifyEqual(added.iodevice.type, 'w5300_tcp');
+            testCase.verifyEqual(added.iodevice.settings.socket_number, ...
+                uint16(1));
+            testCase.verifyEqual(added.iodevice.settings.tcp_port, ...
+                uint16(5000));
+            issues = app.Coordinator.validateProject('instant');
+            testCase.verifyFalse(any(strcmp({issues.code}, ...
+                'SOCKET_DUPLICATE')));
+            clear cleanup
+        end
+
+        function testTcpCopyAvoidsUdpUsedSocket(testCase)
+            app = create_hidden_app(testCase);
+            cleanup = onCleanup(@() delete(app));
+            figure = app.UIFigure;
+
+            tcp = c2837x_block_create_default_instance();
+            tcp.display_name = 'TCP Source';
+            tcp.internal_name = 'tcp_source';
+            tcp.iodevice = c2837x_block_create_iodevice('w5300_tcp');
+            tcp.iodevice.settings.socket_number = uint16(0);
+            tcp.iodevice.settings.tcp_port = uint16(5000);
+            tcp.inputs = struct('name', 'input_value', 'type', 'single', 'dim', 1);
+            tcp.outputs = struct('name', 'output_value', 'type', 'single', 'dim', 1);
+            udp = c2837x_block_create_default_instance();
+            udp.display_name = 'UDP Existing';
+            udp.internal_name = 'udp_existing';
+            udp.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            udp.iodevice.settings.socket_number = uint16(1);
+            udp.iodevice.settings.udp_port = uint16(5001);
+            udp.inputs = struct('name', 'udp_input', 'type', 'single', 'dim', 1);
+            udp.outputs = struct('name', 'udp_output', 'type', 'single', 'dim', 1);
+            instances = repmat(c2837x_block_create_default_instance(), 1, 2);
+            instances(1) = tcp;
+            instances(2) = udp;
+            project = c2837x_block_create_default_project();
+            project.instances = instances;
+            app.Coordinator.updateProject(project);
+            refresh_via_common_field(figure);
+
+            push_button(figure, 'Instances', 'Copy');
+            copied = app.ProjectSession.Project.instances(3);
+            testCase.verifyEqual(copied.iodevice.type, 'w5300_tcp');
+            testCase.verifyEqual(copied.iodevice.settings.socket_number, ...
+                uint16(2));
+            testCase.verifyEqual(copied.iodevice.settings.tcp_port, ...
+                uint16(5001));
+            issues = app.Coordinator.validateProject('instant');
+            testCase.verifyFalse(any(strcmp({issues.code}, ...
+                'SOCKET_DUPLICATE')));
+            clear cleanup
+        end
+
         function testMixedAddAndSciCopy(testCase)
             app = create_hidden_app(testCase);
             cleanup = onCleanup(@() delete(app));
@@ -345,6 +565,13 @@ drawnow;
 end
 
 function invoke_dropdown(figure, tag, value)
+field = findall(figure, 'Tag', tag);
+field.Value = value;
+field.ValueChangedFcn(field, []);
+drawnow;
+end
+
+function invoke_numeric_field(figure, tag, value)
 field = findall(figure, 'Tag', tag);
 field.Value = value;
 field.ValueChangedFcn(field, []);

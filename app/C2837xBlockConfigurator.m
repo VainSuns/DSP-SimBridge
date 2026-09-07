@@ -20,6 +20,7 @@ classdef C2837xBlockConfigurator < handle
         IoDeviceTab
         AlgorithmTab
         W5300Grid
+        W5300UdpGrid
         SciGrid
         SourcePathGrid
         InputTable
@@ -215,8 +216,10 @@ classdef C2837xBlockConfigurator < handle
             app.DetailFields.internal_name = labeled_field(grid, 1, 4, ...
                 'Internal Name', uieditfield(grid, 'text'), 'InternalNameField');
             app.DetailFields.iodevice = labeled_field(grid, 2, 1, ...
-                'IoDevice', uidropdown(grid, 'Items', {'W5300 TCP', 'SCI'}, ...
-                'ItemsData', {'w5300_tcp', 'sci'}), 'IoDeviceTypeField');
+                'IoDevice', uidropdown(grid, ...
+                'Items', {'W5300 TCP', 'W5300 UDP', 'SCI'}, ...
+                'ItemsData', {'w5300_tcp', 'w5300_udp', 'sci'}), ...
+                'IoDeviceTypeField');
             app.DetailFields.sample_time = labeled_field(grid, 2, 4, ...
                 'Sample Time', uieditfield(grid, 'numeric'), 'SampleTimeField');
             tooltip = ['Protocol safety limit only. RX/TX buffers ' ...
@@ -248,6 +251,16 @@ classdef C2837xBlockConfigurator < handle
             app.DetailFields.port = labeled_field(app.W5300Grid, 1, 4, ...
                 'TCP Port', uieditfield(app.W5300Grid, 'numeric'), ...
                 'W5300TcpPortField');
+
+            app.W5300UdpGrid = detail_grid(host, 1);
+            app.DetailFields.udp_socket = labeled_field( ...
+                app.W5300UdpGrid, 1, 1, 'Socket Number', ...
+                uidropdown(app.W5300UdpGrid, 'Items', ...
+                cellstr(compose('%u', 0:7))), 'W5300UdpSocketField');
+            app.DetailFields.udp_port = labeled_field( ...
+                app.W5300UdpGrid, 1, 4, 'UDP Port', ...
+                uieditfield(app.W5300UdpGrid, 'numeric'), ...
+                'W5300UdpPortField');
 
             app.SciGrid = detail_grid(host, 6);
             modules = {'', 'SCI-A', 'SCI-B', 'SCI-C', 'SCI-D'};
@@ -291,7 +304,8 @@ classdef C2837xBlockConfigurator < handle
             app.DetailFields.sci_ctrl_active_level = labeled_field(app.SciGrid, 6, 4, ...
                 'CTRL TX Active Level', uidropdown(app.SciGrid, ...
                 'Items', {'High', 'Low'}), 'SciCtrlActiveLevelField');
-            keys = {'socket', 'port', 'sci_module', 'sci_baud', ...
+            keys = {'socket', 'port', 'udp_socket', 'udp_port', ...
+                'sci_module', 'sci_baud', ...
                 'sci_rx_gpio', 'sci_tx_gpio', 'sci_rx_pin_type', ...
                 'sci_rx_qualification', 'sci_tx_pin_type', 'sci_ctrl_gpio', ...
                 'sci_ctrl_pin_type', 'sci_ctrl_active_level'};
@@ -531,11 +545,14 @@ classdef C2837xBlockConfigurator < handle
             app.DetailFields.iodevice.Value = 'w5300_tcp';
             app.DetailFields.socket.Value = '0';
             app.DetailFields.port.Value = 0;
+            app.DetailFields.udp_socket.Value = '0';
+            app.DetailFields.udp_port.Value = 5000;
             app.DetailFields.sample_time.Value = 0;
             app.DetailFields.max_payload.Value = 0;
             app.DetailFields.algorithm_mode.Value = 'generated_example';
             app.DetailFields.source_path.Value = '';
             app.W5300Grid.Visible = 'off';
+            app.W5300UdpGrid.Visible = 'off';
             app.SciGrid.Visible = 'off';
             app.SourcePathGrid.Visible = 'off';
             app.InputTable.Data = cell(0, 3);
@@ -633,37 +650,47 @@ classdef C2837xBlockConfigurator < handle
             instance = project.instances(app.SelectedInstance);
             instance.display_name = strtrim(app.DetailFields.display_name.Value);
             instance.internal_name = strtrim(app.DetailFields.internal_name.Value);
-            if strcmp(instance.iodevice.type, 'w5300_tcp')
-                instance.iodevice.settings.socket_number = ...
-                    str2double(app.DetailFields.socket.Value);
-                instance.iodevice.settings.tcp_port = app.DetailFields.port.Value;
-            else
-                settings = instance.iodevice.settings;
-                settings.module = app.DetailFields.sci_module.Value;
-                settings.baud = app.DetailFields.sci_baud.Value;
-                if isequal(app.DetailFields.sci_rx_gpio.Enable, ...
-                        matlab.lang.OnOffSwitchState.on)
-                    settings.rx_gpio = app.DetailFields.sci_rx_gpio.Value;
-                end
-                if isequal(app.DetailFields.sci_tx_gpio.Enable, ...
-                        matlab.lang.OnOffSwitchState.on)
-                    settings.tx_gpio = app.DetailFields.sci_tx_gpio.Value;
-                end
-                settings.rx_pin_type = app.DetailFields.sci_rx_pin_type.Value;
-                settings.rx_qualification = ...
-                    app.DetailFields.sci_rx_qualification.Value;
-                settings.tx_pin_type = app.DetailFields.sci_tx_pin_type.Value;
-                if isequal(app.DetailFields.sci_ctrl_gpio.Enable, ...
-                        matlab.lang.OnOffSwitchState.on)
-                    settings.ctrl_gpio = app.DetailFields.sci_ctrl_gpio.Value;
-                end
-                settings.ctrl_pin_type = app.DetailFields.sci_ctrl_pin_type.Value;
-                settings.ctrl_tx_active_level = ...
-                    app.DetailFields.sci_ctrl_active_level.Value;
-                if strcmp(editedKey, 'sci_module')
-                    settings = clear_invalid_sci_endpoints(settings);
-                end
-                instance.iodevice.settings = settings;
+            switch char(instance.iodevice.type)
+                case 'w5300_tcp'
+                    instance.iodevice.settings = struct( ...
+                        'socket_number', str2double(app.DetailFields.socket.Value), ...
+                        'tcp_port', app.DetailFields.port.Value);
+                case 'w5300_udp'
+                    instance.iodevice.settings = struct( ...
+                        'socket_number', str2double( ...
+                        app.DetailFields.udp_socket.Value), ...
+                        'udp_port', app.DetailFields.udp_port.Value);
+                case 'sci'
+                    settings = instance.iodevice.settings;
+                    settings.module = app.DetailFields.sci_module.Value;
+                    settings.baud = app.DetailFields.sci_baud.Value;
+                    if isequal(app.DetailFields.sci_rx_gpio.Enable, ...
+                            matlab.lang.OnOffSwitchState.on)
+                        settings.rx_gpio = app.DetailFields.sci_rx_gpio.Value;
+                    end
+                    if isequal(app.DetailFields.sci_tx_gpio.Enable, ...
+                            matlab.lang.OnOffSwitchState.on)
+                        settings.tx_gpio = app.DetailFields.sci_tx_gpio.Value;
+                    end
+                    settings.rx_pin_type = app.DetailFields.sci_rx_pin_type.Value;
+                    settings.rx_qualification = ...
+                        app.DetailFields.sci_rx_qualification.Value;
+                    settings.tx_pin_type = app.DetailFields.sci_tx_pin_type.Value;
+                    if isequal(app.DetailFields.sci_ctrl_gpio.Enable, ...
+                            matlab.lang.OnOffSwitchState.on)
+                        settings.ctrl_gpio = app.DetailFields.sci_ctrl_gpio.Value;
+                    end
+                    settings.ctrl_pin_type = app.DetailFields.sci_ctrl_pin_type.Value;
+                    settings.ctrl_tx_active_level = ...
+                        app.DetailFields.sci_ctrl_active_level.Value;
+                    if strcmp(editedKey, 'sci_module')
+                        settings = clear_invalid_sci_endpoints(settings);
+                    end
+                    instance.iodevice.settings = settings;
+                otherwise
+                    error('C2837xBlock:App:UnsupportedIoDevice', ...
+                        'Unsupported IoDevice type %s.', ...
+                        char(instance.iodevice.type));
             end
             instance.sample_time_sec = app.DetailFields.sample_time.Value;
             instance.max_payload_size_bytes = app.DetailFields.max_payload.Value;
@@ -674,27 +701,42 @@ classdef C2837xBlockConfigurator < handle
         end
 
         function showIoDevice(app, instance)
-            isSci = strcmp(instance.iodevice.type, 'sci');
-            app.W5300Grid.Visible = matlab.lang.OnOffSwitchState(~isSci);
-            app.SciGrid.Visible = matlab.lang.OnOffSwitchState(isSci);
-            if ~isSci
-                settings = instance.iodevice.settings;
-                app.DetailFields.socket.Value = sprintf('%u', settings.socket_number);
-                app.DetailFields.port.Value = double(settings.tcp_port);
-                return;
+            type = char(instance.iodevice.type);
+            app.W5300Grid.Visible = matlab.lang.OnOffSwitchState( ...
+                strcmp(type, 'w5300_tcp'));
+            app.W5300UdpGrid.Visible = matlab.lang.OnOffSwitchState( ...
+                strcmp(type, 'w5300_udp'));
+            app.SciGrid.Visible = matlab.lang.OnOffSwitchState( ...
+                strcmp(type, 'sci'));
+            switch type
+                case 'w5300_tcp'
+                    settings = instance.iodevice.settings;
+                    app.DetailFields.socket.Value = sprintf( ...
+                        '%u', settings.socket_number);
+                    app.DetailFields.port.Value = double(settings.tcp_port);
+                case 'w5300_udp'
+                    settings = instance.iodevice.settings;
+                    app.DetailFields.udp_socket.Value = sprintf( ...
+                        '%u', settings.socket_number);
+                    app.DetailFields.udp_port.Value = double(settings.udp_port);
+                case 'sci'
+                    settings = instance.iodevice.settings;
+                    app.DetailFields.sci_module.Value = settings.module;
+                    app.DetailFields.sci_baud.Value = double(settings.baud);
+                    app.DetailFields.sci_rx_pin_type.Value = settings.rx_pin_type;
+                    app.DetailFields.sci_rx_qualification.Value = ...
+                        settings.rx_qualification;
+                    app.DetailFields.sci_tx_pin_type.Value = settings.tx_pin_type;
+                    app.DetailFields.sci_ctrl_pin_type.Value = settings.ctrl_pin_type;
+                    app.DetailFields.sci_ctrl_active_level.Value = ...
+                        settings.ctrl_tx_active_level;
+                    app.refreshSciCapabilityChoices(settings);
+                    app.refreshSciBaud(settings.baud);
+                    app.updateCtrlFields();
+                otherwise
+                    error('C2837xBlock:App:UnsupportedIoDevice', ...
+                        'Unsupported IoDevice type %s.', type);
             end
-            settings = instance.iodevice.settings;
-            app.DetailFields.sci_module.Value = settings.module;
-            app.DetailFields.sci_baud.Value = double(settings.baud);
-            app.DetailFields.sci_rx_pin_type.Value = settings.rx_pin_type;
-            app.DetailFields.sci_rx_qualification.Value = settings.rx_qualification;
-            app.DetailFields.sci_tx_pin_type.Value = settings.tx_pin_type;
-            app.DetailFields.sci_ctrl_pin_type.Value = settings.ctrl_pin_type;
-            app.DetailFields.sci_ctrl_active_level.Value = ...
-                settings.ctrl_tx_active_level;
-            app.refreshSciCapabilityChoices(settings);
-            app.refreshSciBaud(settings.baud);
-            app.updateCtrlFields();
         end
 
         function refreshSciCapabilityChoices(app, settings)
@@ -832,18 +874,17 @@ classdef C2837xBlockConfigurator < handle
 
         function addInstance(app)
             instances = app.ProjectSession.Project.instances;
-            w5300 = instances(arrayfun( ...
-                @(value) strcmp(value.iodevice.type, 'w5300_tcp'), instances));
-            usedSockets = double(arrayfun( ...
-                @(value) value.iodevice.settings.socket_number, w5300));
+            usedSockets = used_w5300_sockets(instances);
             socket = first_free(0:7, usedSockets);
             if isempty(socket)
                 app.showIssues(app_issue('APP_NO_SOCKET_AVAILABLE', ...
                     'No W5300 socket is available.', 'project.instances', 0, ''));
                 return;
             end
+            tcp = instances(arrayfun( ...
+                @(value) strcmp(value.iodevice.type, 'w5300_tcp'), instances));
             usedPorts = double(arrayfun( ...
-                @(value) value.iodevice.settings.tcp_port, w5300));
+                @(value) value.iodevice.settings.tcp_port, tcp));
             port = first_free(5000:65535, usedPorts);
             internalName = c2837x_block_suggest_unique_name( ...
                 'instance', {instances.internal_name});
@@ -874,25 +915,37 @@ classdef C2837xBlockConfigurator < handle
             displayName = strrep(internalName, 'instance_', 'Instance ');
             try
                 selected = instances(app.SelectedInstance);
-                if strcmp(selected.iodevice.type, 'sci')
-                    app.Coordinator.copyInstance(app.SelectedInstance, ...
-                        displayName, internalName);
-                else
-                    w5300 = instances(arrayfun(@(value) ...
-                        strcmp(value.iodevice.type, 'w5300_tcp'), instances));
-                    socket = first_free(0:7, double(arrayfun( ...
-                        @(value) value.iodevice.settings.socket_number, w5300)));
-                    port = first_free(5000:65535, double(arrayfun( ...
-                        @(value) value.iodevice.settings.tcp_port, w5300)));
-                    if isempty(socket)
-                        app.showIssues(app_issue('APP_NO_SOCKET_AVAILABLE', ...
-                            'No W5300 socket is available.', ...
-                            'project.instances', 0, ''));
-                        return;
-                    end
-                    app.Coordinator.copyInstance(app.SelectedInstance, ...
-                        displayName, internalName, ...
-                        uint16(socket), uint16(port));
+                switch char(selected.iodevice.type)
+                    case 'sci'
+                        app.Coordinator.copyInstance(app.SelectedInstance, ...
+                            displayName, internalName);
+                    case 'w5300_tcp'
+                        usedSockets = used_w5300_sockets(instances);
+                        tcp = instances(arrayfun(@(value) ...
+                            strcmp(value.iodevice.type, 'w5300_tcp'), instances));
+                        socket = first_free(0:7, usedSockets);
+                        port = first_free(5000:65535, double(arrayfun( ...
+                            @(value) value.iodevice.settings.tcp_port, tcp)));
+                        if isempty(socket)
+                            app.showIssues(app_issue('APP_NO_SOCKET_AVAILABLE', ...
+                                'No W5300 socket is available.', ...
+                                'project.instances', 0, ''));
+                            return;
+                        end
+                        app.Coordinator.copyInstance(app.SelectedInstance, ...
+                            displayName, internalName, ...
+                            uint16(socket), uint16(port));
+                    case 'w5300_udp'
+                        [accepted, socket, port] = prompt_udp_copy_resources();
+                        if ~accepted
+                            return;
+                        end
+                        app.Coordinator.copyInstance(app.SelectedInstance, ...
+                            displayName, internalName, socket, port);
+                    otherwise
+                        error('C2837xBlock:App:UnsupportedIoDevice', ...
+                            'Unsupported IoDevice type %s.', ...
+                            char(selected.iodevice.type));
                 end
                 app.SelectedInstance = numel(app.ProjectSession.Project.instances);
                 app.afterEdit();
@@ -1086,9 +1139,19 @@ classdef C2837xBlockConfigurator < handle
             elseif contains(fieldPath, '.internal_name')
                 focus(app.DetailFields.internal_name);
             elseif contains(fieldPath, '.socket_number')
-                focus(app.DetailFields.socket);
+                if app.SelectedInstance >= 1 && ...
+                        app.SelectedInstance <= numel( ...
+                        app.ProjectSession.Project.instances) && ...
+                        strcmp(app.ProjectSession.Project.instances( ...
+                        app.SelectedInstance).iodevice.type, 'w5300_udp')
+                    focus(app.DetailFields.udp_socket);
+                else
+                    focus(app.DetailFields.socket);
+                end
             elseif contains(fieldPath, '.tcp_port')
                 focus(app.DetailFields.port);
+            elseif contains(fieldPath, '.udp_port')
+                focus(app.DetailFields.udp_port);
             elseif contains(fieldPath, '.iodevice.settings.module')
                 focus(app.DetailFields.sci_module);
             elseif contains(fieldPath, '.iodevice.settings.baud')
@@ -1388,6 +1451,37 @@ end
 
 function value = first_free(candidates, used)
 value = candidates(find(~ismember(candidates, used), 1));
+end
+
+function sockets = used_w5300_sockets(instances)
+isW5300 = arrayfun(@(value) any(strcmp( ...
+    value.iodevice.type, {'w5300_tcp', 'w5300_udp'})), instances);
+sockets = double(arrayfun(@(value) ...
+    value.iodevice.settings.socket_number, instances(isW5300)));
+end
+
+function [accepted, socket, port] = prompt_udp_copy_resources()
+accepted = false;
+socket = NaN;
+port = NaN;
+answers = inputdlg({'Socket Number (0-7)', 'UDP Port (1-65535)'}, ...
+    'Copy W5300 UDP', [1 24], {'', ''});
+if isempty(answers) || numel(answers) ~= 2 || ...
+        any(cellfun(@(value) isempty(strtrim(char(string(value)))), answers))
+    return;
+end
+accepted = true;
+socket = normalize_copy_resource_number(answers{1});
+port = normalize_copy_resource_number(answers{2});
+end
+
+function value = normalize_copy_resource_number(text)
+value = str2double(text);
+% Leave values outside uint16 representation untouched for model validation.
+if isfinite(value) && value == fix(value) && value >= 0 && ...
+        value <= double(intmax('uint16'))
+    value = uint16(value);
+end
 end
 
 function value = parse_mac(text)
