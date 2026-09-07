@@ -44,6 +44,51 @@ classdef test_iodevice_definitions < matlab.unittest.TestCase
             testCase.verifyEmpty(strfind(resolver, 'w5300_tcp'));
         end
 
+        function testUdpResolverAndCanonicalContract(testCase)
+            [definition, found, sourcePath] = ...
+                c2837x_block_get_iodevice_definition('w5300_udp');
+            iodevice = c2837x_block_create_iodevice('w5300_udp');
+
+            testCase.verifyTrue(found);
+            testCase.verifyTrue(isfile(sourcePath));
+            testCase.verifyEqual(sourcePath, ...
+                c2837x_block_normalize_absolute_path(sourcePath));
+            testCase.verifyEqual(definition.type, 'w5300_udp');
+            testCase.verifyEqual(definition.max_instance_count, 8);
+            testCase.verifyTrue(all(isfield(definition, {'validate_settings', ...
+                'collect_resource_claims', 'render_project_support', ...
+                'render_instance_config_support', ...
+                'render_instance_io_support'})));
+            testCase.verifyEqual(iodevice.type, 'w5300_udp');
+            testCase.verifyEqual(sort(fieldnames(iodevice.settings)), ...
+                sort({'socket_number'; 'udp_port'}));
+            testCase.verifyEqual(iodevice.settings.socket_number, uint16(0));
+            testCase.verifyEqual(iodevice.settings.udp_port, uint16(5000));
+            testCase.verifyFalse(isfield(iodevice.settings, 'tcp_port'));
+            testCase.verifyEmpty(definition.collect_resource_claims( ...
+                iodevice.settings, 1));
+        end
+
+        function testUdpValidationAndGenerationBoundary(testCase)
+            definition = c2837x_block_get_iodevice_definition('w5300_udp');
+            valid = struct('socket_number', uint16(1), ...
+                'udp_port', uint16(5000));
+            invalid = struct('socket_number', 8, 'udp_port', 0);
+
+            testCase.verifyEmpty(definition.validate_settings(valid, 1));
+            testCase.verifyEqual({definition.validate_settings(invalid, 2).code}, ...
+                {'SOCKET_INVALID', 'UDP_PORT_INVALID'});
+            testCase.verifyError( ...
+                @() definition.render_project_support(struct()), ...
+                'C2837xBlock:IoDevice:UdpGenerationUnavailable');
+            testCase.verifyError( ...
+                @() definition.render_instance_config_support(struct(), 1), ...
+                'C2837xBlock:IoDevice:UdpGenerationUnavailable');
+            testCase.verifyError( ...
+                @() definition.render_instance_io_support(struct(), 1), ...
+                'C2837xBlock:IoDevice:UdpGenerationUnavailable');
+        end
+
         function testUnknownAndUnsafeNamesAreNotExecuted(testCase)
             names = {'not_registered', '../system', 'system('};
             for index = 1:numel(names)

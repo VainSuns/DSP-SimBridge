@@ -106,7 +106,19 @@ classdef test_project_model < matlab.unittest.TestCase
             testCase.verifyFalse(isfield(instance, 'tcp_port'));
             testCase.verifyFalse(isfield(instance.iodevice, 'socket_number'));
             testCase.verifyFalse(isfield(instance.iodevice, 'tcp_port'));
+            testCase.verifyFalse(isfield(instance.iodevice.settings, 'udp_port'));
             testCase.verifyFalse(isfield(instance.iodevice, 'network'));
+        end
+
+        function testUdpIoDeviceDefaultsAreCanonical(testCase)
+            iodevice = c2837x_block_create_iodevice('w5300_udp');
+
+            testCase.verifyEqual(iodevice.type, 'w5300_udp');
+            testCase.verifyEqual(sort(fieldnames(iodevice.settings)), ...
+                sort({'socket_number'; 'udp_port'}));
+            testCase.verifyEqual(iodevice.settings.socket_number, uint16(0));
+            testCase.verifyEqual(iodevice.settings.udp_port, uint16(5000));
+            testCase.verifyFalse(isfield(iodevice.settings, 'tcp_port'));
         end
     end
 end

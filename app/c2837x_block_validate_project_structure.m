@@ -84,6 +84,12 @@ end
 
 function validate_known_iodevice_settings(type, settings)
 switch type
+    case 'w5300_tcp'
+        require_no_unexpected_fields(settings, {'socket_number', 'tcp_port'}, ...
+            'W5300 TCP IoDevice settings');
+    case 'w5300_udp'
+        require_no_unexpected_fields(settings, {'socket_number', 'udp_port'}, ...
+            'W5300 UDP IoDevice settings');
     case 'sci'
         fields = {'module', 'baud', 'rx_gpio', 'tx_gpio', 'rx_pin_type', ...
             'rx_qualification', 'tx_pin_type', 'ctrl_gpio', ...
@@ -102,6 +108,13 @@ switch type
             'instance.iodevice.settings.ctrl_pin_type');
         require_text(settings.ctrl_tx_active_level, ...
             'instance.iodevice.settings.ctrl_tx_active_level');
+end
+end
+
+function require_no_unexpected_fields(value, names, label)
+unexpected = setdiff(fieldnames(value), names);
+if ~isempty(unexpected)
+    invalid_project('%s contains unexpected field %s.', label, unexpected{1});
 end
 end
 

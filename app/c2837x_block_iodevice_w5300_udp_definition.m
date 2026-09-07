@@ -1,0 +1,59 @@
+function definition = c2837x_block_iodevice_w5300_udp_definition()
+%C2837X_BLOCK_IODEVICE_W5300_UDP_DEFINITION Describe W5300 UDP settings.
+
+definition = struct('type', 'w5300_udp', 'max_instance_count', 8, ...
+    'validate_settings', @validate_settings, ...
+    'collect_resource_claims', @collect_resource_claims, ...
+    'render_project_support', @generation_unavailable, ...
+    'render_instance_config_support', @generation_unavailable, ...
+    'render_instance_io_support', @generation_unavailable);
+end
+
+function issues = validate_settings(settings, instanceIndex)
+issues = empty_issues();
+prefix = sprintf('project.instances(%u).iodevice.settings.', instanceIndex);
+if ~valid_field(settings, 'socket_number', 0, 7)
+    issues(end + 1) = issue('SOCKET_INVALID', ...
+        'Socket number must be an integer from 0 to 7.', ...
+        [prefix 'socket_number'], instanceIndex);
+end
+if ~valid_field(settings, 'udp_port', 1, 65535)
+    issues(end + 1) = issue('UDP_PORT_INVALID', ...
+        'UDP port must be an integer from 1 to 65535.', ...
+        [prefix 'udp_port'], instanceIndex);
+end
+end
+
+function claims = collect_resource_claims(~, ~)
+% Shared W5300 resource semantics are introduced in UDP-S1-02.
+claims = struct('scope', {}, 'kind', {}, 'key', {}, 'exclusive', {}, ...
+    'duplicate_code', {}, 'duplicate_message', {}, 'field_path', {}, ...
+    'instance_index', {});
+end
+
+function support = generation_unavailable(varargin)
+support = struct(); %#ok<NASGU>
+error('C2837xBlock:IoDevice:UdpGenerationUnavailable', ...
+    ['W5300 UDP generation is not available in UDP-S1-01; ' ...
+    'complete the later UDP runtime and code-generation stages first.']);
+end
+
+function value = issue(code, message, fieldPath, instanceIndex)
+value = struct('severity', 'Error', 'code', code, 'message', message, ...
+    'field_path', fieldPath, 'instance_index', instanceIndex, 'file_path', '');
+end
+
+function values = empty_issues()
+values = struct('severity', {}, 'code', {}, 'message', {}, ...
+    'field_path', {}, 'instance_index', {}, 'file_path', {});
+end
+
+function tf = is_integer_in_range(value, minimum, maximum)
+tf = isnumeric(value) && isscalar(value) && isreal(value) && ...
+    isfinite(value) && value == fix(value) && value >= minimum && value <= maximum;
+end
+
+function tf = valid_field(settings, name, minimum, maximum)
+tf = isstruct(settings) && isscalar(settings) && isfield(settings, name) && ...
+    is_integer_in_range(settings.(name), minimum, maximum);
+end

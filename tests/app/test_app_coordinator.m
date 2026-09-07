@@ -358,6 +358,25 @@ classdef test_app_coordinator < matlab.unittest.TestCase
             testCase.verifyClass(value.max_payload_size_bytes, 'uint32');
         end
 
+        function testValidUdpDraftNormalizesIntegerTypes(testCase)
+            coordinator = make_coordinator(testCase.WorkFolder, []);
+            draft = coordinator.Session.Project;
+            draft.instances(1).iodevice = ...
+                c2837x_block_create_iodevice('w5300_udp');
+            draft.instances(1).iodevice.settings.socket_number = 2;
+            draft.instances(1).iodevice.settings.udp_port = 6000;
+            draft.instances(1).max_payload_size_bytes = 1468;
+
+            [applied, issues] = coordinator.updateProjectDraft(draft);
+            testCase.verifyTrue(applied);
+            testCase.verifyFalse(has_errors(issues));
+            value = coordinator.Session.Project.instances(1);
+            testCase.verifyClass(value.iodevice.settings.socket_number, 'uint16');
+            testCase.verifyClass(value.iodevice.settings.udp_port, 'uint16');
+            testCase.verifyFalse(isfield(value.iodevice.settings, 'tcp_port'));
+            testCase.verifyClass(value.max_payload_size_bytes, 'uint32');
+        end
+
         function testDraftRenameCreatesDeduplicatedEditorRisk(testCase)
             coordinator = make_coordinator(testCase.WorkFolder, []);
             draft = coordinator.Session.Project;

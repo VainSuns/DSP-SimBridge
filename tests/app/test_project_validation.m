@@ -77,6 +77,71 @@ classdef test_project_validation < matlab.unittest.TestCase
                 'TCP_PORT_INVALID', 'SAMPLE_TIME_INVALID'}, codes)));
         end
 
+        function testUdpPortRangeUsesUdpSpecificValidation(testCase)
+            project = valid_project(testCase.WorkFolder);
+            project.instances.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            project.instances.iodevice.settings.udp_port = 1;
+            issues = c2837x_block_validate_project(project, 'instant');
+            testCase.verifyFalse(any(strcmp({issues.code}, 'UDP_PORT_INVALID')));
+            testCase.verifyFalse(any(strcmp({issues.code}, 'TCP_PORT_INVALID')));
+
+            project.instances.iodevice.settings.udp_port = 65535;
+            issues = c2837x_block_validate_project(project, 'instant');
+            testCase.verifyFalse(any(strcmp({issues.code}, 'UDP_PORT_INVALID')));
+            testCase.verifyFalse(any(strcmp({issues.code}, 'TCP_PORT_INVALID')));
+
+            project.instances.iodevice.settings.udp_port = 0;
+            issues = c2837x_block_validate_project(project, 'instant');
+            codes = {issues.code};
+            testCase.verifyTrue(any(strcmp(codes, 'UDP_PORT_INVALID')));
+            testCase.verifyFalse(any(strcmp(codes, 'TCP_PORT_INVALID')));
+
+            project.instances.iodevice.settings.udp_port = 65536;
+            issues = c2837x_block_validate_project(project, 'instant');
+            codes = {issues.code};
+            testCase.verifyTrue(any(strcmp(codes, 'UDP_PORT_INVALID')));
+            testCase.verifyFalse(any(strcmp(codes, 'TCP_PORT_INVALID')));
+        end
+
+        function testUdpPayloadUpperBoundKeepsExistingPayloadRules(testCase)
+            project = valid_project(testCase.WorkFolder);
+            project.instances.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            project.instances.max_payload_size_bytes = uint32(1468);
+            issues = c2837x_block_validate_project(project, 'instant');
+            testCase.verifyFalse(any(strcmp({issues.code}, ...
+                'UDP_MAX_PAYLOAD_TOO_LARGE')));
+
+            project.instances.max_payload_size_bytes = uint32(1469);
+            issues = c2837x_block_validate_project(project, 'instant');
+            upperBound = issues(strcmp({issues.code}, ...
+                'UDP_MAX_PAYLOAD_TOO_LARGE'));
+            testCase.verifyNumElements(upperBound, 1);
+            testCase.verifyTrue(contains(upperBound.message, '1468'));
+
+            tcp = valid_project(testCase.WorkFolder);
+            tcp.instances.max_payload_size_bytes = uint32(4096);
+            tcpIssues = c2837x_block_validate_project(tcp, 'instant');
+            testCase.verifyFalse(any(strcmp({tcpIssues.code}, ...
+                'UDP_MAX_PAYLOAD_TOO_LARGE')));
+
+            sci = valid_project(testCase.WorkFolder);
+            sci.instances.iodevice = c2837x_block_create_iodevice('sci');
+            sci.instances.max_payload_size_bytes = uint32(4096);
+            sciIssues = c2837x_block_validate_project(sci, 'instant');
+            testCase.verifyFalse(any(strcmp({sciIssues.code}, ...
+                'UDP_MAX_PAYLOAD_TOO_LARGE')));
+        end
+
+        function testW5300SettingsRejectStaleTransportFields(testCase)
+            project = valid_project(testCase.WorkFolder);
+            project.instances.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            project.instances.iodevice.settings.tcp_port = uint16(5000);
+
+            testCase.verifyError( ...
+                @() c2837x_block_validate_project_structure(project), ...
+                'C2837xBlock:Project:InvalidStructure');
+        end
+
         function testProviderOwnsItsSettingsStructure(testCase)
             project = valid_project(testCase.WorkFolder);
             project.instances.iodevice.type = 'test_provider';

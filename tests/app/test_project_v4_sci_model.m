@@ -38,6 +38,35 @@ classdef test_project_v4_sci_model < matlab.unittest.TestCase
             testCase.verifyEqual({variables.name}, {'project'});
         end
 
+        function testUdpV4RoundTripPreservesCanonicalSettings(testCase)
+            project = c2837x_block_create_default_project();
+            instance = c2837x_block_create_default_instance();
+            instance.display_name = 'UDP';
+            instance.internal_name = 'udp';
+            instance.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            instance.iodevice.settings.socket_number = uint16(3);
+            instance.iodevice.settings.udp_port = uint16(6000);
+            instance.inputs = struct('name', 'command', 'type', 'int16', 'dim', 1);
+            instance.outputs = struct('name', 'status', 'type', 'uint16', 'dim', 1);
+            project.instances = instance;
+            path = fullfile(testCase.WorkFolder, 'project-udp-v4.mat');
+            source = c2837x_block_project_session(project);
+            target = c2837x_block_project_session();
+
+            source.saveProject(path);
+            testCase.verifyTrue(target.loadProject(path));
+
+            testCase.verifyEqual(target.Project.format_version, uint16(4));
+            testCase.verifyEqual(target.Project.common.protocol_version, uint16(1));
+            testCase.verifyEqual(target.Project.instances.iodevice.type, ...
+                'w5300_udp');
+            testCase.verifyEqual(target.Project.instances.iodevice.settings, ...
+                instance.iodevice.settings);
+            testCase.verifyEqual(sort(fieldnames( ...
+                target.Project.instances.iodevice.settings)), ...
+                sort({'socket_number'; 'udp_port'}));
+        end
+
         function testSciDefaultsAreCanonicalProjectState(testCase)
             iodevice = c2837x_block_create_iodevice('sci');
             expectedFields = {'module'; 'baud'; 'rx_gpio'; 'tx_gpio'; ...
@@ -73,11 +102,17 @@ classdef test_project_v4_sci_model < matlab.unittest.TestCase
             project.instances = source;
             session = c2837x_block_project_session(project);
 
+            session.switchIoDevice(1, 'w5300_udp');
+            udp = session.Project.instances;
             session.switchIoDevice(1, 'sci');
             sci = session.Project.instances;
             session.switchIoDevice(1, 'w5300_tcp');
             w5300 = session.Project.instances;
 
+            testCase.verifyEqual(udp.iodevice, ...
+                c2837x_block_create_iodevice('w5300_udp'));
+            testCase.verifyFalse(isfield(udp.iodevice.settings, 'tcp_port'));
+            testCase.verifyTrue(isfield(udp.iodevice.settings, 'udp_port'));
             testCase.verifyEqual(sci.iodevice, c2837x_block_create_iodevice('sci'));
             testCase.verifyEqual(sci.display_name, source.display_name);
             testCase.verifyEqual(sci.internal_name, source.internal_name);
@@ -93,6 +128,24 @@ classdef test_project_v4_sci_model < matlab.unittest.TestCase
                 c2837x_block_create_iodevice('w5300_tcp'));
             testCase.verifyFalse(isfield(w5300.iodevice.settings, 'module'));
             testCase.verifyTrue(session.Dirty);
+        end
+
+        function testUdpToTcpSwitchRebuildsCanonicalSettings(testCase)
+            source = valid_instance('source', 2, 5200);
+            source.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            source.iodevice.settings.socket_number = uint16(3);
+            source.iodevice.settings.udp_port = uint16(6000);
+            project = c2837x_block_create_default_project();
+            project.instances = source;
+            session = c2837x_block_project_session(project);
+
+            session.switchIoDevice(1, 'w5300_tcp');
+            tcp = session.Project.instances;
+
+            testCase.verifyEqual(tcp.iodevice, ...
+                c2837x_block_create_iodevice('w5300_tcp'));
+            testCase.verifyFalse(isfield(tcp.iodevice.settings, 'udp_port'));
+            testCase.verifyTrue(isfield(tcp.iodevice.settings, 'tcp_port'));
         end
 
         function testTypeChangeCannotRetainOldTransportFields(testCase)
