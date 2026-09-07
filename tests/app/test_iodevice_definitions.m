@@ -65,8 +65,16 @@ classdef test_iodevice_definitions < matlab.unittest.TestCase
             testCase.verifyEqual(iodevice.settings.socket_number, uint16(0));
             testCase.verifyEqual(iodevice.settings.udp_port, uint16(5000));
             testCase.verifyFalse(isfield(iodevice.settings, 'tcp_port'));
-            testCase.verifyEmpty(definition.collect_resource_claims( ...
-                iodevice.settings, 1));
+            claims = definition.collect_resource_claims(iodevice.settings, 1);
+            testCase.verifyEqual({claims.scope}, ...
+                {'project:w5300', 'project:w5300_udp'});
+            testCase.verifyEqual({claims.kind}, {'socket', 'udp_port'});
+            testCase.verifyEqual({claims.duplicate_code}, ...
+                {'SOCKET_DUPLICATE', 'UDP_PORT_DUPLICATE'});
+            testCase.verifyEqual({claims.field_path}, { ...
+                'project.instances(1).iodevice.settings.socket_number', ...
+                'project.instances(1).iodevice.settings.udp_port'});
+            testCase.verifyTrue(all([claims.exclusive]));
         end
 
         function testUdpValidationAndGenerationBoundary(testCase)

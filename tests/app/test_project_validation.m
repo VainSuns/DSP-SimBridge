@@ -103,6 +103,67 @@ classdef test_project_validation < matlab.unittest.TestCase
             testCase.verifyFalse(any(strcmp(codes, 'TCP_PORT_INVALID')));
         end
 
+        function testSharedSocketAcrossTcpAndUdp(testCase)
+            project = valid_project(testCase.WorkFolder);
+            udp = project.instances;
+            udp.display_name = 'UDP';
+            udp.internal_name = 'udp';
+            udp.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            udp.iodevice.settings.socket_number = uint16(0);
+            udp.iodevice.settings.udp_port = uint16(5001);
+            project.instances(2) = udp;
+
+            issues = c2837x_block_validate_project(project, 'instant');
+            duplicate = issues(strcmp({issues.code}, 'SOCKET_DUPLICATE'));
+
+            testCase.verifyNumElements(duplicate, 1);
+            testCase.verifyEqual(duplicate.instance_index, 2);
+            testCase.verifyEqual(duplicate.field_path, ...
+                'project.instances(2).iodevice.settings.socket_number');
+        end
+
+        function testTcpAndUdpPortsUseSeparateNamespaces(testCase)
+            project = valid_project(testCase.WorkFolder);
+            udp = project.instances;
+            udp.display_name = 'UDP';
+            udp.internal_name = 'udp';
+            udp.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            udp.iodevice.settings.socket_number = uint16(1);
+            udp.iodevice.settings.udp_port = uint16(5000);
+            project.instances(2) = udp;
+
+            issues = c2837x_block_validate_project(project, 'instant');
+            codes = {issues.code};
+
+            testCase.verifyFalse(any(strcmp(codes, 'SOCKET_DUPLICATE')));
+            testCase.verifyFalse(any(strcmp(codes, 'TCP_PORT_DUPLICATE')));
+            testCase.verifyFalse(any(strcmp(codes, 'UDP_PORT_DUPLICATE')));
+        end
+
+        function testDuplicateUdpPortLocatesLaterInstance(testCase)
+            project = valid_project(testCase.WorkFolder);
+            project.instances.iodevice = ...
+                c2837x_block_create_iodevice('w5300_udp');
+            project.instances.iodevice.settings.socket_number = uint16(0);
+            project.instances.iodevice.settings.udp_port = uint16(5000);
+            second = project.instances;
+            second.display_name = 'UDP 2';
+            second.internal_name = 'udp_2';
+            second.iodevice.settings.socket_number = uint16(1);
+            second.iodevice.settings.udp_port = uint16(5000);
+            project.instances(2) = second;
+
+            issues = c2837x_block_validate_project(project, 'instant');
+            duplicate = issues(strcmp({issues.code}, 'UDP_PORT_DUPLICATE'));
+
+            testCase.verifyNumElements(duplicate, 1);
+            testCase.verifyEqual(duplicate.instance_index, 2);
+            testCase.verifyEqual(duplicate.field_path, ...
+                'project.instances(2).iodevice.settings.udp_port');
+            testCase.verifyFalse(any(strcmp({issues.code}, ...
+                'TCP_PORT_DUPLICATE')));
+        end
+
         function testUdpPayloadUpperBoundKeepsExistingPayloadRules(testCase)
             project = valid_project(testCase.WorkFolder);
             project.instances.iodevice = c2837x_block_create_iodevice('w5300_udp');

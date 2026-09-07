@@ -222,6 +222,16 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
                 'project.instances(2).iodevice.settings.rx_gpio');
         end
 
+        function testUdpProjectConflictsWithActiveW5300Gpios(testCase)
+            udp = udp_instance('network');
+            sci = sci_instance('sci_a', 'SCI-A', 'GPIO28', 'GPIO8');
+            conflict = gpio_conflicts([udp sci]);
+
+            testCase.verifyNumElements(conflict, 1);
+            testCase.verifyEqual(conflict.field_path, ...
+                'project.instances(2).iodevice.settings.rx_gpio');
+        end
+
         function testW5300AndSciAReleaseGpio64(testCase)
             w5300 = w5300_instance('network');
             sci = sci_instance('sci_a', 'SCI-A', 'GPIO64', 'GPIO8');
@@ -250,15 +260,18 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
             sciProject = invalid_network_project(sci_instance( ...
                 'sci_a', 'SCI-A', 'GPIO9', 'GPIO8'));
             w5300Project = invalid_network_project(w5300_instance('network'));
+            udpProject = invalid_network_project(udp_instance('network'));
             mixedProject = invalid_network_project([w5300_instance('network'), ...
                 sci_instance('sci_a', 'SCI-A', 'GPIO9', 'GPIO8')]);
 
             sciIssues = c2837x_block_validate_project(sciProject, 'instant');
             w5300Issues = c2837x_block_validate_project(w5300Project, 'instant');
+            udpIssues = c2837x_block_validate_project(udpProject, 'instant');
             mixedIssues = c2837x_block_validate_project(mixedProject, 'instant');
 
             testCase.verifyFalse(has_network_issue(sciIssues));
             testCase.verifyTrue(has_network_issue(w5300Issues));
+            testCase.verifyTrue(has_network_issue(udpIssues));
             testCase.verifyTrue(has_network_issue(mixedIssues));
         end
 
@@ -280,12 +293,19 @@ classdef test_sci_iodevice_validation < matlab.unittest.TestCase
         function testPlatformReservedSetMatchesHalAndIsConditional(testCase)
             active = c2837x_block_get_platform_reserved_resources( ...
                 project_with_instances(w5300_instance('network')));
+            udpOnly = c2837x_block_get_platform_reserved_resources( ...
+                project_with_instances(udp_instance('network')));
+            mixed = c2837x_block_get_platform_reserved_resources( ...
+                project_with_instances([w5300_instance('tcp'), ...
+                udp_instance('udp')]));
             inactive = c2837x_block_get_platform_reserved_resources( ...
                 project_with_instances(sci_instance( ...
                 'sci_a', 'SCI-A', 'GPIO9', 'GPIO8')));
             expected = [28 31 37:41 44:52 69:83 85:93 99];
 
             testCase.verifyEqual(cellfun(@str2double, {active.key}), expected);
+            testCase.verifyEqual({udpOnly.key}, {active.key});
+            testCase.verifyEqual({mixed.key}, {active.key});
             testCase.verifyEmpty(inactive);
         end
 
@@ -462,6 +482,13 @@ function instance = w5300_instance(name)
 instance = base_instance(name);
 instance.iodevice.settings.socket_number = uint16(0);
 instance.iodevice.settings.tcp_port = uint16(5000);
+end
+
+function instance = udp_instance(name)
+instance = base_instance(name);
+instance.iodevice = c2837x_block_create_iodevice('w5300_udp');
+instance.iodevice.settings.socket_number = uint16(0);
+instance.iodevice.settings.udp_port = uint16(5000);
 end
 
 function instance = base_instance(name)

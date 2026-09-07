@@ -6,7 +6,8 @@ prototype = struct('scope', '', 'kind', '', 'key', '', 'exclusive', false, ...
     'instance_index', 0);
 claims = repmat(prototype, 1, 0);
 if isempty(project.instances) || ~any(arrayfun(@(instance) ...
-        strcmp(char(instance.iodevice.type), 'w5300_tcp'), project.instances))
+        any(strcmp(char(instance.iodevice.type), ...
+        {'w5300_tcp', 'w5300_udp'})), project.instances))
     return;
 end
 
