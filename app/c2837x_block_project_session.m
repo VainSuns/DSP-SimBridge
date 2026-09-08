@@ -42,7 +42,7 @@ classdef c2837x_block_project_session < handle
         end
 
         function addInstance(session, changes)
-            instance = merge_changes(c2837x_block_create_default_instance(), changes);
+            instance = merge_instance_changes(c2837x_block_create_default_instance(), changes);
             validate_instance_operation(instance);
             validate_instance_conflicts(instance, session.Project.instances, []);
             project = session.Project;
