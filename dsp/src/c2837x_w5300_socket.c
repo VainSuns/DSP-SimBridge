@@ -1,4 +1,4 @@
-/* Bounded W5300 TCP stream operations for C2837xBlock. */
+/* Bounded W5300 socket operations for C2837xBlock. */
 
 #include "c2837x_w5300_socket.h"
 
@@ -42,6 +42,14 @@ static int16 advance_target_state(C2837xW5300Socket *sk)
             return 1;
         }
         return ((status == SOCK_CLOSED) || (status == SOCK_ARP)) ? 0 : -1;
+
+    case C2837X_W5300_COMMAND_NATIVE_UDP_OPEN:
+        if (status == SOCK_UDP)
+        {
+            complete_pending(sk);
+            return 1;
+        }
+        return c2837x_w5300_is_socket_status(status) ? 0 : -1;
 
     case C2837X_W5300_COMMAND_LISTEN:
         if ((status == SOCK_LISTEN) || (status == SOCK_SYNRECV) ||
@@ -123,6 +131,12 @@ static int16 issue(C2837xW5300Socket *sk, Uint16 command,
 int16 c2837x_w5300_socket_open(C2837xW5300Socket *sk, Uint16 protocol,
                                Uint16 port, Uint16 flags)
 {
+    if (protocol == Sn_MR_UDP)
+    {
+        if (flags != 0u)
+            return -1;
+        return c2837x_w5300_socket_udp_open(sk, port);
+    }
     if (!socket_is_valid(sk))
         return -1;
     if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
@@ -139,6 +153,19 @@ int16 c2837x_w5300_socket_open(C2837xW5300Socket *sk, Uint16 protocol,
     }
     c2837x_w5300_write16(Sn_PORTR(sk->sn), port);
     return issue(sk, Sn_CR_OPEN, C2837X_W5300_COMMAND_OPEN);
+}
+
+int16 c2837x_w5300_socket_udp_open(C2837xW5300Socket *sk, Uint16 port)
+{
+    if (!socket_is_valid(sk))
+        return -1;
+    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
+        return advance_for(sk, C2837X_W5300_COMMAND_NATIVE_UDP_OPEN);
+
+    clear_socket_interrupts(sk->sn);
+    c2837x_w5300_write16(Sn_MR(sk->sn), Sn_MR_UDP);
+    c2837x_w5300_write16(Sn_PORTR(sk->sn), port);
+    return issue(sk, Sn_CR_OPEN, C2837X_W5300_COMMAND_NATIVE_UDP_OPEN);
 }
 
 int16 c2837x_w5300_socket_listen(C2837xW5300Socket *sk)

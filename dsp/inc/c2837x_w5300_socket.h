@@ -19,7 +19,8 @@ typedef enum {
     C2837X_W5300_COMMAND_SEND,
     C2837X_W5300_COMMAND_DISCONNECT,
     C2837X_W5300_COMMAND_CLOSE,
-    C2837X_W5300_COMMAND_UDP_OPEN,
+    C2837X_W5300_COMMAND_UDP_OPEN,          /* TCP close erratum only */
+    C2837X_W5300_COMMAND_NATIVE_UDP_OPEN,
     C2837X_W5300_COMMAND_DUMMY_SEND
 } C2837xW5300PendingCommand;
 
@@ -42,19 +43,33 @@ typedef struct {
       C2837X_W5300_COMMAND_PHASE_IDLE }
 
 /*
- * Open a socket with the given protocol, port, and flags.
+ * Open a TCP socket with the given port and flags. Native UDP callers should
+ * use c2837x_w5300_socket_udp_open() so that SOCK_UDP is the target state.
  * Returns >0 when complete, 0 while advancing, negative on error.
  */
 int16 c2837x_w5300_socket_open(C2837xW5300Socket* sk,
-                                Uint16 protocol,
-                                Uint16 port,
-                                Uint16 flags);
+                               Uint16 protocol,
+                               Uint16 port,
+                               Uint16 flags);
 
-/* Bounded primitives owned by the Channel close state machine. */
+/*
+ * Open a native UDP socket on the configured local port.
+ * Writes UDP mode and Sn_PORTR once, then advances OPEN across calls until
+ * SOCK_UDP is observed. Returns >0 when complete, 0 while advancing, negative
+ * on error.
+ */
+int16 c2837x_w5300_socket_udp_open(C2837xW5300Socket *sk, Uint16 port);
+
+/*
+ * Bounded primitives owned by the Channel close state machine. The generic
+ * CLOSE issue/poll/complete sequence is also the native UDP simple CLOSE
+ * progression; the TCP erratum workaround remains Channel-owned.
+ */
 int16 c2837x_w5300_socket_take_pending(C2837xW5300Socket *sk);
 int16 c2837x_w5300_socket_check_close_erratum(
     C2837xW5300Socket *sk, Uint16 *needed);
 int16 c2837x_w5300_socket_dummy_tx_ready(C2837xW5300Socket *sk);
+/* Temporary UDP OPEN used only by the TCP close erratum workaround. */
 int16 c2837x_w5300_socket_issue_udp_open(C2837xW5300Socket *sk,
                                          Uint16 port);
 int16 c2837x_w5300_socket_issue_dummy_send(C2837xW5300Socket *sk,

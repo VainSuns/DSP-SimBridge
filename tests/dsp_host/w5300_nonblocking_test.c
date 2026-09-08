@@ -234,6 +234,106 @@ static void test_open_and_listen_state_windows(void)
     assert(writes_of(Sn_IR(1u)) == 1u && writes_of(IR) == 1u);
 }
 
+static void test_native_udp_open_and_simple_close(void)
+{
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(1u, 8192u, 8192u);
+    Uint16 before;
+
+    reset_fixture();
+    set_register(Sn_SSR(1u), SOCK_CLOSED);
+    assert(c2837x_w5300_socket_udp_open(&sk, 4321u) == 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_NATIVE_UDP_OPEN);
+    assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR);
+    assert(write_count == 5u && read_count == 0u);
+    assert(writes[0].address == Sn_IR(1u));
+    assert(writes[1].address == IR && writes[1].value == (1u << 1));
+    assert(writes[2].address == Sn_MR(1u) &&
+           writes[2].value == Sn_MR_UDP);
+    assert(writes[3].address == Sn_PORTR(1u) &&
+           writes[3].value == 4321u);
+    assert(writes[4].address == Sn_CR(1u) &&
+           writes[4].value == Sn_CR_OPEN);
+    before = write_count;
+
+    set_register(Sn_CR(1u), Sn_CR_OPEN);
+    assert(c2837x_w5300_socket_udp_open(&sk, 4321u) == 0);
+    assert(read_count == 1u && write_count == before);
+    set_register(Sn_CR(1u), 0u);
+    assert(c2837x_w5300_socket_udp_open(&sk, 4321u) == 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_NATIVE_UDP_OPEN);
+    assert(sk.command_phase ==
+           C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE);
+    assert(reads_of(Sn_SSR(1u)) == 0u && write_count == before);
+
+    set_register(Sn_SSR(1u), SOCK_INIT);
+    assert(c2837x_w5300_socket_udp_open(&sk, 4321u) == 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_NATIVE_UDP_OPEN);
+    assert(reads_of(Sn_SSR(1u)) == 1u && write_count == before);
+    set_register(Sn_SSR(1u), SOCK_UDP);
+    assert(c2837x_w5300_socket_udp_open(&sk, 4321u) > 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
+    assert(writes_of(Sn_CR(1u)) == 1u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_NONE;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
+    assert(c2837x_w5300_socket_open(&sk, Sn_MR_UDP, 4322u, 0u) == 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_NATIVE_UDP_OPEN);
+    assert(writes_of(Sn_MR(1u)) == 1u &&
+           writes_of(Sn_PORTR(1u)) == 1u && writes_of(Sn_CR(1u)) == 1u);
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_NONE;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
+    assert(c2837x_w5300_socket_open(
+               &sk, Sn_MR_UDP, 4322u, Sn_MR_ALIGN) < 0);
+    assert(read_count == 0u && write_count == 0u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_NONE;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
+    set_register(Sn_MR(1u), Sn_MR_UDP);
+    set_register(Sn_SSR(1u), SOCK_UDP);
+    assert(c2837x_w5300_socket_issue_close(&sk) == 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_CLOSE);
+    assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR);
+    assert(read_count == 0u && write_count == 3u);
+    assert(writes_of(Sn_MR(1u)) == 0u);
+    assert(writes_of(Sn_DIPR(1u)) == 0u &&
+           writes_of(Sn_DPORTR(1u)) == 0u);
+    assert(writes_of(Sn_TX_FIFOR(1u)) == 0u &&
+           writes_of(Sn_TX_WRSR(1u)) == 0u);
+    set_register(Sn_CR(1u), Sn_CR_CLOSE);
+    assert(c2837x_w5300_socket_poll_close_command(
+               &sk, C2837X_W5300_COMMAND_CLOSE) == 0);
+    assert(read_count == 1u && write_count == 3u);
+    set_register(Sn_CR(1u), 0u);
+    assert(c2837x_w5300_socket_poll_close_command(
+               &sk, C2837X_W5300_COMMAND_CLOSE) > 0);
+    assert(sk.command_phase ==
+           C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE);
+    set_register(Sn_SSR(1u), SOCK_CLOSED);
+    assert(c2837x_w5300_socket_get_status(&sk) == SOCK_CLOSED);
+    assert(c2837x_w5300_socket_complete_close_command(
+               &sk, C2837X_W5300_COMMAND_CLOSE) > 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(sk.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
+    assert(writes_of(Sn_CR(1u)) == 1u);
+
+    reset_fixture();
+    sk.pending_command = C2837X_W5300_COMMAND_RECV;
+    sk.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
+    set_register(Sn_CR(1u), Sn_CR_RECV);
+    assert(c2837x_w5300_socket_take_pending(&sk) == 0);
+    assert(read_count == 1u && write_count == 0u);
+    set_register(Sn_CR(1u), 0u);
+    assert(c2837x_w5300_socket_take_pending(&sk) > 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(c2837x_w5300_socket_issue_close(&sk) == 0);
+    assert(writes_of(Sn_CR(1u)) == 1u);
+}
+
 static void test_send_and_receive(void)
 {
     static const Uint16 stable_four[] = {0u, 4u, 0u, 4u};
@@ -575,6 +675,7 @@ int main(void)
     test_command_issue_and_poll();
     test_stable_size_reads();
     test_open_and_listen_state_windows();
+    test_native_udp_open_and_simple_close();
     test_send_and_receive();
     test_hot_path_command_state_contracts();
     test_close_primitives_and_disconnect_state_windows();
