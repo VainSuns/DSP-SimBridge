@@ -30,17 +30,29 @@ typedef enum {
     C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE
 } C2837xW5300CommandPhase;
 
+#define C2837X_W5300_UDP_PACKET_INFO_BYTES 8u
+
+typedef struct {
+    Uint32 source_ip;
+    Uint16 source_port;
+    Uint16 data_size;
+} C2837xW5300UdpPacketInfo;
+
 typedef struct {
     Uint16 sn;                    /* socket number (0-7) */
     Uint32 tx_mem_size;           /* TX buffer size in bytes */
     Uint32 rx_mem_size;           /* RX buffer size in bytes */
     C2837xW5300PendingCommand pending_command;
     C2837xW5300CommandPhase command_phase;
+    Uint16 udp_rx_datagram_active; /* current UDP PACKET-INFO was consumed */
+    Uint32 udp_rx_data_remaining;  /* current UDP DATA not yet consumed */
+    Uint16 udp_rx_residual_byte;   /* one FIFO byte read ahead of the caller */
+    Uint16 udp_rx_residual_valid;  /* residual_byte belongs to current DATA */
 } C2837xW5300Socket;
 
 #define C2837X_W5300_SOCKET_INITIALIZER(sn_, tx_, rx_) \
     { (sn_), (tx_), (rx_), C2837X_W5300_COMMAND_NONE, \
-      C2837X_W5300_COMMAND_PHASE_IDLE }
+      C2837X_W5300_COMMAND_PHASE_IDLE, 0u, 0u, 0u, 0u }
 
 /*
  * Open a TCP socket with the given port and flags. Native UDP callers should
@@ -115,6 +127,48 @@ int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket* sk);
  * Sn_CR is nonzero, and negative for an invalid or conflicting command state.
  */
 int16 c2837x_w5300_socket_advance_recv_command(C2837xW5300Socket* sk);
+
+/*
+ * Check whether a native UDP socket has a datagram available. A current
+ * datagram remains available until its DATA is consumed/dropped and RECV is
+ * committed. Returns >0 when available, 0 for no UDP data or a non-UDP
+ * socket, and negative on a local/read error. This never waits for RX data.
+ */
+int16 c2837x_w5300_socket_udp_rx_available(C2837xW5300Socket *sk);
+
+/*
+ * Consume exactly the 8-octet W5300 UDP PACKET-INFO from the RX FIFO.
+ * Returns >0 when fields were returned, 0 when no complete PACKET-INFO is
+ * available, and negative on a local/conflicting operation error. No RECV
+ * command is issued by this primitive.
+ */
+int16 c2837x_w5300_socket_udp_read_packet_info(
+    C2837xW5300Socket *sk, C2837xW5300UdpPacketInfo *packet_info);
+
+/*
+ * Read at most wire_capacity_bytes from the current UDP DATA region. The
+ * current datagram remains staged across calls and no RECV command is issued.
+ * Returns wire bytes read, 0 for no progress, and negative on an error.
+ */
+int32 c2837x_w5300_socket_udp_read_data(C2837xW5300Socket *sk,
+                                        Uint16 *data_words,
+                                        Uint32 wire_capacity_bytes);
+
+/*
+ * Explicitly drop the unread DATA of the current UDP datagram. This consumes
+ * the corresponding RX FIFO words before the later RECV commit. Returns the
+ * number of DATA bytes dropped, 0 for no progress, and negative on an error.
+ */
+int32 c2837x_w5300_socket_udp_drop_data(C2837xW5300Socket *sk);
+
+/*
+ * Commit the current UDP datagram only after all DATA was read or dropped.
+ * The first call issues one Sn_CR_RECV and returns 0. Later calls advance the
+ * existing bounded RECV command, returning >0 when it clears, 0 while busy,
+ * and negative if DATA remains, no datagram is active, or a conflicting
+ * command is pending.
+ */
+int16 c2837x_w5300_socket_udp_commit_recv(C2837xW5300Socket *sk);
 
 /**
  * Disconnect a socket.
