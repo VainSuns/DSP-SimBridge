@@ -11,10 +11,33 @@ static int16 socket_is_valid(const C2837xW5300Socket *sk)
         ((Uint32)sk->command_phase >
          (Uint32)C2837X_W5300_COMMAND_PHASE_WAIT_TARGET_STATE))
         return 0;
+    if ((sk->udp_rx_datagram_active > 1u) ||
+        (sk->udp_rx_residual_valid > 1u) ||
+        ((sk->udp_rx_datagram_active == 0u) &&
+         ((sk->udp_rx_data_remaining != 0u) ||
+          (sk->udp_rx_residual_valid != 0u))))
+        return 0;
+    if ((sk->udp_rx_residual_valid != 0u) &&
+        (sk->udp_rx_data_remaining == 0u))
+        return 0;
     return (((sk->pending_command == C2837X_W5300_COMMAND_NONE) &&
              (sk->command_phase == C2837X_W5300_COMMAND_PHASE_IDLE)) ||
             ((sk->pending_command != C2837X_W5300_COMMAND_NONE) &&
              (sk->command_phase != C2837X_W5300_COMMAND_PHASE_IDLE))) ? 1 : 0;
+}
+
+static void clear_udp_rx_datagram(C2837xW5300Socket *sk)
+{
+    sk->udp_rx_datagram_active = 0u;
+    sk->udp_rx_data_remaining = 0u;
+    sk->udp_rx_residual_byte = 0u;
+    sk->udp_rx_residual_valid = 0u;
+}
+
+static Uint16 udp_packet_info_u16(Uint16 dsp_word)
+{
+    return (Uint16)(((dsp_word & 0x00FFu) << 8) |
+                    ((dsp_word >> 8) & 0x00FFu));
 }
 
 static void clear_socket_interrupts(Uint16 sn)
@@ -25,6 +48,8 @@ static void clear_socket_interrupts(Uint16 sn)
 
 static void complete_pending(C2837xW5300Socket *sk)
 {
+    if (sk->pending_command == C2837X_W5300_COMMAND_RECV)
+        clear_udp_rx_datagram(sk);
     sk->pending_command = C2837X_W5300_COMMAND_NONE;
     sk->command_phase = C2837X_W5300_COMMAND_PHASE_IDLE;
 }
@@ -90,6 +115,11 @@ static int16 advance_pending(C2837xW5300Socket *sk)
 
     if (sk->command_phase == C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR)
     {
+        if ((sk->pending_command == C2837X_W5300_COMMAND_RECV) &&
+            (sk->udp_rx_datagram_active != 0u) &&
+            ((sk->udp_rx_data_remaining != 0u) ||
+             (sk->udp_rx_residual_valid != 0u)))
+            return -1;
         result = c2837x_w5300_poll_sn_cr(sk->sn);
         if (result <= 0)
             return result;
@@ -142,6 +172,7 @@ int16 c2837x_w5300_socket_open(C2837xW5300Socket *sk, Uint16 protocol,
     if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
         return advance_for(sk, C2837X_W5300_COMMAND_OPEN);
 
+    clear_udp_rx_datagram(sk);
     clear_socket_interrupts(sk->sn);
     c2837x_w5300_write16(Sn_MR(sk->sn), (Uint16)(protocol | flags));
     if (protocol == Sn_MR_TCP)
@@ -162,6 +193,7 @@ int16 c2837x_w5300_socket_udp_open(C2837xW5300Socket *sk, Uint16 port)
     if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
         return advance_for(sk, C2837X_W5300_COMMAND_NATIVE_UDP_OPEN);
 
+    clear_udp_rx_datagram(sk);
     clear_socket_interrupts(sk->sn);
     c2837x_w5300_write16(Sn_MR(sk->sn), Sn_MR_UDP);
     c2837x_w5300_write16(Sn_PORTR(sk->sn), port);
@@ -274,6 +306,7 @@ int16 c2837x_w5300_socket_issue_close(C2837xW5300Socket *sk)
         (sk->pending_command != C2837X_W5300_COMMAND_NONE))
         return -1;
 
+    clear_udp_rx_datagram(sk);
     clear_socket_interrupts(sk->sn);
     return issue(sk, Sn_CR_CLOSE, C2837X_W5300_COMMAND_CLOSE);
 }
@@ -377,6 +410,209 @@ int16 c2837x_w5300_socket_advance_recv_command(C2837xW5300Socket *sk)
         (sk->command_phase != C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR))
         return -1;
     return advance_pending(sk);
+}
+
+int16 c2837x_w5300_socket_udp_rx_available(C2837xW5300Socket *sk)
+{
+    Uint16 status;
+    Uint32 rx_size;
+
+    if (!socket_is_valid(sk))
+        return -1;
+    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
+        return 0;
+
+    status = c2837x_w5300_get_sn_ssr(sk->sn);
+    if (status != SOCK_UDP)
+        return 0;
+    if (sk->udp_rx_datagram_active != 0u)
+        return 1;
+    if (c2837x_w5300_get_sn_rx_rsr(sk->sn, &rx_size) < 0)
+        return -1;
+    return (rx_size != 0u) ? 1 : 0;
+}
+
+int16 c2837x_w5300_socket_udp_read_packet_info(
+    C2837xW5300Socket *sk, C2837xW5300UdpPacketInfo *packet_info)
+{
+    Uint16 packet_info_words[4];
+    Uint16 status;
+    Uint32 rx_size;
+
+    if (!socket_is_valid(sk) || (packet_info == 0))
+        return -1;
+    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
+        return 0;
+    if (sk->udp_rx_datagram_active != 0u)
+        return -1;
+
+    status = c2837x_w5300_get_sn_ssr(sk->sn);
+    if (status != SOCK_UDP)
+        return 0;
+    if (c2837x_w5300_get_sn_rx_rsr(sk->sn, &rx_size) < 0)
+        return -1;
+    if (rx_size < C2837X_W5300_UDP_PACKET_INFO_BYTES)
+        return 0;
+
+    c2837x_w5300_read_stream(sk->sn, packet_info_words,
+                             C2837X_W5300_UDP_PACKET_INFO_BYTES);
+
+    /* HAL returns low-byte-first DSP words; PACKET-INFO fields are network order. */
+    packet_info->source_ip = ((Uint32)udp_packet_info_u16(packet_info_words[0])
+                              << 16) |
+                             (Uint32)udp_packet_info_u16(packet_info_words[1]);
+    packet_info->source_port = udp_packet_info_u16(packet_info_words[2]);
+    packet_info->data_size = udp_packet_info_u16(packet_info_words[3]);
+    sk->udp_rx_datagram_active = 1u;
+    sk->udp_rx_data_remaining = (Uint32)packet_info->data_size;
+    return 1;
+}
+
+int32 c2837x_w5300_socket_udp_read_data(C2837xW5300Socket *sk,
+                                        Uint16 *data_words,
+                                        Uint32 wire_capacity_bytes)
+{
+    Uint16 status;
+    Uint16 fifo_word;
+    Uint16 fifo_byte;
+    Uint32 remaining_before;
+    Uint32 copy_size;
+    Uint32 fifo_byte_count;
+    Uint32 fifo_word_count;
+    Uint32 word_index;
+    Uint32 byte_index;
+    Uint32 output_index;
+
+    if (wire_capacity_bytes == 0u)
+        return 0;
+    if ((sk == 0) || (data_words == 0))
+        return -1;
+    if (!socket_is_valid(sk))
+        return -1;
+    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
+        return 0;
+    if ((sk->udp_rx_datagram_active == 0u) ||
+        (sk->udp_rx_data_remaining == 0u))
+        return 0;
+
+    status = c2837x_w5300_get_sn_ssr(sk->sn);
+    if (status != SOCK_UDP)
+        return 0;
+
+    remaining_before = sk->udp_rx_data_remaining;
+    copy_size = wire_capacity_bytes;
+    if (copy_size > remaining_before)
+        copy_size = remaining_before;
+
+    /*
+     * A residual byte is already the first byte of this read. Keep the
+     * caller's DSP-native byte packing while filling the rest from complete
+     * FIFO words. The word read below deliberately uses the HAL stream helper
+     * so both FIFO-swap modes retain their existing mapping.
+     */
+    output_index = 0u;
+    if (sk->udp_rx_residual_valid != 0u)
+    {
+        data_words[0] = (Uint16)(sk->udp_rx_residual_byte & 0x00FFu);
+        sk->udp_rx_residual_byte = 0u;
+        sk->udp_rx_residual_valid = 0u;
+        output_index = 1u;
+    }
+
+    fifo_byte_count = copy_size - output_index;
+    fifo_word_count = (fifo_byte_count + 1u) >> 1;
+    for (word_index = 0u; word_index < fifo_word_count; word_index++)
+    {
+        fifo_word = 0u;
+        c2837x_w5300_read_stream(sk->sn, &fifo_word, 2u);
+        for (byte_index = 0u; byte_index < 2u; byte_index++)
+        {
+            fifo_byte = (byte_index == 0u) ?
+                (Uint16)(fifo_word & 0x00FFu) :
+                (Uint16)((fifo_word >> 8) & 0x00FFu);
+            if (fifo_byte_count != 0u)
+            {
+                if ((output_index & 1u) == 0u)
+                    data_words[output_index >> 1] = fifo_byte;
+                else
+                    data_words[output_index >> 1] =
+                        (Uint16)(data_words[output_index >> 1] |
+                                 (Uint16)(fifo_byte << 8));
+                output_index++;
+                fifo_byte_count--;
+            }
+            else if ((copy_size < remaining_before) &&
+                     (sk->udp_rx_residual_valid == 0u))
+            {
+                /* The extra byte is still current-Datagram DATA, not padding. */
+                sk->udp_rx_residual_byte = fifo_byte;
+                sk->udp_rx_residual_valid = 1u;
+            }
+        }
+    }
+
+    sk->udp_rx_data_remaining -= copy_size;
+    return (int32)copy_size;
+}
+
+int32 c2837x_w5300_socket_udp_drop_data(C2837xW5300Socket *sk)
+{
+    Uint16 status;
+    Uint16 discard_word;
+    Uint32 dropped_size;
+    Uint32 physical_size;
+    Uint32 word_index;
+    Uint32 word_count;
+
+    if (!socket_is_valid(sk))
+        return -1;
+    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
+        return 0;
+    if (sk->udp_rx_datagram_active == 0u)
+        return 0;
+
+    status = c2837x_w5300_get_sn_ssr(sk->sn);
+    if (status != SOCK_UDP)
+        return 0;
+
+    dropped_size = sk->udp_rx_data_remaining;
+    physical_size = dropped_size;
+    if (sk->udp_rx_residual_valid != 0u)
+    {
+        /* This byte was already read from the FIFO and is part of this DATA. */
+        physical_size--;
+        sk->udp_rx_residual_byte = 0u;
+        sk->udp_rx_residual_valid = 0u;
+    }
+    word_count = (physical_size + 1u) >> 1;
+    for (word_index = 0u; word_index < word_count; word_index++)
+    {
+        /* The count is known; each read consumes one current-Datagram word. */
+        discard_word = 0u;
+        c2837x_w5300_read_stream(sk->sn, &discard_word, 2u);
+    }
+    sk->udp_rx_data_remaining = 0u;
+    return (int32)dropped_size;
+}
+
+int16 c2837x_w5300_socket_udp_commit_recv(C2837xW5300Socket *sk)
+{
+    Uint16 status;
+
+    if (!socket_is_valid(sk) ||
+        (sk->udp_rx_datagram_active == 0u) ||
+        (sk->udp_rx_data_remaining != 0u) ||
+        (sk->udp_rx_residual_valid != 0u))
+        return -1;
+    if (sk->pending_command == C2837X_W5300_COMMAND_RECV)
+        return c2837x_w5300_socket_advance_recv_command(sk);
+    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
+        return -1;
+
+    status = c2837x_w5300_get_sn_ssr(sk->sn);
+    if (status != SOCK_UDP)
+        return -1;
+    return issue(sk, Sn_CR_RECV, C2837X_W5300_COMMAND_RECV);
 }
 
 #if __TI_COMPILER_VERSION__ >= 15009000

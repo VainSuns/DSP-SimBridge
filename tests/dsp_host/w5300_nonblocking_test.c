@@ -20,6 +20,10 @@ static Uint32 size_low;
 static Uint16 size_values[12];
 static Uint16 size_count;
 static Uint16 size_index;
+static Uint16 rx_fifo_words[64];
+static Uint16 rx_fifo_sn;
+static Uint16 rx_fifo_count;
+static Uint16 rx_fifo_index;
 
 volatile struct TEST_EMIF_CONFIG_REGS *test_emif_config_regs(void)
 {
@@ -51,6 +55,9 @@ static void set_register(Uint32 address, Uint16 value)
 Uint16 c2837x_w5300_host_read16(Uint32 address)
 {
     reads[read_count++] = address;
+    if ((rx_fifo_index < rx_fifo_count) &&
+        (address == Sn_RX_FIFOR(rx_fifo_sn)))
+        return rx_fifo_words[rx_fifo_index++];
     if ((size_index < size_count) &&
         ((address == size_high) || (address == size_low)))
     {
@@ -80,6 +87,10 @@ static void reset_fixture(void)
     size_low = 0u;
     size_count = 0u;
     size_index = 0u;
+    rx_fifo_sn = 0u;
+    rx_fifo_count = 0u;
+    rx_fifo_index = 0u;
+    c2837x_w5300_fifo_swap = 0u;
 }
 
 static void script_size(Uint32 high, Uint32 low, const Uint16 *values,
@@ -90,6 +101,33 @@ static void script_size(Uint32 high, Uint32 low, const Uint16 *values,
     memcpy(size_values, values, count * sizeof(values[0]));
     size_count = count;
     size_index = 0u;
+}
+
+static Uint16 fifo_word_for_wire(Uint16 first, Uint16 second)
+{
+    Uint16 normalized = (Uint16)((first & 0x00FFu) |
+                                 ((second & 0x00FFu) << 8));
+
+    if (c2837x_w5300_fifo_swap != 0u)
+        return normalized;
+    return (Uint16)((normalized << 8) | (normalized >> 8));
+}
+
+static void script_rx_fifo_bytes(Uint16 sn, const Uint16 *bytes,
+                                 Uint16 count)
+{
+    Uint16 i;
+
+    assert((((Uint32)count + 1u) >> 1) <=
+           (sizeof(rx_fifo_words) / sizeof(rx_fifo_words[0])));
+    rx_fifo_sn = sn;
+    rx_fifo_count = (Uint16)(((Uint32)count + 1u) >> 1);
+    rx_fifo_index = 0u;
+    for (i = 0u; i < count; i = (Uint16)(i + 2u))
+    {
+        Uint16 second = ((Uint16)(i + 1u) < count) ? bytes[i + 1u] : 0u;
+        rx_fifo_words[i >> 1] = fifo_word_for_wire(bytes[i], second);
+    }
 }
 
 static Uint16 reads_of(Uint32 address)
@@ -332,6 +370,307 @@ static void test_native_udp_open_and_simple_close(void)
     assert(sk.pending_command == C2837X_W5300_COMMAND_NONE);
     assert(c2837x_w5300_socket_issue_close(&sk) == 0);
     assert(writes_of(Sn_CR(1u)) == 1u);
+}
+
+static void set_rx_size(Uint16 sn, Uint16 size)
+{
+    set_register(Sn_RX_RSR(sn), 0u);
+    set_register(Sn_RX_RSR2(sn), size);
+}
+
+static void test_udp_packet_info_fifo_swap(Uint16 fifo_swap)
+{
+    static const Uint16 packet_info_bytes[] = {
+        0xC0u, 0xA8u, 0x01u, 0x0Au,
+        0x1Fu, 0x90u, 0x00u, 0x04u
+    };
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(4u, 8192u, 8192u);
+    C2837xW5300UdpPacketInfo info;
+
+    reset_fixture();
+    c2837x_w5300_fifo_swap = fifo_swap;
+    set_register(Sn_SSR(4u), SOCK_UDP);
+    set_rx_size(4u, C2837X_W5300_UDP_PACKET_INFO_BYTES + 4u);
+    script_rx_fifo_bytes(4u, packet_info_bytes,
+                         (Uint16)(sizeof(packet_info_bytes) /
+                                  sizeof(packet_info_bytes[0])));
+
+    assert(c2837x_w5300_socket_udp_rx_available(&sk) > 0);
+    assert(reads_of(Sn_RX_FIFOR(4u)) == 0u);
+    assert(c2837x_w5300_socket_udp_read_packet_info(&sk, &info) > 0);
+    assert(info.source_ip == 0xC0A8010Au);
+    assert(info.source_port == 0x1F90u);
+    assert(info.data_size == 4u);
+    assert(reads_of(Sn_RX_FIFOR(4u)) == 4u);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+    assert(sk.udp_rx_datagram_active == 1u);
+    assert(sk.udp_rx_data_remaining == 4u);
+    assert(c2837x_w5300_socket_udp_rx_available(&sk) > 0);
+}
+
+static void test_udp_rx_availability_and_packet_info(void)
+{
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(4u, 8192u, 8192u);
+    C2837xW5300UdpPacketInfo info;
+    Uint16 data_words[1] = {0u};
+
+    test_udp_packet_info_fifo_swap(0u);
+    test_udp_packet_info_fifo_swap(1u);
+
+    reset_fixture();
+    set_register(Sn_SSR(4u), SOCK_UDP);
+    set_rx_size(4u, 0u);
+    assert(c2837x_w5300_socket_udp_rx_available(&sk) == 0);
+    assert(c2837x_w5300_socket_udp_read_packet_info(&sk, &info) == 0);
+    assert(c2837x_w5300_socket_udp_read_data(&sk, data_words, 2u) == 0);
+    assert(reads_of(Sn_RX_FIFOR(4u)) == 0u);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+
+    reset_fixture();
+    set_register(Sn_SSR(4u), SOCK_ESTABLISHED);
+    set_rx_size(4u, 12u);
+    assert(c2837x_w5300_socket_udp_rx_available(&sk) == 0);
+    assert(c2837x_w5300_socket_udp_read_packet_info(&sk, &info) == 0);
+    assert(reads_of(Sn_RX_FIFOR(4u)) == 0u);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+}
+
+static void test_udp_staged_data_and_delayed_recv(void)
+{
+    static const Uint16 datagram_bytes[] = {
+        0xC0u, 0xA8u, 0x01u, 0x0Au,
+        0x1Fu, 0x90u, 0x00u, 0x06u,
+        0xA1u, 0xB2u, 0xC3u, 0xD4u, 0xE5u, 0xF6u,
+        0xEEu, 0xFFu
+    };
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(4u, 8192u, 8192u);
+    C2837xW5300UdpPacketInfo info;
+    Uint16 first_part[1] = {0u};
+    Uint16 remaining_part[2] = {0u, 0u};
+
+    reset_fixture();
+    set_register(Sn_SSR(4u), SOCK_UDP);
+    set_rx_size(4u, 14u);
+    script_rx_fifo_bytes(4u, datagram_bytes,
+                         (Uint16)(sizeof(datagram_bytes) /
+                                  sizeof(datagram_bytes[0])));
+
+    assert(c2837x_w5300_socket_udp_read_packet_info(&sk, &info) > 0);
+    assert(info.data_size == 6u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) < 0);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+
+    assert(c2837x_w5300_socket_udp_read_data(&sk, first_part, 2u) == 2);
+    assert(first_part[0] == 0xB2A1u);
+    assert(sk.udp_rx_data_remaining == 4u);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) < 0);
+
+    assert(c2837x_w5300_socket_udp_read_data(
+               &sk, remaining_part, 10u) == 4);
+    assert(remaining_part[0] == 0xD4C3u);
+    assert(remaining_part[1] == 0xF6E5u);
+    assert(sk.udp_rx_data_remaining == 0u);
+    assert(rx_fifo_index == 7u);
+    assert(c2837x_w5300_socket_udp_read_data(
+               &sk, remaining_part, 2u) == 0);
+    assert(rx_fifo_index == 7u);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) == 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_RECV);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+    set_register(Sn_CR(4u), Sn_CR_RECV);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) == 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+    set_register(Sn_CR(4u), 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) > 0);
+    assert(sk.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(sk.udp_rx_datagram_active == 0u);
+    assert(sk.udp_rx_data_remaining == 0u);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) < 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+}
+
+static void test_udp_odd_staged_read_3_plus_1(void)
+{
+    static const Uint16 datagram_bytes[] = {
+        0xC0u, 0xA8u, 0x01u, 0x0Au,
+        0x1Fu, 0x90u, 0x00u, 0x04u,
+        0x11u, 0x22u, 0x33u, 0x44u,
+        0xEEu, 0xFFu
+    };
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(4u, 8192u, 8192u);
+    C2837xW5300UdpPacketInfo info;
+    Uint16 first_part[2] = {0u, 0u};
+    Uint16 second_part[1] = {0u};
+
+    reset_fixture();
+    set_register(Sn_SSR(4u), SOCK_UDP);
+    set_rx_size(4u, 14u);
+    script_rx_fifo_bytes(4u, datagram_bytes,
+                         (Uint16)(sizeof(datagram_bytes) /
+                                  sizeof(datagram_bytes[0])));
+
+    assert(c2837x_w5300_socket_udp_read_packet_info(&sk, &info) > 0);
+    assert(info.data_size == 4u);
+    assert(c2837x_w5300_socket_udp_read_data(&sk, first_part, 3u) == 3);
+    assert(first_part[0] == 0x2211u && first_part[1] == 0x0033u);
+    assert(sk.udp_rx_data_remaining == 1u);
+    assert(sk.udp_rx_residual_byte == 0x44u);
+    assert(sk.udp_rx_residual_valid == 1u);
+    assert(rx_fifo_index == 6u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) < 0);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+
+    assert(c2837x_w5300_socket_udp_read_data(&sk, second_part, 1u) == 1);
+    assert(second_part[0] == 0x0044u);
+    assert(sk.udp_rx_data_remaining == 0u);
+    assert(sk.udp_rx_residual_valid == 0u);
+    assert(rx_fifo_index == 6u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) == 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+    set_register(Sn_CR(4u), 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) > 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+    assert(sk.udp_rx_datagram_active == 0u);
+}
+
+static void test_udp_odd_staged_read_1_plus_remaining(void)
+{
+    static const Uint16 datagram_bytes[] = {
+        0xC0u, 0xA8u, 0x01u, 0x0Au,
+        0x1Fu, 0x90u, 0x00u, 0x05u,
+        0x51u, 0x52u, 0x53u, 0x54u, 0x55u, 0x00u,
+        0xEEu, 0xFFu
+    };
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(4u, 8192u, 8192u);
+    C2837xW5300UdpPacketInfo info;
+    Uint16 first_part[1] = {0u};
+    Uint16 remaining_part[2] = {0u, 0u};
+
+    reset_fixture();
+    set_register(Sn_SSR(4u), SOCK_UDP);
+    set_rx_size(4u, 13u);
+    script_rx_fifo_bytes(4u, datagram_bytes,
+                         (Uint16)(sizeof(datagram_bytes) /
+                                  sizeof(datagram_bytes[0])));
+
+    assert(c2837x_w5300_socket_udp_read_packet_info(&sk, &info) > 0);
+    assert(info.data_size == 5u);
+    assert(c2837x_w5300_socket_udp_read_data(&sk, first_part, 1u) == 1);
+    assert(first_part[0] == 0x0051u);
+    assert(sk.udp_rx_residual_byte == 0x52u);
+    assert(sk.udp_rx_residual_valid == 1u);
+    assert(rx_fifo_index == 5u);
+
+    assert(c2837x_w5300_socket_udp_read_data(
+               &sk, remaining_part, 4u) == 4);
+    assert(remaining_part[0] == 0x5352u);
+    assert(remaining_part[1] == 0x5554u);
+    assert(sk.udp_rx_data_remaining == 0u);
+    assert(sk.udp_rx_residual_valid == 0u);
+    assert(rx_fifo_index == 7u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) == 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+    set_register(Sn_CR(4u), 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) > 0);
+}
+
+static void test_udp_drop_and_zero_data_commit(void)
+{
+    static const Uint16 dropped_bytes[] = {
+        0xC0u, 0xA8u, 0x01u, 0x0Au,
+        0x1Fu, 0x90u, 0x00u, 0x04u,
+        0x10u, 0x20u, 0x30u, 0x40u,
+        0xEEu, 0xFFu
+    };
+    static const Uint16 zero_data_bytes[] = {
+        0xC0u, 0xA8u, 0x01u, 0x0Au,
+        0x1Fu, 0x90u, 0x00u, 0x00u
+    };
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(4u, 8192u, 8192u);
+    C2837xW5300UdpPacketInfo info;
+
+    reset_fixture();
+    set_register(Sn_SSR(4u), SOCK_UDP);
+    set_rx_size(4u, 12u);
+    script_rx_fifo_bytes(4u, dropped_bytes,
+                         (Uint16)(sizeof(dropped_bytes) /
+                                  sizeof(dropped_bytes[0])));
+    assert(c2837x_w5300_socket_udp_read_packet_info(&sk, &info) > 0);
+    assert(c2837x_w5300_socket_udp_drop_data(&sk) == 4);
+    assert(sk.udp_rx_data_remaining == 0u);
+    assert(rx_fifo_index == 6u);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) == 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+    set_register(Sn_CR(4u), 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) > 0);
+
+    reset_fixture();
+    set_register(Sn_SSR(4u), SOCK_UDP);
+    set_rx_size(4u, C2837X_W5300_UDP_PACKET_INFO_BYTES);
+    script_rx_fifo_bytes(4u, zero_data_bytes,
+                         (Uint16)(sizeof(zero_data_bytes) /
+                                  sizeof(zero_data_bytes[0])));
+    assert(c2837x_w5300_socket_udp_read_packet_info(&sk, &info) > 0);
+    assert(info.data_size == 0u);
+    assert(sk.udp_rx_datagram_active == 1u);
+    assert(sk.udp_rx_data_remaining == 0u);
+    assert(reads_of(Sn_RX_FIFOR(4u)) == 4u);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) == 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+    set_register(Sn_CR(4u), 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) > 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+}
+
+static void test_udp_odd_remaining_drop(void)
+{
+    static const Uint16 datagram_bytes[] = {
+        0xC0u, 0xA8u, 0x01u, 0x0Au,
+        0x1Fu, 0x90u, 0x00u, 0x05u,
+        0x61u, 0x62u, 0x63u, 0x64u, 0x65u, 0x00u,
+        0xEEu, 0xFFu
+    };
+    C2837xW5300Socket sk =
+        C2837X_W5300_SOCKET_INITIALIZER(4u, 8192u, 8192u);
+    C2837xW5300UdpPacketInfo info;
+    Uint16 first_part[1] = {0u};
+
+    reset_fixture();
+    set_register(Sn_SSR(4u), SOCK_UDP);
+    set_rx_size(4u, 13u);
+    script_rx_fifo_bytes(4u, datagram_bytes,
+                         (Uint16)(sizeof(datagram_bytes) /
+                                  sizeof(datagram_bytes[0])));
+
+    assert(c2837x_w5300_socket_udp_read_packet_info(&sk, &info) > 0);
+    assert(c2837x_w5300_socket_udp_read_data(&sk, first_part, 1u) == 1);
+    assert(first_part[0] == 0x0061u);
+    assert(sk.udp_rx_data_remaining == 4u);
+    assert(sk.udp_rx_residual_byte == 0x62u);
+    assert(sk.udp_rx_residual_valid == 1u);
+    assert(rx_fifo_index == 5u);
+    assert(c2837x_w5300_socket_udp_drop_data(&sk) == 4);
+    assert(sk.udp_rx_data_remaining == 0u);
+    assert(sk.udp_rx_residual_valid == 0u);
+    assert(rx_fifo_index == 7u);
+    assert(writes_of(Sn_CR(4u)) == 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) == 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
+    set_register(Sn_CR(4u), 0u);
+    assert(c2837x_w5300_socket_udp_commit_recv(&sk) > 0);
+    assert(writes_of(Sn_CR(4u)) == 1u);
 }
 
 static void test_send_and_receive(void)
@@ -676,6 +1015,12 @@ int main(void)
     test_stable_size_reads();
     test_open_and_listen_state_windows();
     test_native_udp_open_and_simple_close();
+    test_udp_rx_availability_and_packet_info();
+    test_udp_staged_data_and_delayed_recv();
+    test_udp_odd_staged_read_3_plus_1();
+    test_udp_odd_staged_read_1_plus_remaining();
+    test_udp_drop_and_zero_data_commit();
+    test_udp_odd_remaining_drop();
     test_send_and_receive();
     test_hot_path_command_state_contracts();
     test_close_primitives_and_disconnect_state_windows();
