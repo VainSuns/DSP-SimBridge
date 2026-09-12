@@ -32,8 +32,6 @@ classdef test_s3_01_w5300_udp_channel < matlab.unittest.TestCase
             testCase.verifyFalse(contains(source, ...
                 'c2837x_w5300_socket_listen'));
             testCase.verifyFalse(contains(source, 'Sn_CR_LISTEN'));
-            testCase.verifyFalse(contains(source, ...
-                'c2837x_w5300_socket_udp_send'));
             testCase.verifyFalse(contains(source, 'SIM_START'));
             testCase.verifyFalse(contains(source, 'Message'));
             testCase.verifyFalse(contains(source, 'Protocol'));

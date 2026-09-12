@@ -30,7 +30,7 @@ typedef struct
     C2837xW5300UdpTimeUs time_us;
     Uint32 close_timeout_us;
 
-    /* One endpoint storage is provisional until a later Core promotion. */
+    /* Candidate endpoint storage is also the UDP TX destination. */
     Uint32 candidate_ip;
     Uint16 candidate_port;
     Uint16 candidate_valid;
@@ -40,7 +40,7 @@ typedef struct
     Uint32 datagram_data_size;
     Uint32 datagram_consumed;
 
-    /* Placeholder bookkeeping for the later Channel TX implementation. */
+    /* One complete UDP datagram awaiting local SENDOK confirmation. */
     C2837xW5300UdpSendState send_state;
     Uint32 pending_octets;
 

@@ -10,7 +10,7 @@ static volatile struct TEST_EMIF_CONFIG_REGS emif_config_regs;
 
 typedef struct { Uint32 address; Uint16 value; } RegisterValue;
 static RegisterValue registers[128];
-static RegisterValue writes[256];
+static RegisterValue writes[2048];
 static Uint32 reads[512];
 static Uint16 register_count;
 static Uint16 write_count;
@@ -144,6 +144,12 @@ static void set_rx_size(Uint16 sn, Uint16 size)
 {
     set_register(Sn_RX_RSR(sn), 0u);
     set_register(Sn_RX_RSR2(sn), size);
+}
+
+static void set_tx_space(Uint16 sn, Uint32 size)
+{
+    set_register(Sn_TX_FSR(sn), (Uint16)(size >> 16));
+    set_register(Sn_TX_FSR2(sn), (Uint16)size);
 }
 
 static void set_udp_datagram(Uint16 sn, Uint32 source_ip,
@@ -525,6 +531,242 @@ static void test_alien_peer_is_dropped_without_core_progress(void)
     assert(words[0] == 1u && words[1] == 0u);
 }
 
+static void set_candidate(C2837xW5300UdpChannel *channel)
+{
+    channel->candidate_ip = 0xC0A8010Au;
+    channel->candidate_port = 0x1F90u;
+    channel->candidate_valid = 1u;
+}
+
+static void assert_no_udp_tx_writes(Uint16 sn)
+{
+    assert(writes_of(Sn_DIPR(sn)) == 0u);
+    assert(writes_of(Sn_DIPR2(sn)) == 0u);
+    assert(writes_of(Sn_DPORTR(sn)) == 0u);
+    assert(writes_of(Sn_TX_FIFOR(sn)) == 0u);
+    assert(writes_of(Sn_TX_WRSR(sn)) == 0u);
+    assert(writes_of(Sn_TX_WRSR2(sn)) == 0u);
+}
+
+static void test_send_requires_candidate(void)
+{
+    static const Uint16 frame[] = {0x2211u, 0x4433u};
+    C2837xW5300UdpChannel channel;
+    Uint16 writes_before;
+
+    reset_fixture();
+    start_udp_channel(&channel, 5u);
+    writes_before = write_count;
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 4u) < 0);
+    assert(write_count == writes_before);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel.pending_octets == 0u);
+    assert_no_udp_tx_writes(5u);
+}
+
+static void test_send_waits_for_whole_tx_space(void)
+{
+    static const Uint16 frame[] = {0x2211u, 0x4433u, 0x6655u};
+    C2837xW5300UdpChannel channel;
+    Uint16 writes_before;
+    Uint16 cr_before;
+
+    reset_fixture();
+    start_udp_channel(&channel, 6u);
+    set_candidate(&channel);
+    set_tx_space(6u, 4u);
+    writes_before = write_count;
+    cr_before = writes_of(Sn_CR(6u));
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 6u) == 0);
+    assert(write_count == writes_before);
+    assert(writes_of(Sn_CR(6u)) == cr_before);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel.pending_octets == 0u);
+    assert_no_udp_tx_writes(6u);
+}
+
+static void test_send_submission_pending_and_sendok(void)
+{
+    static const Uint16 frame[] = {
+        0x2211u, 0x4433u, 0x6655u, 0x8877u
+    };
+    static const Uint16 replacement[] = {
+        0xA5A5u, 0x5A5Au, 0x1234u, 0x5678u
+    };
+    C2837xW5300UdpChannel channel;
+    Uint16 writes_before;
+    Uint16 writes_after_submit;
+    Uint16 cr_before;
+
+    reset_fixture();
+    start_udp_channel(&channel, 1u);
+    set_candidate(&channel);
+    set_tx_space(1u, 8u);
+    cr_before = writes_of(Sn_CR(1u));
+    writes_before = write_count;
+
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 8u) == 0);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.pending_octets == 8u);
+    assert(writes[writes_before].address == Sn_DIPR(1u) &&
+           writes[writes_before].value == 0xC0A8u);
+    assert(writes[writes_before + 1u].address == Sn_DIPR2(1u) &&
+           writes[writes_before + 1u].value == 0x010Au);
+    assert(writes[writes_before + 2u].address == Sn_DPORTR(1u) &&
+           writes[writes_before + 2u].value == 0x1F90u);
+    assert(writes[writes_before + 4u].address == Sn_TX_FIFOR(1u) &&
+           writes[writes_before + 4u].value == 0x1122u);
+    assert(writes[writes_before + 5u].address == Sn_TX_FIFOR(1u) &&
+           writes[writes_before + 5u].value == 0x3344u);
+    assert(writes[writes_before + 6u].address == Sn_TX_FIFOR(1u) &&
+           writes[writes_before + 6u].value == 0x5566u);
+    assert(writes[writes_before + 7u].address == Sn_TX_FIFOR(1u) &&
+           writes[writes_before + 7u].value == 0x7788u);
+    assert(writes_of(Sn_DIPR(1u)) == 1u);
+    assert(writes_of(Sn_DIPR2(1u)) == 1u);
+    assert(writes_of(Sn_DPORTR(1u)) == 1u);
+    assert(writes_of(Sn_TX_FIFOR(1u)) == 4u);
+    assert(writes_of(Sn_TX_WRSR(1u)) == 1u);
+    assert(writes_of(Sn_TX_WRSR2(1u)) == 1u);
+    assert(writes_of(Sn_CR(1u)) == (Uint16)(cr_before + 1u));
+    assert(write_count == (Uint16)(writes_before + 11u));
+
+    writes_after_submit = write_count;
+    set_register(Sn_IR(1u), Sn_IR_SENDOK);
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, replacement, 8u) == 0);
+    assert(write_count == writes_after_submit);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.pending_octets == 8u);
+    assert((c2837x_w5300_get_sn_ir(1u) & Sn_IR_SENDOK) != 0u);
+
+    set_register(Sn_CR(1u), 0u);
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, replacement, 2u) == 0);
+    assert(write_count == writes_after_submit);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.pending_octets == 8u);
+
+    set_register(Sn_IR(1u), Sn_IR_SENDOK);
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, 0, 0u) == 8);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel.pending_octets == 0u);
+    assert((c2837x_w5300_get_sn_ir(1u) & Sn_IR_SENDOK) == 0u);
+    assert(writes_of(Sn_DIPR(1u)) == 1u);
+    assert(writes_of(Sn_DIPR2(1u)) == 1u);
+    assert(writes_of(Sn_DPORTR(1u)) == 1u);
+    assert(writes_of(Sn_TX_FIFOR(1u)) == 4u);
+    assert(writes_of(Sn_CR(1u)) == (Uint16)(cr_before + 1u));
+}
+
+static void test_send_timeout_clears_pending_without_retry(void)
+{
+    static const Uint16 frame[] = {0x2211u, 0x4433u};
+    C2837xW5300UdpChannel channel;
+    Uint16 writes_after_submit;
+
+    reset_fixture();
+    start_udp_channel(&channel, 2u);
+    set_candidate(&channel);
+    set_tx_space(2u, 4u);
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 4u) == 0);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    writes_after_submit = write_count;
+
+    set_register(Sn_CR(2u), 0u);
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 4u) == 0);
+    set_register(Sn_IR(2u), Sn_IR_TIMEOUT);
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 4u) < 0);
+    assert(write_count == writes_after_submit + 1u);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel.pending_octets == 0u);
+    assert((c2837x_w5300_get_sn_ir(2u) & Sn_IR_TIMEOUT) == 0u);
+    assert(writes_of(Sn_TX_FIFOR(2u)) == 2u);
+    assert(writes_of(Sn_CR(2u)) == 2u);
+}
+
+static void test_send_resolves_pending_recv_before_submission(void)
+{
+    static const Uint16 frame[] = {0x2211u, 0x4433u};
+    C2837xW5300UdpChannel channel;
+    Uint16 send_commands_before;
+
+    reset_fixture();
+    start_udp_channel(&channel, 3u);
+    set_candidate(&channel);
+    set_tx_space(3u, 4u);
+    channel.socket.pending_command = C2837X_W5300_COMMAND_RECV;
+    channel.socket.command_phase =
+        C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
+    channel.socket.udp_rx_datagram_active = 1u;
+    set_register(Sn_CR(3u), Sn_CR_RECV);
+    send_commands_before = writes_of(Sn_CR(3u));
+
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 4u) == 0);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_RECV);
+    assert(writes_of(Sn_CR(3u)) == send_commands_before);
+    assert(writes_of(Sn_TX_FIFOR(3u)) == 0u);
+
+    set_register(Sn_CR(3u), 0u);
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 4u) == 0);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(writes_of(Sn_TX_FIFOR(3u)) == 0u);
+
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 4u) == 0);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.pending_octets == 4u);
+    assert(writes_of(Sn_TX_FIFOR(3u)) == 2u);
+    assert(writes_of(Sn_CR(3u)) == (Uint16)(send_commands_before + 1u));
+}
+
+static void test_send_enforces_structural_size_bounds(void)
+{
+    static const Uint16 max_frame[736] = {0u};
+    static const Uint16 small_frame[] = {0x2211u, 0x4433u};
+    C2837xW5300UdpChannel channel;
+    Uint16 cr_before;
+
+    reset_fixture();
+    start_udp_channel(&channel, 7u);
+    set_candidate(&channel);
+    set_tx_space(7u, 1472u);
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, max_frame, 1472u) == 0);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.pending_octets == 1472u);
+    assert(writes_of(Sn_TX_FIFOR(7u)) == 736u);
+
+    reset_fixture();
+    start_udp_channel(&channel, 7u);
+    set_candidate(&channel);
+    set_tx_space(7u, 1474u);
+    cr_before = writes_of(Sn_CR(7u));
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, max_frame, 1474u) < 0);
+    assert(writes_of(Sn_CR(7u)) == cr_before);
+    assert_no_udp_tx_writes(7u);
+
+    reset_fixture();
+    start_udp_channel(&channel, 7u);
+    set_candidate(&channel);
+    set_tx_space(7u, 8u);
+    cr_before = writes_of(Sn_CR(7u));
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, small_frame, 3u) < 0);
+    assert(writes_of(Sn_CR(7u)) == cr_before);
+    assert_no_udp_tx_writes(7u);
+}
+
 int main(void)
 {
     test_open_logical_listen_candidate_and_repeated_state();
@@ -533,5 +775,11 @@ int main(void)
     test_zero_payload_commits_after_header();
     test_invalid_physical_datagram_lengths();
     test_alien_peer_is_dropped_without_core_progress();
+    test_send_requires_candidate();
+    test_send_waits_for_whole_tx_space();
+    test_send_submission_pending_and_sendok();
+    test_send_timeout_clears_pending_without_retry();
+    test_send_resolves_pending_recv_before_submission();
+    test_send_enforces_structural_size_bounds();
     return 0;
 }
