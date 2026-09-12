@@ -1,0 +1,457 @@
+/*
+ * AUTO-GENERATED FILE
+ * Manual changes will be overwritten.
+ */
+
+#ifndef _WIN32
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#endif
+
+#include "@NAME@_pc_udp.h"
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+typedef SOCKET @NAME@_native_socket;
+#define @MACRO@_INVALID_SOCKET INVALID_SOCKET
+#define @MACRO@_SOCKET_ERROR SOCKET_ERROR
+#define @MACRO@_LAST_ERROR() WSAGetLastError()
+#define @MACRO@_CLOSE_SOCKET(s_) closesocket(s_)
+#else
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <time.h>
+#include <unistd.h>
+typedef int @NAME@_native_socket;
+#define @MACRO@_INVALID_SOCKET (-1)
+#define @MACRO@_SOCKET_ERROR (-1)
+#define @MACRO@_LAST_ERROR() errno
+#define @MACRO@_CLOSE_SOCKET(s_) close(s_)
+#endif
+
+#include <limits.h>
+#include <string.h>
+
+#ifdef MSG_NOSIGNAL
+#define @MACRO@_SEND_FLAGS MSG_NOSIGNAL
+#else
+#define @MACRO@_SEND_FLAGS 0
+#endif
+
+static @NAME@_native_socket @NAME@_native(
+    const @TYPED@PcUdpSocket *socket)
+{
+    return (@NAME@_native_socket)socket->native_handle;
+}
+
+static void @NAME@_invalidate(@TYPED@PcUdpSocket *socket)
+{
+    socket->native_handle = (uintptr_t)@MACRO@_INVALID_SOCKET;
+    socket->valid = 0;
+}
+
+static int @NAME@_now_ms(const @TYPED@PcUdpSocket *socket,
+    uint64_t *value, int *os_error)
+{
+    if (socket == NULL || value == NULL || os_error == NULL) return -1;
+    *os_error = 0;
+#ifdef _WIN32
+    LARGE_INTEGER counter;
+    if (socket->clock_frequency_hz == 0u ||
+            !QueryPerformanceCounter(&counter)) {
+        *os_error = (int)GetLastError();
+        if (*os_error == 0) *os_error = -1;
+        return -1;
+    }
+    *value = (uint64_t)(counter.QuadPart /
+        (LONGLONG)socket->clock_frequency_hz) * 1000u +
+        (uint64_t)(counter.QuadPart %
+            (LONGLONG)socket->clock_frequency_hz) * 1000u /
+            socket->clock_frequency_hz;
+#else
+    (void)socket;
+    {
+        struct timespec time_value;
+        if (clock_gettime(CLOCK_MONOTONIC, &time_value) != 0) {
+            *os_error = errno;
+            return -1;
+        }
+        *value = (uint64_t)time_value.tv_sec * 1000u +
+            (uint64_t)time_value.tv_nsec / 1000000u;
+    }
+#endif
+    return 0;
+}
+
+static int @NAME@_clock_error(@TYPED@PcError *error, int os_error)
+{
+    if (error != NULL) {
+        error->kind = @MACRO@_PC_ERROR_INTERNAL;
+        error->stage = "clock";
+        if (os_error != 0) {
+            error->available |= @MACRO@_PC_ERROR_HAS_OS_ERROR;
+            error->os_error = os_error;
+        }
+    }
+    return -1;
+}
+
+int @NAME@_pc_udp_deadline_start(const @TYPED@PcUdpSocket *socket,
+    uint32_t timeout_ms, @TYPED@PcUdpDeadline *deadline,
+    @TYPED@PcError *error)
+{
+    uint64_t now;
+    int os_error;
+    if (socket == NULL || deadline == NULL) {
+        @NAME@_pc_error_reset(error, "deadline_start");
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    if (@NAME@_now_ms(socket, &now, &os_error) != 0) {
+        return @NAME@_clock_error(error, os_error);
+    }
+    deadline->expires_at_ms = UINT64_MAX - now < timeout_ms ?
+        UINT64_MAX : now + timeout_ms;
+    return 0;
+}
+
+int @NAME@_pc_udp_deadline_remaining(const @TYPED@PcUdpSocket *socket,
+    const @TYPED@PcUdpDeadline *deadline, uint32_t *remaining_ms,
+    int *expired, @TYPED@PcError *error)
+{
+    uint64_t now;
+    uint64_t remaining;
+    int os_error;
+    if (socket == NULL || deadline == NULL || remaining_ms == NULL ||
+            expired == NULL) {
+        @NAME@_pc_error_reset(error, "deadline_remaining");
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    if (@NAME@_now_ms(socket, &now, &os_error) != 0) {
+        return @NAME@_clock_error(error, os_error);
+    }
+    *expired = now >= deadline->expires_at_ms;
+    remaining = *expired ? 0u : deadline->expires_at_ms - now;
+    *remaining_ms = remaining > UINT32_MAX ? UINT32_MAX :
+        (uint32_t)remaining;
+    return 0;
+}
+
+static int @NAME@_interrupted(int error)
+{
+#ifdef _WIN32
+    return error == WSAEINTR;
+#else
+    return error == EINTR;
+#endif
+}
+
+static int @NAME@_set_nonblocking(@NAME@_native_socket native, int enabled)
+{
+#ifdef _WIN32
+    u_long mode = enabled ? 1u : 0u;
+    return ioctlsocket(native, FIONBIO, &mode) == 0 ? 0 : -1;
+#else
+    int flags = fcntl(native, F_GETFL, 0);
+    if (flags < 0) return -1;
+    return fcntl(native, F_SETFL,
+        enabled ? flags | O_NONBLOCK : flags & ~O_NONBLOCK) == 0 ? 0 : -1;
+#endif
+}
+
+static int @NAME@_wait_writable(@TYPED@PcUdpSocket *socket,
+    const @TYPED@PcUdpDeadline *deadline, @TYPED@PcError *error,
+    int *os_error)
+{
+    if (socket == NULL || !socket->valid || deadline == NULL ||
+            os_error == NULL) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+            error->stage = "wait_writable";
+        }
+        return -1;
+    }
+    *os_error = 0;
+    for (;;) {
+        @NAME@_native_socket native = @NAME@_native(socket);
+        uint32_t remaining;
+        int expired;
+        int result;
+        if (@NAME@_pc_udp_deadline_remaining(socket, deadline, &remaining,
+                &expired, error) != 0) {
+            @NAME@_pc_udp_close(socket);
+            return -1;
+        }
+        if (expired) return 0;
+#ifdef _WIN32
+        fd_set write_set;
+        fd_set error_set;
+        struct timeval timeout;
+        FD_ZERO(&write_set);
+        FD_ZERO(&error_set);
+        FD_SET(native, &write_set);
+        FD_SET(native, &error_set);
+        timeout.tv_sec = (long)(remaining / 1000u);
+        timeout.tv_usec = (long)((remaining % 1000u) * 1000u);
+        result = select(0, NULL, &write_set, &error_set, &timeout);
+#else
+        struct pollfd descriptor;
+        int poll_timeout = remaining > (uint32_t)INT_MAX ? INT_MAX :
+            (int)remaining;
+        descriptor.fd = native;
+        descriptor.events = POLLOUT;
+        descriptor.revents = 0;
+        result = poll(&descriptor, 1, poll_timeout);
+#endif
+        if (result > 0) {
+            if (@NAME@_pc_udp_deadline_remaining(socket, deadline, &remaining,
+                    &expired, error) != 0) {
+                @NAME@_pc_udp_close(socket);
+                return -1;
+            }
+            if (expired) return 0;
+#ifdef _WIN32
+            if (FD_ISSET(native, &error_set) ||
+                    !FD_ISSET(native, &write_set)) {
+                *os_error = @MACRO@_LAST_ERROR();
+                return -1;
+            }
+#else
+            if ((descriptor.revents & POLLOUT) == 0) {
+                *os_error = 0;
+                return -1;
+            }
+#endif
+            return 1;
+        }
+        if (result == 0) return 0;
+        *os_error = @MACRO@_LAST_ERROR();
+        if (!@NAME@_interrupted(*os_error)) return -1;
+    }
+}
+
+static int @NAME@_fail(@TYPED@PcUdpSocket *socket,
+    @TYPED@PcError *error, @TYPED@PcErrorKind kind, int os_error)
+{
+    if (error != NULL) {
+        error->kind = kind;
+        if (os_error != 0) {
+            error->available |= @MACRO@_PC_ERROR_HAS_OS_ERROR;
+            error->os_error = os_error;
+        }
+    }
+    if (socket != NULL) {
+        socket->last_os_error = os_error;
+        @NAME@_pc_udp_close(socket);
+    }
+    return -1;
+}
+
+int @NAME@_pc_udp_init(@TYPED@PcUdpSocket *socket, @TYPED@PcError *error)
+{
+    if (socket == NULL) {
+        @NAME@_pc_error_reset(error, "socket_init");
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    memset(socket, 0, sizeof(*socket));
+    @NAME@_invalidate(socket);
+    @NAME@_pc_error_reset(error, "socket_init");
+#ifdef _WIN32
+    {
+        WSADATA data;
+        int result = WSAStartup(MAKEWORD(2, 2), &data);
+        if (result != 0) {
+            return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_SOCKET,
+                result);
+        }
+    }
+#endif
+    socket->platform_initialized = 1;
+#ifdef _WIN32
+    {
+        LARGE_INTEGER frequency;
+        int os_error;
+        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0) {
+            os_error = (int)GetLastError();
+            if (os_error == 0) os_error = -1;
+            socket->last_os_error = os_error;
+            @NAME@_clock_error(error, os_error);
+            @NAME@_pc_udp_cleanup(socket);
+            return -1;
+        }
+        socket->clock_frequency_hz = (uint64_t)frequency.QuadPart;
+    }
+#endif
+    return 0;
+}
+
+void @NAME@_pc_udp_close(@TYPED@PcUdpSocket *socket)
+{
+    if (socket != NULL && socket->valid) {
+        (void)@MACRO@_CLOSE_SOCKET(@NAME@_native(socket));
+        @NAME@_invalidate(socket);
+    }
+}
+
+void @NAME@_pc_udp_cleanup(@TYPED@PcUdpSocket *socket)
+{
+    if (socket == NULL) return;
+    @NAME@_pc_udp_close(socket);
+#ifdef _WIN32
+    if (socket->platform_initialized) (void)WSACleanup();
+#endif
+    socket->platform_initialized = 0;
+    socket->clock_frequency_hz = 0u;
+}
+
+int @NAME@_pc_udp_is_valid(const @TYPED@PcUdpSocket *socket)
+{
+    return socket != NULL && socket->valid;
+}
+
+int @NAME@_pc_udp_connect(@TYPED@PcUdpSocket *context, const char *ip,
+    uint16_t port, uint32_t timeout_ms, @TYPED@PcError *error)
+{
+    struct sockaddr_in address;
+    @NAME@_native_socket native;
+    int result;
+    int os_error;
+    (void)timeout_ms;
+    @NAME@_pc_error_reset(error, "connect");
+    if (context == NULL || ip == NULL || !context->platform_initialized) {
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    @NAME@_pc_udp_close(context);
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_port = htons(port);
+#ifdef _WIN32
+    address.sin_addr.s_addr = inet_addr(ip);
+    if (address.sin_addr.s_addr == INADDR_NONE) {
+#else
+    if (inet_pton(AF_INET, ip, &address.sin_addr) != 1) {
+#endif
+        if (error != NULL) error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+        return -1;
+    }
+    native = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (native == @MACRO@_INVALID_SOCKET) {
+        return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET,
+            @MACRO@_LAST_ERROR());
+    }
+    context->native_handle = (uintptr_t)native;
+    context->valid = 1;
+    if (@NAME@_set_nonblocking(native, 1) != 0) {
+        return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET,
+            @MACRO@_LAST_ERROR());
+    }
+    result = connect(native, (struct sockaddr *)&address, sizeof(address));
+    if (result == @MACRO@_SOCKET_ERROR) {
+        os_error = @MACRO@_LAST_ERROR();
+        return @NAME@_fail(context, error, @MACRO@_PC_ERROR_SOCKET,
+            os_error);
+    }
+    return 0;
+}
+
+int @NAME@_pc_udp_send_datagram_until(@TYPED@PcUdpSocket *socket,
+    const uint8_t *data, uint32_t length,
+    const @TYPED@PcUdpDeadline *deadline, @TYPED@PcError *error)
+{
+    @NAME@_native_socket native;
+    int os_error = 0;
+    int ready;
+    int count;
+    if (socket == NULL || !socket->valid ||
+            (length != 0u && data == NULL) ||
+            (length != 0u && deadline == NULL)) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+            error->stage = "send";
+        }
+        return -1;
+    }
+    socket->last_transfer_count = 0u;
+    if (length == 0u) return 0;
+    if (length > (uint32_t)INT_MAX) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+            error->stage = "send";
+            c2837x_pc_error_set_lengths(error, length, 0u);
+        }
+        return -1;
+    }
+    ready = @NAME@_wait_writable(socket, deadline, error, &os_error);
+    if (ready == 0) {
+        return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_TIMEOUT, 0);
+    }
+    if (ready < 0) {
+        if (error != NULL && error->kind == @MACRO@_PC_ERROR_INTERNAL) {
+            return -1;
+        }
+        return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_SOCKET,
+            os_error);
+    }
+    native = @NAME@_native(socket);
+    count = (int)send(native, (const char *)data, (int)length,
+        @MACRO@_SEND_FLAGS);
+    if (count == @MACRO@_SOCKET_ERROR) {
+        os_error = @MACRO@_LAST_ERROR();
+        return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_SOCKET,
+            os_error);
+    }
+    if (count != (int)length) {
+        socket->last_transfer_count = count > 0 ? (uint32_t)count : 0u;
+        if (error != NULL) {
+            c2837x_pc_error_set_lengths(error, length,
+                count > 0 ? (uint32_t)count : 0u);
+        }
+        return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_SOCKET, 0);
+    }
+    socket->last_transfer_count = (uint32_t)count;
+    return 0;
+}
+
+int @NAME@_pc_udp_send_datagram(@TYPED@PcUdpSocket *socket,
+    const uint8_t *data, uint32_t length, uint32_t timeout_ms,
+    @TYPED@PcError *error)
+{
+    @TYPED@PcUdpDeadline deadline;
+    @NAME@_pc_error_reset(error, "send");
+    if (length == 0u) {
+        return @NAME@_pc_udp_send_datagram_until(socket, data, length,
+            NULL, error);
+    }
+    if (@NAME@_pc_udp_deadline_start(socket, timeout_ms, &deadline,
+            error) != 0) {
+        @NAME@_pc_udp_close(socket);
+        return -1;
+    }
+    return @NAME@_pc_udp_send_datagram_until(socket, data, length, &deadline,
+        error);
+}
+
+int @NAME@_pc_udp_send_all_until(@TYPED@PcUdpSocket *socket,
+    const uint8_t *data, uint32_t length,
+    const @TYPED@PcUdpDeadline *deadline, @TYPED@PcError *error)
+{
+    return @NAME@_pc_udp_send_datagram_until(socket, data, length, deadline,
+        error);
+}
+
+int @NAME@_pc_udp_send_all(@TYPED@PcUdpSocket *socket,
+    const uint8_t *data, uint32_t length, uint32_t timeout_ms,
+    @TYPED@PcError *error)
+{
+    return @NAME@_pc_udp_send_datagram(socket, data, length, timeout_ms,
+        error);
+}

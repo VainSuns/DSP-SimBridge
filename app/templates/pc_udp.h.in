@@ -1,0 +1,115 @@
+/*
+ * AUTO-GENERATED FILE
+ * Manual changes will be overwritten.
+ */
+
+#ifndef @MACRO@_PC_UDP_H
+#define @MACRO@_PC_UDP_H
+
+#include <stddef.h>
+#include <stdint.h>
+#include "@NAME@_pc_error.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef c2837x_pc_error_kind_t @TYPED@PcErrorKind;
+typedef c2837x_pc_error_t @TYPED@PcError;
+
+#define @MACRO@_PC_ERROR_NONE C2837X_PC_ERROR_NONE
+#define @MACRO@_PC_ERROR_ARGUMENT C2837X_PC_ERROR_ARGUMENT
+#define @MACRO@_PC_ERROR_TIMEOUT C2837X_PC_ERROR_TIMEOUT
+#define @MACRO@_PC_ERROR_DISCONNECT C2837X_PC_ERROR_DISCONNECT
+#define @MACRO@_PC_ERROR_SOCKET C2837X_PC_ERROR_SOCKET
+#define @MACRO@_PC_ERROR_TRUNCATED C2837X_PC_ERROR_TRUNCATED
+#define @MACRO@_PC_ERROR_MESSAGE_TYPE C2837X_PC_ERROR_MESSAGE_TYPE
+#define @MACRO@_PC_ERROR_PAYLOAD_LENGTH C2837X_PC_ERROR_PAYLOAD_LENGTH
+#define @MACRO@_PC_ERROR_PAYLOAD_CAPACITY C2837X_PC_ERROR_PAYLOAD_CAPACITY
+#define @MACRO@_PC_ERROR_DSP_RESPONSE C2837X_PC_ERROR_DSP_RESPONSE
+#define @MACRO@_PC_ERROR_INTERNAL C2837X_PC_ERROR_INTERNAL
+#define @MACRO@_PC_ERROR_STEP_INDEX C2837X_PC_ERROR_STEP_INDEX
+#define @MACRO@_PC_ERROR_FIELD_DECODE C2837X_PC_ERROR_FIELD_DECODE
+#define @MACRO@_PC_ERROR_PORT_ACCESS C2837X_PC_ERROR_PORT_ACCESS
+#define @MACRO@_PC_ERROR_SERIAL C2837X_PC_ERROR_SERIAL
+
+#define @MACRO@_PC_ERROR_HAS_STEP_INDEX C2837X_PC_ERROR_HAS_STEP_INDEX
+#define @MACRO@_PC_ERROR_HAS_EXPECTED_TYPE C2837X_PC_ERROR_HAS_EXPECTED_TYPE
+#define @MACRO@_PC_ERROR_HAS_ACTUAL_TYPE C2837X_PC_ERROR_HAS_ACTUAL_TYPE
+#define @MACRO@_PC_ERROR_HAS_EXPECTED_LENGTH C2837X_PC_ERROR_HAS_EXPECTED_LENGTH
+#define @MACRO@_PC_ERROR_HAS_ACTUAL_LENGTH C2837X_PC_ERROR_HAS_ACTUAL_LENGTH
+#define @MACRO@_PC_ERROR_HAS_EXPECTED_STEP C2837X_PC_ERROR_HAS_EXPECTED_STEP
+#define @MACRO@_PC_ERROR_HAS_ACTUAL_STEP C2837X_PC_ERROR_HAS_ACTUAL_STEP
+#define @MACRO@_PC_ERROR_HAS_DSP_ERROR C2837X_PC_ERROR_HAS_DSP_ERROR
+#define @MACRO@_PC_ERROR_HAS_OS_ERROR C2837X_PC_ERROR_HAS_OS_ERROR
+#define @MACRO@_PC_ERROR_HAS_COM_NUMBER C2837X_PC_ERROR_HAS_COM_NUMBER
+#define @MACRO@_PC_ERROR_HAS_REQUESTED_BAUD C2837X_PC_ERROR_HAS_REQUESTED_BAUD
+#define @MACRO@_PC_ERROR_HAS_SYSTEM_ERROR_TEXT C2837X_PC_ERROR_HAS_SYSTEM_ERROR_TEXT
+#define @MACRO@_PC_ERROR_HAS_OS_ERROR_CODE C2837X_PC_ERROR_HAS_OS_ERROR_CODE
+
+static inline void @NAME@_pc_error_reset(@TYPED@PcError *error,
+    const char *stage)
+{
+    c2837x_pc_error_reset(error, "@NAME@", stage);
+}
+
+static inline int @NAME@_pc_error_format(const @TYPED@PcError *error,
+    char *buffer, size_t capacity)
+{
+    return c2837x_pc_error_format(error, buffer, capacity);
+}
+
+/* A connected UDP socket with an OS-assigned ephemeral local port. */
+typedef struct
+{
+    uintptr_t native_handle;
+    uint32_t last_transfer_count;
+    int valid;
+    int platform_initialized;
+    int last_os_error;
+    uint64_t clock_frequency_hz;
+} @TYPED@PcUdpSocket;
+
+typedef struct
+{
+    uint64_t expires_at_ms;
+} @TYPED@PcUdpDeadline;
+
+int @NAME@_pc_udp_init(@TYPED@PcUdpSocket *socket, @TYPED@PcError *error);
+void @NAME@_pc_udp_cleanup(@TYPED@PcUdpSocket *socket);
+
+/* Connect fixes the remote endpoint; it does not perform a handshake. */
+int @NAME@_pc_udp_connect(@TYPED@PcUdpSocket *socket, const char *ip,
+    uint16_t port, uint32_t timeout_ms, @TYPED@PcError *error);
+
+int @NAME@_pc_udp_deadline_start(const @TYPED@PcUdpSocket *socket,
+    uint32_t timeout_ms, @TYPED@PcUdpDeadline *deadline,
+    @TYPED@PcError *error);
+int @NAME@_pc_udp_deadline_remaining(const @TYPED@PcUdpSocket *socket,
+    const @TYPED@PcUdpDeadline *deadline, uint32_t *remaining_ms,
+    int *expired, @TYPED@PcError *error);
+
+/* One complete frame is sent as one UDP datagram with one OS send call. */
+int @NAME@_pc_udp_send_datagram_until(@TYPED@PcUdpSocket *socket,
+    const uint8_t *data, uint32_t length,
+    const @TYPED@PcUdpDeadline *deadline, @TYPED@PcError *error);
+int @NAME@_pc_udp_send_datagram(@TYPED@PcUdpSocket *socket,
+    const uint8_t *data, uint32_t length, uint32_t timeout_ms,
+    @TYPED@PcError *error);
+
+/* Compatibility names for a transport-neutral shared protocol binding. */
+int @NAME@_pc_udp_send_all_until(@TYPED@PcUdpSocket *socket,
+    const uint8_t *data, uint32_t length,
+    const @TYPED@PcUdpDeadline *deadline, @TYPED@PcError *error);
+int @NAME@_pc_udp_send_all(@TYPED@PcUdpSocket *socket,
+    const uint8_t *data, uint32_t length, uint32_t timeout_ms,
+    @TYPED@PcError *error);
+
+void @NAME@_pc_udp_close(@TYPED@PcUdpSocket *socket);
+int @NAME@_pc_udp_is_valid(const @TYPED@PcUdpSocket *socket);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* @MACRO@_PC_UDP_H */
