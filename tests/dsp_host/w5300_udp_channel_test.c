@@ -226,6 +226,28 @@ static void start_udp_channel(C2837xW5300UdpChannel *channel, Uint16 sn)
     finish_udp_open(channel);
 }
 
+static void set_candidate(C2837xW5300UdpChannel *channel);
+
+static void assert_runtime_cleared(const C2837xW5300UdpChannel *channel)
+{
+    assert(channel->candidate_valid == 0u);
+    assert(channel->candidate_ip == 0u && channel->candidate_port == 0u);
+    assert(channel->datagram_active == 0u);
+    assert(channel->datagram_data_size == 0u);
+    assert(channel->datagram_consumed == 0u);
+    assert(channel->send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel->pending_octets == 0u);
+    assert(channel->close_state == C2837X_W5300_UDP_CLOSE_IDLE);
+    assert(channel->faulted == 0u);
+    assert(channel->socket.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(channel->socket.command_phase ==
+           C2837X_W5300_COMMAND_PHASE_IDLE);
+    assert(channel->socket.udp_rx_datagram_active == 0u);
+    assert(channel->socket.udp_rx_data_remaining == 0u);
+    assert(channel->socket.udp_rx_residual_byte == 0u);
+    assert(channel->socket.udp_rx_residual_valid == 0u);
+}
+
 static void test_open_logical_listen_candidate_and_repeated_state(void)
 {
     C2837xW5300UdpChannel channel;
@@ -312,24 +334,167 @@ static void test_simple_close_clears_state_and_reopens(void)
     set_register(Sn_SSR(3u), SOCK_CLOSED);
     assert(c2837x_w5300_udp_iodevice_ops.close(&channel) > 0);
 
-    assert(channel.candidate_valid == 0u);
-    assert(channel.candidate_ip == 0u && channel.candidate_port == 0u);
-    assert(channel.datagram_active == 0u);
-    assert(channel.datagram_data_size == 0u);
-    assert(channel.datagram_consumed == 0u);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
-    assert(channel.pending_octets == 0u);
-    assert(channel.close_state == C2837X_W5300_UDP_CLOSE_IDLE);
-    assert(channel.faulted == 0u);
-    assert(channel.socket.udp_rx_datagram_active == 0u);
-    assert(channel.socket.udp_rx_data_remaining == 0u);
-    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert_runtime_cleared(&channel);
 
     set_register(Sn_SSR(3u), SOCK_CLOSED);
     set_rx_size(3u, 0u);
     finish_udp_open(&channel);
     assert(c2837x_w5300_udp_iodevice_ops.get_connection_state(&channel) ==
            C2837X_IODEVICE_CONNECTION_LISTENING);
+}
+
+static void finish_udp_close(C2837xW5300UdpChannel *channel)
+{
+    Uint16 sn = channel->socket.sn;
+
+    assert(c2837x_w5300_udp_iodevice_ops.close(channel) == 0);
+    if (channel->socket.pending_command !=
+        C2837X_W5300_COMMAND_NONE)
+    {
+        set_register(Sn_CR(sn), 0u);
+        assert(c2837x_w5300_udp_iodevice_ops.close(channel) == 0);
+    }
+    if (channel->close_state == C2837X_W5300_UDP_CLOSE_ISSUE)
+    {
+        assert(c2837x_w5300_udp_iodevice_ops.close(channel) == 0);
+    }
+    assert(channel->close_state == C2837X_W5300_UDP_CLOSE_WAIT_CR);
+    set_register(Sn_CR(sn), 0u);
+    assert(c2837x_w5300_udp_iodevice_ops.close(channel) == 0);
+    assert(channel->close_state == C2837X_W5300_UDP_CLOSE_WAIT_STATE);
+    set_register(Sn_SSR(sn), SOCK_CLOSED);
+    assert(c2837x_w5300_udp_iodevice_ops.close(channel) > 0);
+}
+
+static void test_close_takes_over_pending_send(void)
+{
+    static const Uint16 frame[] = {0x2211u, 0x4433u};
+    C2837xW5300UdpChannel channel;
+    Uint16 send_commands;
+
+    reset_fixture();
+    start_udp_channel(&channel, 1u);
+    set_candidate(&channel);
+    set_tx_space(1u, 4u);
+    assert(c2837x_w5300_udp_iodevice_ops.send(
+               &channel, frame, 4u) == 0);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.pending_octets == 4u);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_SEND);
+    send_commands = writes_of(Sn_CR(1u));
+
+    assert(c2837x_w5300_udp_iodevice_ops.close(&channel) == 0);
+    assert(channel.close_state ==
+           C2837X_W5300_UDP_CLOSE_WAIT_EXISTING_CR);
+    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel.pending_octets == 0u);
+    assert(writes_of(Sn_CR(1u)) == send_commands);
+
+    finish_udp_close(&channel);
+    assert(writes_of(Sn_CR(1u)) == (Uint16)(send_commands + 1u));
+    assert_runtime_cleared(&channel);
+}
+
+static void test_close_takes_over_pending_recv_and_partial_datagram(void)
+{
+    static const Uint16 frame[] = {
+        0x01u, 0x00u, 0x04u, 0x00u,
+        0x11u, 0x22u, 0x33u, 0x44u
+    };
+    C2837xW5300UdpChannel channel;
+    Uint16 words[2] = {0u, 0u};
+    Uint16 close_commands;
+
+    reset_fixture();
+    start_udp_channel(&channel, 2u);
+    set_udp_datagram(2u, 0xC0A8010Au, 0x1F90u, frame, 8u);
+    assert(c2837x_w5300_udp_iodevice_ops.get_connection_state(&channel) ==
+           C2837X_IODEVICE_CONNECTION_CONNECTED);
+    assert(c2837x_w5300_udp_iodevice_ops.receive(
+               &channel, words, 4u) == 4);
+    assert(c2837x_w5300_udp_iodevice_ops.receive(
+               &channel, words, 4u) == 4);
+    assert(channel.datagram_active != 0u);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_RECV);
+    close_commands = writes_of(Sn_CR(2u));
+
+    assert(c2837x_w5300_udp_iodevice_ops.close(&channel) == 0);
+    assert(channel.close_state ==
+           C2837X_W5300_UDP_CLOSE_WAIT_EXISTING_CR);
+    assert(channel.socket.udp_rx_datagram_active != 0u);
+    assert(channel.datagram_active != 0u);
+
+    finish_udp_close(&channel);
+    assert(writes_of(Sn_CR(2u)) == (Uint16)(close_commands + 1u));
+    assert_runtime_cleared(&channel);
+
+    set_register(Sn_SSR(2u), SOCK_CLOSED);
+    set_rx_size(2u, 0u);
+    finish_udp_open(&channel);
+    set_udp_datagram(2u, 0xC0A8010Bu, 0x1F90u, frame, 8u);
+    assert(c2837x_w5300_udp_iodevice_ops.get_connection_state(&channel) ==
+           C2837X_IODEVICE_CONNECTION_CONNECTED);
+    assert(channel.candidate_ip == 0xC0A8010Bu);
+    assert(channel.candidate_port == 0x1F90u);
+}
+
+static void test_close_clears_uncommitted_datagram_and_reacquires(void)
+{
+    static const Uint16 frame[] = {
+        0x02u, 0x00u, 0x04u, 0x00u,
+        0x11u, 0x22u, 0x33u, 0x44u
+    };
+    C2837xW5300UdpChannel channel;
+    Uint16 words[2] = {0u, 0u};
+
+    reset_fixture();
+    start_udp_channel(&channel, 3u);
+    set_udp_datagram(3u, 0xC0A8010Au, 0x1F90u, frame, 8u);
+    assert(c2837x_w5300_udp_iodevice_ops.get_connection_state(&channel) ==
+           C2837X_IODEVICE_CONNECTION_CONNECTED);
+    assert(c2837x_w5300_udp_iodevice_ops.receive(
+               &channel, words, 4u) == 4);
+    assert(channel.datagram_active != 0u);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_NONE);
+
+    finish_udp_close(&channel);
+    assert_runtime_cleared(&channel);
+
+    set_register(Sn_SSR(3u), SOCK_CLOSED);
+    set_rx_size(3u, 0u);
+    finish_udp_open(&channel);
+    set_udp_datagram(3u, 0xC0A8010Cu, 0x1F91u, frame, 8u);
+    assert(c2837x_w5300_udp_iodevice_ops.get_connection_state(&channel) ==
+           C2837X_IODEVICE_CONNECTION_CONNECTED);
+    assert(channel.candidate_ip == 0xC0A8010Cu);
+    assert(channel.candidate_port == 0x1F91u);
+
+    finish_udp_close(&channel);
+    set_register(Sn_SSR(3u), SOCK_CLOSED);
+    set_rx_size(3u, 0u);
+    finish_udp_open(&channel);
+    set_udp_datagram(3u, 0xC0A8010Au, 0x1F90u, frame, 8u);
+    assert(c2837x_w5300_udp_iodevice_ops.get_connection_state(&channel) ==
+           C2837X_IODEVICE_CONNECTION_CONNECTED);
+    assert(channel.candidate_ip == 0xC0A8010Au);
+    assert(channel.candidate_port == 0x1F90u);
+}
+
+static void test_close_timeout_fault_does_not_retry(void)
+{
+    C2837xW5300UdpChannel channel;
+    Uint16 writes_before_fault;
+
+    reset_fixture();
+    start_udp_channel(&channel, 4u);
+    set_candidate(&channel);
+    assert(c2837x_w5300_udp_iodevice_ops.close(&channel) == 0);
+    writes_before_fault = write_count;
+    now_us = 100u;
+    assert(c2837x_w5300_udp_iodevice_ops.close(&channel) < 0);
+    assert(channel.faulted != 0u);
+    assert(c2837x_w5300_udp_iodevice_ops.close(&channel) < 0);
+    assert(write_count == writes_before_fault);
 }
 
 static void test_same_peer_header_payload_and_delayed_commit(void)
@@ -472,8 +637,8 @@ static void test_invalid_physical_datagram_lengths(void)
 static void test_alien_peer_is_dropped_without_core_progress(void)
 {
     static const Uint16 empty_frame[] = {0u, 0u, 0u, 0u};
-    static const Uint16 alien_frame[] = {
-        0xFFu, 0xFFu, 0x00u, 0x00u,
+    static const Uint16 alien_sim_start[] = {
+        0x01u, 0x00u, 0x04u, 0x00u,
         0x10u, 0x20u, 0x30u, 0x40u
     };
     static const Uint16 same_frame[] = {1u, 0u, 0u, 0u};
@@ -500,7 +665,7 @@ static void test_alien_peer_is_dropped_without_core_progress(void)
     assert(channel.datagram_active == 0u);
 
     set_udp_datagram(4u, 0xC0A8010Bu, 0x1F90u,
-                     alien_frame, 8u);
+                     alien_sim_start, 8u);
     cr_before = writes_of(Sn_CR(4u));
     fifo_before = rx_fifo_index;
     assert(c2837x_w5300_udp_iodevice_ops.receive(
@@ -706,6 +871,9 @@ static void test_send_resolves_pending_recv_before_submission(void)
     channel.socket.command_phase =
         C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
     channel.socket.udp_rx_datagram_active = 1u;
+    channel.datagram_active = 1u;
+    channel.datagram_data_size = 4u;
+    channel.datagram_consumed = 4u;
     set_register(Sn_CR(3u), Sn_CR_RECV);
     send_commands_before = writes_of(Sn_CR(3u));
 
@@ -719,6 +887,9 @@ static void test_send_resolves_pending_recv_before_submission(void)
     assert(c2837x_w5300_udp_iodevice_ops.send(
                &channel, frame, 4u) == 0);
     assert(channel.socket.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(channel.datagram_active == 0u);
+    assert(channel.datagram_data_size == 0u);
+    assert(channel.datagram_consumed == 0u);
     assert(writes_of(Sn_TX_FIFOR(3u)) == 0u);
 
     assert(c2837x_w5300_udp_iodevice_ops.send(
@@ -771,6 +942,10 @@ int main(void)
 {
     test_open_logical_listen_candidate_and_repeated_state();
     test_simple_close_clears_state_and_reopens();
+    test_close_takes_over_pending_send();
+    test_close_takes_over_pending_recv_and_partial_datagram();
+    test_close_clears_uncommitted_datagram_and_reacquires();
+    test_close_timeout_fault_does_not_retry();
     test_same_peer_header_payload_and_delayed_commit();
     test_zero_payload_commits_after_header();
     test_invalid_physical_datagram_lengths();

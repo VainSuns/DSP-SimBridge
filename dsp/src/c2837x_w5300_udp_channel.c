@@ -344,6 +344,7 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
     Uint32 completed_octets;
     int32 submitted_octets;
     int16 command_result;
+    int16 commit_result;
     Uint16 status;
     Uint16 ir;
     Uint16 clear_mask;
@@ -405,9 +406,8 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
         goto send_error;
     if (channel->socket.pending_command == C2837X_W5300_COMMAND_RECV)
     {
-        command_result = c2837x_w5300_socket_advance_recv_command(
-            &channel->socket);
-        if (command_result < 0)
+        commit_result = commit_datagram(channel);
+        if (commit_result < 0)
             goto send_error;
         return 0;
     }
