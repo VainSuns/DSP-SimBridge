@@ -2,7 +2,8 @@
 
 本文说明如何把 Project V4 生成的 DSP 输出加入 Code Composer Studio
 工程，并在目标板上启动一个或多个实例。当前 DSP 输出支持 W5300/TCP、
-SCI/串口以及两者混合；实际生成文件由工程中存在的 IoDevice 类型决定。
+W5300/UDP、SCI/串口以及三者的混合；实际生成文件由工程中存在的 IoDevice
+类型决定。
 
 本文只描述代码集成和用户责任。CCS 编译、下载、目标板运行和双实例实机
 收发不在本次文档更新中执行。
@@ -45,16 +46,28 @@ src/c2837x_block_project.c
 
 ### W5300 条件文件
 
-只要工程中存在 W5300 实例，还会生成：
+只要工程中存在 W5300/TCP 或 W5300/UDP 实例，就会生成共享 W5300 文件：
 
 ~~~text
 inc/c2837x_w5300_regs.h
 inc/c2837x_w5300_hal.h
 inc/c2837x_w5300_socket.h
-inc/c2837x_w5300_channel.h
 src/c2837x_w5300_hal.c
 src/c2837x_w5300_socket.c
+~~~
+
+只有存在 W5300/TCP 实例时才生成 TCP channel：
+
+~~~text
+inc/c2837x_w5300_channel.h
 src/c2837x_w5300_channel.c
+~~~
+
+只有存在 W5300/UDP 实例时才生成 UDP channel：
+
+~~~text
+inc/c2837x_w5300_udp_channel.h
+src/c2837x_w5300_udp_channel.c
 ~~~
 
 ### SCI 条件文件
@@ -66,8 +79,9 @@ inc/c2837x_block_sci.h
 src/c2837x_block_sci.c
 ~~~
 
-因此 SCI-only 工程不应从旧 W5300 工程手工带入 W5300 源文件；混合工程则
-需要两组条件文件。生成器会在项目描述中设置平台能力标志，使平台初始化
+因此 SCI-only 工程不应从旧 W5300 工程手工带入 W5300 源文件；TCP-only、
+UDP-only、TCP+UDP、UDP+SCI 和 TCP+UDP+SCI 工程分别只加入本次 Generate
+实际列出的条件文件。生成器会在项目描述中设置平台能力标志，使平台初始化
 只启用当前工程存在的传输。
 
 ### 实例文件
@@ -162,7 +176,8 @@ C2837xBlock_Error error =
 当前 PlatformInit 顺序是：
 
 1. 初始化 Timer2。
-2. 若工程含 W5300，初始化 W5300、片上/外部存储配置和网络参数。
+2. 若工程含 W5300/TCP 或 W5300/UDP，初始化 W5300、片上/外部存储配置和
+   网络参数；W5300 platform 只初始化一次。
 3. 若工程含 SCI，检查 SCI descriptor，设置 SCI 使用的 LSPCLK，再初始化
    SCI GPIO 复用、pin options 和 SCI 外设。
 4. 完成平台初始化并返回成功或平台错误。
@@ -204,12 +219,17 @@ App 能力文件只保证生成配置在目标能力范围内，不会验证目�
 
 | 工程类型 | 需要的传输源 | PlatformInit 行为 |
 | --- | --- | --- |
-| 仅 W5300 | W5300 HAL/socket/channel | 初始化 W5300 与网络 |
+| 仅 W5300/TCP | W5300 HAL/socket/TCP channel | 初始化 W5300 与网络 |
+| 仅 W5300/UDP | W5300 HAL/socket/UDP channel | 初始化 W5300 与网络 |
+| W5300/TCP + W5300/UDP | 一份 W5300 HAL/socket + 两类 channel | 共享一次 W5300 与网络初始化 |
 | 仅 SCI | SCI 头文件与 c 文件 | 设置 LSPCLK 并初始化 SCI |
-| 混合 | 两组传输源都需要 | 按生成 descriptor 启用两种设备 |
+| W5300/TCP 或 W5300/UDP + SCI | 对应 W5300 文件与 SCI 文件 | 按生成配置启用 W5300/网络与 SCI |
+| W5300/TCP + W5300/UDP + SCI | W5300 common、TCP channel、UDP channel、SCI | 共享一次 W5300/网络并初始化 SCI |
 
 网络字段在 Project V4 中始终存在，但 SCI-only 工程不会因这些字段被用于
-SCI 运行时；App 只在有 W5300 实例时执行网络语义验证。
+SCI 运行时；App 只在有任意 W5300 实例时执行网络语义验证和 W5300 reserved
+resource validation。TCP 与 UDP instance channel/IoDevice Ops 保持静态私有
+绑定，不共享一个 instance state。
 
 ## 7. 双实例注意事项
 
@@ -229,7 +249,7 @@ loop:
 ~~~
 
 现有 [dual_instance_main.c](examples/dual_instance_main.c) 是仓库中的双
-W5300 示例，可用于理解 main 的调用顺序。混合 W5300/SCI 工程应以本次
+W5300/TCP 示例，可用于理解 main 的调用顺序。W5300/UDP 或混合工程应以本次
 Generate 的 c2837x_block_project.h/.c 和实例符号为准，不要照抄旧实例名
 或旧传输初始化代码。
 
@@ -243,8 +263,10 @@ W5300 初始化/内存/网络和 SCI 初始化。失败后应用应记录错误�
 传输类别、阶段以及 SCI 的 requested/actual baud 等诊断信息。应用代码应
 保留这些诊断，不要在 main 中静默清除后继续通信。
 
-当前通信实现没有自动重连、重试、重发或固定 sleep。目标板复位、线缆、
-收发器或参数变化后，应由上层停止并重新初始化整个会话。
+当前通信实现没有自动重连、重试、重发或固定 sleep。UDP 也不提供 ACK/NAK、
+heartbeat、keepalive、peer takeover 或 IP fragmentation based larger-frame
+支持；目标板复位、线缆、收发器或参数变化后，应由上层停止并重新初始化
+整个会话。
 
 ## 9. CCS 集成检查清单
 
@@ -255,7 +277,8 @@ W5300 初始化/内存/网络和 SCI 初始化。失败后应用应记录错误�
 - 工程 ABI 与 Project V4 一致；
 - F28x_Project.h、TI device support 和链接文件来自目标工程；
 - SCI descriptor 的 module、RX/TX GPIO、baud 和 CTRL 电平与硬件一致；
-- 混合工程同时包含两类传输的条件文件；
+- 混合工程同时包含本次 Generate 列出的 TCP、UDP、SCI 条件文件；W5300 common
+  源文件只加入一次；
 - 所有实例的 algorithm、I/O 和配置源文件来自同一生成批次；
 - PlatformInit 在 Init/Run 之前且只调用一次；
 - PlatformInit 失败路径不会进入 Run；
@@ -266,9 +289,17 @@ W5300 初始化/内存/网络和 SCI 初始化。失败后应用应记录错误�
 | 项目 | 状态 |
 | --- | --- |
 | 源文件/头文件清单与当前生成器 | 已按当前实现核对 |
+| W5300/TCP、W5300/UDP、SCI 条件生成和静态绑定 | 已按当前实现核对 |
 | Project V4、SCI descriptor 和 PlatformInit 顺序 | 已按当前实现核对 |
+| UDP-S6-01 TI generated-source result | 11/11 compile-only PASS |
+| UDP MEX result | `axis_udp_sfun.mexw64` = PASS |
 | DSP/CCS target build | NOT_EXECUTED / 待用户编译 |
 | CCS 编译 | 未执行 |
 | DSP 下载/运行 | 未执行 |
 | SCI 实际收发和双实例目标板 | 未执行 |
+| W5300 UDP hardware PIL | USER_VALIDATION_PENDING |
 | 用户最终 CCS 工程验证 | 待用户验证 |
+
+上述 TI 结果只表示 11 个代表性 generated UDP C source 的 compile-only
+能力证据，不表示完整 CCS project build、link、download 或 board execution
+PASS。最终 UDP FR audit 仍 pending UDP-S6-03，UDP-G6 未声明。

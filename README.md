@@ -2,22 +2,18 @@
 
 DSP-SimBridge 是面向 TI TMS320F28377D PTP 目标的 Simulink S-Function
 与 DSP 侧运行时桥接工程。当前产品格式为 Project V4，支持在同一个工程中
-配置多个实例，并按实例选择 W5300/TCP 或 SCI/串口传输。
+配置多个实例，并按实例选择 W5300/TCP、W5300/UDP 或 SCI/串口传输。
 
 本文档描述当前可交付的使用边界。与旧工程格式有关的内容仅放在迁移章节，
 不应作为新工程的配置方法。
 
 ## 当前状态
 
-DSP-SimBridge 当前已完成 Project V4、多实例、W5300/TCP、SCI IoDevice、
-Windows SCI S-Function 和代表性硬件 bring-up。SCI IoDevice v1.0
-development cycle = COMPLETE；软件实现、文档、FR-001～FR-095 final
-traceability 和 development evidence 均已完成。当前验证范围与未覆盖边界见
-[当前验证状态](#当前验证状态)。
-
-当前 UDP 周期仅完成 Frozen requirements、approved implementation plan
-与历史 SCI 入口的 Repository 切换；`w5300_udp` 尚未实现，也没有 UDP
-产品测试或硬件验证 PASS 结论。
+DSP-SimBridge 当前已完成 Project V4、多实例、W5300/TCP、W5300/UDP、SCI
+IoDevice、Windows SCI S-Function，以及 UDP 的软件、生成和代表性编译闭环。
+历史 SCI IoDevice v1.0 development cycle = COMPLETE；其历史 requirements、
+plan 和 traceability 继续保存在 archive。当前 UDP 验证范围与未覆盖边界见
+[当前验证状态](#当前验证状态)；UDP 最终 FR audit 仍保留给 UDP-S6-03。
 
 ## 当前版本与能力
 
@@ -30,15 +26,15 @@ traceability 和 development evidence 均已完成。当前验证范围与未覆
 | 封装 | <code>PTP</code> |
 | ABI | <code>eabi</code> 或 <code>coffabi</code> |
 | Wire | 小端字节序，固定协议版本 1 |
-| 传输 | W5300/TCP、SCI/串口，可混合使用 |
+| 传输 | W5300/TCP、W5300/UDP、SCI/串口，可混合使用 |
 | SCI 时钟 | SYSCLK 200 MHz，LOSPCP = 2，LSPCLK divisor = /4，LSPCLK = 50 MHz |
 | SCI 支持 | SCI-A、SCI-B、SCI-C、SCI-D |
 | Requested Baud options | 9600、19200、38400、57600、115200 |
 | SCI PC 侧 | Windows MEX，Simulink Normal mode |
 
 每个实例独立保存 I/O、算法、采样时间、最大 payload 和传输配置。实例之间
-共享协议与平台初始化代码，但资源仍按实际 SCI 模块、GPIO、W5300 socket
-和 TCP 端口做冲突检查。
+共享协议与平台初始化代码，但资源仍按实际 SCI 模块、GPIO、W5300 socket、
+TCP 端口和 UDP 端口做冲突检查；TCP 与 UDP 的 port namespace 分离。
 
 ## 架构概览
 
@@ -46,15 +42,16 @@ traceability 和 development evidence 均已完成。当前验证范围与未覆
 App / Project V4
         |
         +--> DSP output: common core + project + instance files
-        |                 + W5300 files when a W5300 instance exists
+        |                 + W5300 files when a TCP or UDP instance exists
         |                 + SCI files when an SCI instance exists
         |
         +--> S-Function output: one 11-file set per instance
-                          + pc_socket pair for W5300
+                          + pc_socket pair for W5300/TCP
+                          + pc_udp pair for W5300/UDP
                           + pc_serial pair for SCI
         |
         +--> Simulink block
-              W5300: zero S-Function parameters
+              W5300/TCP and W5300/UDP: zero S-Function parameters
               SCI: one COM Port Number parameter
 ~~~
 
@@ -97,7 +94,8 @@ algorithm
 interface_hash
 ~~~
 
-W5300 实例使用 <code>socket_number</code> 和 <code>tcp_port</code>。SCI 实例使用：
+W5300/TCP 实例使用 <code>socket_number</code> 和 <code>tcp_port</code>；
+W5300/UDP 实例使用 <code>socket_number</code> 和 <code>udp_port</code>。SCI 实例使用：
 
 ~~~text
 module
@@ -112,13 +110,14 @@ ctrl_pin_type
 ctrl_tx_active_level
 ~~~
 
-SCI 项目不保存 COM 号，也不保存 <code>com_port</code> 或 W5300 的 socket/TCP
+SCI 项目不保存 COM 号，也不保存 <code>com_port</code> 或 W5300 的 socket/TCP/UDP
 字段。COM 号属于 Simulink S-Function 参数；SCI 引脚必须由目标能力文件和
-当前工程资源共同验证。
+当前工程资源共同验证。UDP 不在 Project 中保存 PC local UDP port 或 peer
+port。
 
-<code>common.network</code> 在 V4 结构中始终存在，但只有包含 W5300 实例的
-工程才对网络字段执行语义检查。SCI-only 工程仍需保存合法的结构字段；这不
-表示 SCI 运行时会访问网络。
+<code>common.network</code> 在 V4 结构中始终存在，但只有包含 W5300/TCP 或
+W5300/UDP 实例的工程才对网络字段执行语义检查。SCI-only 工程仍需保存合法
+的结构字段；这不表示 SCI 运行时会访问网络。
 
 V2、V3 和旧顶层 <code>config</code> 的迁移规则见
 [App 项目与迁移指南](docs/app_project_and_migration_guide.md)。迁移只在加载
@@ -150,6 +149,7 @@ external_reference 都要求 source_path 指向可读取的用户 C 源。修改
    | 传输 | 必填/关键设置 |
    | --- | --- |
    | W5300/TCP | socket number、TCP port |
+   | W5300/UDP | socket number、UDP port |
    | SCI/串口 | SCI Module、Requested Baud、RX GPIO、TX GPIO；CTRL GPIO 可选 |
 
    SCI 的 RX/TX 是独立端点，可分别属于当前模块的不同 GPIO 候选。选择
@@ -164,9 +164,10 @@ external_reference 都要求 source_path 指向可读取的用户 C 源。修改
    - [Simulink/MEX 使用指南](docs/simulink_mex_user_guide.md)
 
 6. SCI S-Function 在 Simulink 中填写 COM Port Number；这是正整数、
-   有限、非复数、可表示为 <code>uint32</code> 的标量。W5300 S-Function 没有参数。
+   有限、非复数、可表示为 <code>uint32</code> 的标量。W5300/TCP 与 W5300/UDP
+   S-Function 都没有参数；DSP IP、TCP port 或 UDP port 来自生成配置。
 7. 更新模型后重新编译受影响的 MEX，并以 Normal mode 运行。首次联调还需
-   按目标板实际 SCI 模块、GPIO 复用、收发器和电平检查硬件连接。
+   按目标板实际网络、SCI 模块、GPIO 复用、收发器和电平检查硬件连接。
 
 ## 生成输出
 
@@ -178,7 +179,8 @@ src/
 ~~~
 
 所有工程都有公共核心、协议、平台、Timer2、项目描述和实例文件；W5300
-传输文件仅在存在 W5300 实例时生成，SCI 文件仅在存在 SCI 实例时生成。
+公共文件仅在存在 TCP 或 UDP 实例时生成，TCP channel、UDP channel 和 SCI
+文件分别按实际 IoDevice 条件生成。
 每个实例还生成独立的配置、用户配置、算法头文件和 I/O 文件。算法 source 是否
 来自 generated_example、external_copy 或 external_reference，遵循上面的
 三种 mode 合同。
@@ -192,15 +194,16 @@ src/
 <name>_sfun_config.h
 <name>_sfun_user_config.h
 <name>_pc_error.h
-<name>_<pc_socket|pc_serial>.c
-<name>_<pc_socket|pc_serial>.h
+<name>_<pc_socket|pc_udp|pc_serial>.c
+<name>_<pc_socket|pc_udp|pc_serial>.h
 <name>_protocol.c
 <name>_protocol.h
 build_<name>_sfun.m
 ~~~
 
-SCI 实例使用 <code>pc_serial</code>，W5300 实例使用 <code>pc_socket</code>。构建脚本按实例
-显式列出源文件和头文件，不依赖整个目录通配；App 只生成文件和构建脚本，
+W5300/TCP 实例使用 <code>pc_socket</code>，W5300/UDP 实例使用 <code>pc_udp</code>，
+SCI 实例使用 <code>pc_serial</code>。构建脚本按实例显式列出源文件和头文件，
+不依赖整个目录通配；App 只生成文件和构建脚本，
 不会自动调用 MEX、修改 MATLAB path 或更新 Simulink 模型。
 
 ## DSP 集成
@@ -290,9 +293,27 @@ max_payload_size_bytes
 候选失效并需要重新 Generate，但不会改变接口 hash；修改端口、类型、维度、
 顺序或最大 payload 才会改变 hash。
 
+## UDP 使用合同
+
+W5300/UDP 使用 V1 wire protocol 的物理 Datagram 边界：一个完整 V1 Frame
+对应一个 UDP datagram。UDP physical datagram 最大为 1472 octets，其中 V1
+header 为 4 octets，因此 UDP payload 最大为 1468 octets。Project/App 会拒绝
+超过 1468 的 UDP instance payload；不会把 UDP 当作可靠传输，也不提供 ACK/NAK、
+retry、retransmission、reorder buffer、duplicate suppression、heartbeat、
+keepalive、automatic reconnect/resume、peer takeover 或基于 IP fragmentation
+的更大 frame 支持。
+
+PC UDP local port 由操作系统分配为 ephemeral port，Project 不持久化该端口。
+PC 的 UDP <code>connect()</code> 只固定 DSP remote endpoint，不证明 DSP 可达；
+真正的启动成功是 <code>SIM_START -&gt; RESPONSE</code>。DSP 从 W5300 UDP
+PACKET-INFO 学习 SIM_START 的 source IP 和 source port；合法 SIM_START 成功后
+该 endpoint 成为 session peer，active session 只接受该 peer，其他 sender 的
+datagram 静默丢弃。详细的 startup/step/terminate 和 timeout 合同见
+[Simulink/MEX 使用指南](docs/simulink_mex_user_guide.md)。
+
 ## Simulink 与 MEX
 
-两种传输的生命周期都包含初始化、启动会话、按 step 交换数据和终止会话。
+三种传输的生命周期都包含初始化、启动会话、按 step 交换数据和终止会话。
 SCI 的启动流程额外包含 COM 参数解析、串口独占打开、8N1 配置和显式清空
 RX/TX 队列。SCI 只支持 Windows MEX 和 Simulink Normal mode，生成代码中
 会拒绝非 Normal mode 的 MATLAB MEX 用法；W5300 构建脚本可接受 Windows 和
@@ -309,30 +330,43 @@ SCI 不会自动重连、重试或重发，不使用固定 sleep，也不使用 
 
 | 范围 | 状态 |
 | --- | --- |
-| Project V4、多实例、W5300/TCP、SCI IoDevice、Windows SCI S-Function | COMPLETE |
-| FR-001～FR-095 final traceability | COMPLETE |
-| Representative single SCI hardware | PASS（用户提供的代表性硬件结果） |
-| Representative single W5300 hardware | PASS（用户提供的代表性硬件结果） |
-| Representative 1 SCI + 1 W5300 mixed hardware | PASS（用户提供的代表性硬件结果） |
-| DSP/CCS target build | NOT_EXECUTED |
-| Real COM hardware | NOT_EXECUTED |
+| Project V4、多实例、W5300/TCP、W5300/UDP、SCI IoDevice、Windows SCI S-Function | COMPLETE（开发侧） |
+| UDP-S6-01 software/build evidence | 297 passed / 0 failed / 3 incomplete |
+| UDP Project/App | 225 passed / 0 failed / 3 incomplete |
+| DSP host/mock UDP | 9 passed / 0 failed / 0 incomplete |
+| Relevant TCP regression | 26 passed / 0 failed / 0 incomplete |
+| PC real localhost UDP | 30 passed / 0 failed / 0 incomplete |
+| Mixed deterministic generation | 7 passed / 0 failed / 0 incomplete |
+| Frozen-required coverage gap | NONE |
+| Representative generated UDP MEX (`axis_udp_sfun.mexw64`) | PASS |
+| Representative generated TI UDP DSP sources | 11/11 compile-only PASS |
+| Historical SCI-cycle representative hardware evidence | PASS（历史 SCI evidence；不是 UDP hardware 结果） |
+| Historical SCI-cycle representative W5300/TCP evidence | PASS（历史 SCI evidence；不是 UDP hardware 结果） |
+| W5300 UDP hardware PIL | USER_VALIDATION_PENDING |
+| Real COM hardware | NOT_EXECUTED / historical SCI scope |
 | Real Simulink communication | NOT_EXECUTED |
 | Multi-SCI hardware | NOT_EXECUTED / NOT_REQUIRED |
 | Half-duplex hardware | NOT_EXECUTED |
 | Full Baud/GPIO matrix | NOT_EXECUTED / NOT_REQUIRED |
 | Long-duration stability matrix | NOT_EXECUTED / NOT_REQUIRED |
-| Final LSPCLK hardware confirmation | USER_VALIDATION_PENDING |
+| Final LSPCLK hardware confirmation | USER_VALIDATION_PENDING（历史 SCI scope） |
 | 用户最终 CCS / Simulink / MEX 联调 | USER_VALIDATION_PENDING |
 
-上述 PASS 仅覆盖列出的代表性单实例和 1 SCI + 1 W5300 场景；不能推断
+上述历史 PASS 仅覆盖列出的 SCI 周期代表性单实例和 1 SCI + 1 W5300/TCP
+场景；不能推断
 SCI-A/B/C/D 全部通过、五个 Requested Baud、全部 RX/TX GPIO、CTRL/half-duplex、
-multi-SCI、完整 mixed 组合、长期稳定性或最终 LSPCLK 寄存器确认已通过。
+multi-SCI、完整 mixed 组合、长期稳定性或最终 LSPCLK 寄存器确认已通过。UDP 软件
+证据中的 3 个 incomplete 是 Windows platform assumption filtering of Unix permission tests，不是失败；
+不得改写为 300/300 passed。TI 结果是 compile-only，不是完整 CCS project build、
+link、download 或 board execution PASS。UDP hardware PIL 仍待用户验证。
 
 ## 已知边界
 
 - SCI PC 侧为 Windows-only；串口使用独占打开，COM 号由 S-Function 参数提供。
 - SCI DSP 侧为轮询实现，没有中断或 DMA 通道。
 - 当前没有自动重连、重试、重发、固定 sleep 或 autobaud 流程。
+- UDP 不提供 ACK/NAK、retry、retransmission、heartbeat、keepalive、peer takeover
+  或更大 IP-fragmented frame；丢失 SIM_STOP 依靠 DSP interaction timeout 清理。
 - CTRL GPIO 是可选的；若使用，必须通过能力和资源验证。
 - S-Function 输出为桌面 MEX/Normal mode 运行路径，不承诺 Accelerator、
   Rapid Accelerator、模型代码生成或并行 MEX。
@@ -346,10 +380,12 @@ multi-SCI、完整 mixed 组合、长期稳定性或最终 LSPCLK 寄存器确�
 - [Historical SCI requirements](requirements/archive/requirements_sci_iodevice_v1.0_frozen.md)
 - [Historical SCI implementation plan](docs/archive/plan_sci_iodevice_v1.0_completed.md)
 - [Historical SCI traceability](docs/archive/requirements_traceability_sci_iodevice_v1.0_completed.md)
-- UDP FR-001～FR-082 的最终追踪矩阵属于后续 UDP-S6 任务，当前未创建。
+- [Current UDP requirements traceability](docs/requirements_traceability.md)
 - [App 项目与迁移指南](docs/app_project_and_migration_guide.md)
 - [CCS 集成与双实例 main](docs/ccs_integration_and_dual_instance_main.md)
 - [Simulink/MEX 使用指南](docs/simulink_mex_user_guide.md)
 - [V1 protocol vectors](Protocol_Test_Vectors.md)
 
-历史材料保留在 archive 目录中，仅用于历史追溯。
+历史材料保留在 archive 目录中，仅用于历史追溯。当前 UDP traceability 是
+development evidence map，不是 FR-001～FR-082 final audit；final audit =
+PENDING UDP-S6-03，UDP-G6 未声明。

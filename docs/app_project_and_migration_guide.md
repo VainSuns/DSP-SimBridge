@@ -2,7 +2,8 @@
 
 本文说明 C2837xBlockConfigurator 当前使用的 Project V4 结构、实例配置、
 资源验证、保存/加载行为以及旧工程迁移。当前新工程使用 V4；V2/V3 只作为
-兼容输入格式，不是新工程的编辑格式。
+兼容输入格式，不是新工程的编辑格式。当前 IoDevice 为 W5300/TCP、W5300/UDP
+和 SCI，三者可以出现在同一个多实例工程中。
 
 ## 1. 当前合同
 
@@ -10,13 +11,15 @@
 | --- | --- |
 | Project format | V4 |
 | Protocol version | 1 |
+| Wire protocol version | 1 |
+| Core API version | 2 |
 | DSP model | TMS320F28377D |
 | Package | PTP |
 | Wire byte order | little-endian |
 | ABI | eabi 或 coffabi |
-| IoDevice | w5300_tcp、sci |
+| IoDevice | w5300_tcp、w5300_udp、sci |
 
-工程可以包含多个实例，也可以在同一工程中混合 W5300/TCP 和 SCI/串口。
+工程可以包含多个实例，也可以混合 W5300/TCP、W5300/UDP 和 SCI/串口。
 每个实例的传输资源单独验证；公共网络结构仍属于 Project V4。
 
 ## 2. Project V4 持久化字段
@@ -104,7 +107,7 @@ external_copy 和 external_reference 都要求 source_path 指向可读取的用
 外部 C 源。修改 external_copy 的源文件后必须重新 Generate；修改
 external_reference 的源文件由用户 CCS 工程自行管理。
 
-### W5300 实例字段
+### W5300/TCP 实例字段
 
 当 iodevice.type = w5300_tcp 时，IoDevice 字段为：
 
@@ -114,8 +117,30 @@ socket_number
 tcp_port
 ~~~
 
-默认值为 socket 0、TCP port 5000。App 添加 W5300 实例或复制 W5300 实例时，
+默认值为 socket 0、TCP port 5000。App 添加 W5300/TCP 实例或复制 W5300/TCP
+实例时，
 会从可用资源中选择新的 socket/port，避免直接复制出冲突。
+
+### W5300/UDP 实例字段
+
+当 `iodevice.type = w5300_udp` 时，canonical IoDevice 字段只有：
+
+~~~text
+type
+socket_number
+udp_port
+~~~
+
+默认值为：
+
+~~~text
+socket_number = 0
+udp_port      = 5000
+~~~
+
+UDP 不保存 `tcp_port`、PC local UDP port、peer port 或 remote IP。UDP
+`max_payload_size_bytes` 是实例的公共 payload 字段，必须不超过 1468；它不是
+UDP IoDevice canonical settings 的替代字段。
 
 ### SCI 实例字段
 
@@ -155,7 +180,7 @@ SCI 支持模块 SCI-A、SCI-B、SCI-C、SCI-D，支持 baud 9600、19200、3840
 它们不要求使用同一个 GPIO。CTRL GPIO 可以为 None，也可以选择能力文件
 允许的 GPIO。
 
-V4 SCI 不包含 pin_group、com_port 或 W5300 的 socket/TCP 字段。COM 号只在
+V4 SCI 不包含 pin_group、com_port 或 W5300 的 socket/TCP/UDP 字段。COM 号只在
 Simulink SCI S-Function 中作为一个参数出现。
 
 ## 3. 新建、添加、切换和复制实例
@@ -171,13 +196,14 @@ Gateway = 192.168.1.1
 Subnet  = 255.255.255.0
 ~~~
 
-添加实例的默认 IoDevice 是 W5300/TCP。若选择 W5300，App 会分配第一个可用
-socket 和 TCP port；若切换为 SCI，则使用 SCI 默认字段，并等待用户选择
-module、RX/TX GPIO 等配置。
+添加实例的默认 IoDevice 是 W5300/TCP。若选择 W5300/TCP，App 会分配第一个
+可用 socket 和 TCP port；选择 W5300/UDP 时使用 `socket_number = 0`、
+`udp_port = 5000` 的 canonical defaults，并由当前资源校验检查冲突；若切换
+为 SCI，则使用 SCI 默认字段，并等待用户选择 module、RX/TX GPIO 等配置。
 
 ### 传输切换
 
-切换实例的 IoDevice 类型会建立该类型的新设置，同时保留实例的：
+切换实例的 IoDevice 类型会重建目标类型的 canonical settings，同时保留实例的：
 
 ~~~text
 display_name
@@ -189,15 +215,19 @@ outputs
 algorithm
 ~~~
 
-切换为 SCI 会得到 SCI 默认 module/RX/TX/CTRL 选择状态；切换回 W5300 会得到
-W5300 默认资源状态并重新执行资源验证。原传输类型专有字段不会混入新类型。
+切换为 SCI 会得到 SCI 默认 module/RX/TX/CTRL 选择状态；切换为 W5300/TCP
+或 W5300/UDP 会得到对应类型的 canonical defaults 并重新执行资源验证。原
+传输类型专有字段不会保留或混入新类型；例如 UDP 不会保留 `tcp_port`，TCP
+也不会保留 `udp_port`。
 
 ### 复制实例
 
 复制会生成新的 display name 和 internal name，并复制采样时间、最大 payload、
-I/O 和 algorithm。复制 W5300 时 App 分配新的 socket/TCP port；复制 SCI 时
-不复制 module 或 GPIO 的独占资源，module、RX GPIO、TX GPIO 和 CTRL GPIO
-会清空为待选择状态，baud 与 pin type/qualification 默认保持可用值。
+I/O 和 algorithm。复制 W5300/TCP 时 App 分配新的 socket/TCP port。复制
+W5300/UDP 时 App 要求用户明确输入新的 Socket Number 和 UDP Port；不会自动
+猜测或分配新的 UDP 资源，重复资源由 Preview/Validate 阻断。复制 SCI 时不
+复制 module 或 GPIO 的独占资源，module、RX GPIO、TX GPIO 和 CTRL GPIO 会清空
+为待选择状态，baud 与 pin type/qualification 默认保持可用值。
 
 复制得到的新实例 interface_hash 从默认值开始，需在 Generate 前通过当前
 接口计算和验证。
@@ -222,12 +252,27 @@ App Preview/Validate 会检查：
 - 同一工程内 SCI module 是否重复；
 - RX/TX/CTRL GPIO 是否与其他 SCI 实例或活动平台资源冲突；
 - SCI 实例数是否超过 4；
-- W5300 socket、TCP port 和网络字段是否满足各自规则；
+- W5300 socket、TCP/UDP port、UDP payload 和网络字段是否满足各自规则；
 - I/O、算法、输出目录和接口 payload 是否满足 Project V4 合同。
 
 SCI-only 工程不会因为 common.network 中的 IP 或网关字段而执行 W5300
 网络语义检查；但是这些字段仍必须存在且通过结构验证。只要工程中有一个
-W5300 实例，就会对网络字段执行对应的语义检查。
+W5300/TCP 或 W5300/UDP 实例，就会对网络字段和既有 W5300 Platform Reserved
+Resources 执行对应的语义检查。
+
+W5300 Socket `0..7` 在 TCP 与 UDP 之间全局唯一；TCP port 只在 TCP namespace
+内唯一，UDP port 只在 UDP namespace 内唯一。因此相同数值的 TCP port 和
+UDP port 合法，但同一个 Socket 或同一 namespace 内的重复 port 会被阻断。
+UDP port 的范围是 `1..65535`，`max_payload_size_bytes` 的上限是 `1468`，
+超过上限会报告 validation error，不会自动 clamp。
+
+Transport summary 使用统一格式：
+
+~~~text
+W5300 TCP: Socket n / TCP port
+W5300 UDP: Socket n / UDP port
+SCI:       Module / baud
+~~~
 
 ### 资源冲突处理
 
@@ -381,7 +426,8 @@ socket、TCP port、sample time、最大 payload、I/O 和 algorithm。旧 ABI �
 - SCI module、RX/TX GPIO、可选 CTRL GPIO 与目标接线一致；
 - SCI module/GPIO 没有与其他实例或平台资源冲突；
 - Requested Baud 与 DSP 侧使用的生成配置一致；
-- W5300 工程的网络、socket 和 TCP port 正确；
+- W5300/TCP 工程的网络、socket 和 TCP port 正确；
+- W5300/UDP 工程的网络、socket、UDP port 和最大 payload（不超过 1468）正确；
 - I/O 顺序、类型、维度和最大 payload 与 Simulink 模型一致；
 - 输出根目录可写，外部 algorithm source_path 存在且属于用户工程；
 - Preview 无结构、能力、资源、接口或输出目录错误；
@@ -395,4 +441,7 @@ socket、TCP port、sample time、最大 payload、I/O 和 algorithm。旧 ABI �
 - SCI DSP 侧是轮询实现，没有中断或 DMA。
 - 当前没有自动重连、重试、重发、固定 sleep 或 autobaud。
 - 目标板 TI device support、链接脚本、外部算法和物理收发器由用户工程负责。
-- 本指南描述 SCI-S5-03 当前文档合同；后续阶段的测试或交付结论不属于本指南。
+- 本指南描述当前 UDP 周期的 Project/App 文档合同；历史 SCI 需求、计划和
+  traceability 仍位于 archive，UDP 软件证据和 FR map 见
+  [当前 UDP requirements traceability](requirements_traceability.md)。本指南
+  不提前声明 UDP-S6-03 final audit 或 UDP-G6。
