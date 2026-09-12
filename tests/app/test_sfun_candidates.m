@@ -53,13 +53,116 @@ classdef test_sfun_candidates < matlab.unittest.TestCase
             testCase.verifyTrue(all(cellfun(@(path) contains(path, ...
                 [project.output.sfun_root filesep]), {first.target_path})));
             testCase.verifyFalse(isfolder(project.output.sfun_root));
-            testCase.verifyNumElements(dependencies, 14);
+            testCase.verifyNumElements(dependencies, 12);
             testCase.verifyTrue(all(cellfun(@isfile, {dependencies.source_path})));
+            dependencyPaths = {dependencies.source_path};
+            testCase.verifyTrue(any(endsWith(dependencyPaths, ...
+                fullfile('templates', 'pc_socket.c.in'))));
+            testCase.verifyFalse(any(endsWith(dependencyPaths, ...
+                fullfile('templates', 'pc_udp.c.in'))));
+            testCase.verifyFalse(any(endsWith(dependencyPaths, ...
+                fullfile('simulink', 'c2837x_block_pc_serial.c'))));
             testCase.verifyEmpty(c2837x_block_validate_candidate_files(first));
             [comparisons, comparisonIssues] = ...
                 c2837x_block_compare_candidate_files(first);
             testCase.verifyEmpty(comparisonIssues);
             testCase.verifyEqual({comparisons.target_state}, repmat({'missing'}, 1, 22));
+        end
+
+        function testS503ExplicitTransportClosuresAndUnknownFailure(testCase)
+            types = {'w5300_tcp', 'w5300_udp', 'sci'};
+            transportNames = {'pc_socket', 'pc_udp', 'pc_serial'};
+            for index = 1:numel(types)
+                project = single_transport_project(testCase.WorkFolder, ...
+                    types{index});
+                model = c2837x_block_build_sfun_output_model(project);
+                modelNames = candidate_names_from_paths(model.files);
+                name = project.instances.internal_name;
+                expected = { ...
+                    [name '_sfun.c'], [name '_sfun.h'], ...
+                    [name '_sfun_io.c'], [name '_sfun_config.h'], ...
+                    [name '_sfun_user_config.h'], [name '_pc_error.h'], ...
+                    [name '_' transportNames{index} '.c'], ...
+                    [name '_' transportNames{index} '.h'], ...
+                    [name '_protocol.c'], [name '_protocol.h'], ...
+                    ['build_' name '_sfun.m']};
+                testCase.verifyEqual(modelNames, expected);
+
+                [candidates, dependencies] = ...
+                    c2837x_block_build_sfun_candidates(project);
+                testCase.verifyEqual(candidate_names(candidates), expected);
+                selected = instance_text(candidates, 1);
+                buildText = candidate_text_by_name(candidates, ...
+                    ['build_' name '_sfun.m']);
+                dependencyPaths = {dependencies.source_path};
+                switch types{index}
+                    case 'w5300_tcp'
+                        testCase.verifySubstring(selected.header, ...
+                            'AxisTcpPcSocket socket;');
+                        testCase.verifySubstring(selected.config, ...
+                            'AXIS_TCP_SFUN_TCP_PORT');
+                        testCase.verifyTrue(any(endsWith(dependencyPaths, ...
+                            fullfile('templates', 'pc_socket.c.in'))));
+                        testCase.verifySubstring(buildText, ...
+                            [name '_pc_socket.c']);
+                        testCase.verifyEmpty(strfind(buildText, 'pc_udp'));
+                        testCase.verifyEmpty(strfind(buildText, 'pc_serial'));
+                        testCase.verifyFalse(any(endsWith(dependencyPaths, ...
+                            fullfile('templates', 'pc_udp.c.in'))));
+                        testCase.verifyFalse(any(endsWith(dependencyPaths, ...
+                            fullfile('simulink', 'c2837x_block_pc_serial.c'))));
+                    case 'w5300_udp'
+                        testCase.verifySubstring(selected.source, ...
+                            'axis_udp_pc_udp_init(&context->socket');
+                        testCase.verifySubstring(selected.header, ...
+                            'AxisUdpPcUdpSocket socket;');
+                        testCase.verifySubstring(selected.config, ...
+                            'AXIS_UDP_SFUN_UDP_PORT');
+                        testCase.verifyEmpty(strfind(selected.source, 'pc_socket'));
+                        testCase.verifyEmpty(strfind(selected.config, 'TCP_PORT'));
+                        testCase.verifyTrue(any(endsWith(dependencyPaths, ...
+                            fullfile('templates', 'pc_udp.c.in'))));
+                        testCase.verifySubstring(buildText, ...
+                            [name '_pc_udp.c']);
+                        testCase.verifySubstring(buildText, ...
+                            [name '_pc_udp.h']);
+                        testCase.verifyEmpty(strfind(buildText, 'pc_socket'));
+                        testCase.verifyEmpty(strfind(buildText, 'pc_serial'));
+                        testCase.verifyFalse(any(endsWith(dependencyPaths, ...
+                            fullfile('templates', 'pc_socket.c.in'))));
+                        testCase.verifyFalse(any(endsWith(dependencyPaths, ...
+                            fullfile('simulink', 'c2837x_block_pc_serial.c'))));
+                    case 'sci'
+                        testCase.verifySubstring(selected.header, ...
+                            'c2837x_pc_serial_t serial;');
+                        testCase.verifyTrue(any(endsWith(dependencyPaths, ...
+                            fullfile('simulink', 'c2837x_block_pc_serial.c'))));
+                        testCase.verifySubstring(buildText, ...
+                            [name '_pc_serial.c']);
+                        testCase.verifyEmpty(strfind(buildText, 'pc_socket'));
+                        testCase.verifyEmpty(strfind(buildText, 'pc_udp'));
+                        testCase.verifyFalse(any(endsWith(dependencyPaths, ...
+                            fullfile('templates', 'pc_socket.c.in'))));
+                        testCase.verifyFalse(any(endsWith(dependencyPaths, ...
+                            fullfile('templates', 'pc_udp.c.in'))));
+                end
+            end
+
+            unknown = single_transport_project(testCase.WorkFolder, ...
+                'w5300_tcp');
+            unknown.instances.iodevice.type = 'unsupported_iodevice';
+            testCase.verifyError( ...
+                @() c2837x_block_build_sfun_output_model(unknown), ...
+                'C2837xBlock:SfunOutput:UnsupportedIoDevice');
+            testCase.verifyError( ...
+                @() c2837x_block_render_sfun_files(unknown), ...
+                'C2837xBlock:SfunRender:UnsupportedIoDevice');
+            testCase.verifyError( ...
+                @() c2837x_block_render_pc_files(unknown), ...
+                'C2837xBlock:PcRender:UnsupportedIoDevice');
+            testCase.verifyError( ...
+                @() c2837x_block_render_sfun_build_files(unknown), ...
+                'C2837xBlock:MexBuild:UnsupportedIoDevice');
         end
 
         function testNamesContextNormalModeAndSynchronousStep(testCase)
@@ -278,6 +381,37 @@ for index = 1:numel(candidates)
     [~, name, extension] = fileparts(candidates(index).target_path);
     names{index} = [name extension];
 end
+end
+
+function names = candidate_names_from_paths(files)
+names = cell(1, numel(files));
+for index = 1:numel(files)
+    [~, name, extension] = fileparts(files(index).target_path);
+    names{index} = [name extension];
+end
+end
+
+function text = candidate_text_by_name(candidates, name)
+selected = candidates(endsWith({candidates.target_path}, name));
+assert(isscalar(selected));
+text = native2unicode(selected.content_bytes, 'UTF-8');
+end
+
+function project = single_transport_project(root, type)
+project = c2837x_block_create_default_project();
+project.output.dsp_root = c2837x_block_normalize_absolute_path( ...
+    fullfile(root, [type '_dsp']));
+project.output.sfun_root = c2837x_block_normalize_absolute_path( ...
+    fullfile(root, [type '_sfun']));
+instance = c2837x_block_create_default_instance();
+instance.display_name = ['Axis ' type];
+instance.internal_name = ['axis_' strrep(type, 'w5300_', '')];
+instance.inputs = struct('name', 'command', 'type', 'uint16', 'dim', 1);
+instance.outputs = struct('name', 'feedback', 'type', 'uint16', 'dim', 1);
+instance.iodevice = c2837x_block_create_iodevice(type);
+project.instances = instance;
+[~, project.instances.interface_hash] = ...
+    c2837x_block_build_interface_hash(project, 1);
 end
 
 function value = instance_text(candidates, instanceIndex)

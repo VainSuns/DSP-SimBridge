@@ -24,10 +24,17 @@ end
 end
 
 function text = sfun_source(names, instance)
-if strcmp(char(instance.iodevice.type), 'sci')
-    text = sci_sfun_source(names);
-else
-    text = w5300_sfun_source(names);
+switch char(instance.iodevice.type)
+    case 'w5300_tcp'
+        text = w5300_sfun_source(names);
+    case 'w5300_udp'
+        text = udp_sfun_source(names);
+    case 'sci'
+        text = sci_sfun_source(names);
+    otherwise
+        error('C2837xBlock:SfunRender:UnsupportedIoDevice', ...
+            'S-Function rendering does not support IoDevice "%s".', ...
+            char(instance.iodevice.type));
 end
 end
 
@@ -256,6 +263,16 @@ text = [generated_file_header() sprintf([ ...
 text = strrep(text, '@NAME@', names.internal_name);
 text = strrep(text, '@MACRO@', names.macro_prefix);
 text = strrep(text, '@TYPED@', names.typed_prefix);
+end
+
+function text = udp_sfun_source(names)
+% Adapt the synchronous body to the generated UDP transport.
+text = w5300_sfun_source(names);
+text = strrep(text, [names.internal_name '_pc_socket_'], ...
+    [names.internal_name '_pc_udp_']);
+text = strrep(text, [names.macro_prefix '_SFUN_TCP_PORT'], ...
+    [names.macro_prefix '_SFUN_UDP_PORT']);
+text = strrep(text, 'TCP connect failed.', 'UDP connect failed.');
 end
 
 function text = sci_sfun_source(names)
@@ -552,7 +569,8 @@ text = [generated_file_header() sprintf([ ...
     names.internal_name, names.internal_name, names.typed_prefix, ...
     names.internal_name, names.typed_prefix, names.typed_prefix, ...
     names.internal_name, names.typed_prefix, names.typed_prefix, guard)];
-if strcmp(char(instance.iodevice.type), 'sci')
+type = char(instance.iodevice.type);
+if strcmp(type, 'sci')
     text = strrep(text, [names.typed_prefix 'PcSocket'], ...
         'c2837x_pc_serial_t');
     text = strrep(text, ['    c2837x_pc_serial_t socket;' newline], ...
@@ -561,6 +579,11 @@ if strcmp(char(instance.iodevice.type), 'sci')
          '    uint32_t logical_com_number;' newline]);
     text = strrep(text, [names.typed_prefix 'PcError'], ...
         'c2837x_pc_error_t');
+elseif strcmp(type, 'w5300_udp')
+    text = strrep(text, [names.typed_prefix 'PcSocket'], ...
+        [names.typed_prefix 'PcUdpSocket']);
+else
+    assert(strcmp(type, 'w5300_tcp'));
 end
 assert(layout.input_payload_octets > 0 && layout.output_payload_octets > 0);
 end
@@ -713,7 +736,8 @@ baseLines = { ...
     sprintf('#define %s_SFUN_FUNCTION_NAME %s_sfun', macro, names.internal_name), ...
     sprintf('#define %s_SFUN_MEX_BASENAME "%s_sfun"', macro, names.internal_name), ...
     sprintf('#define %s_SFUN_SAMPLE_TIME_SEC (%.17g)', macro, double(instance.sample_time_sec))};
-if strcmp(char(instance.iodevice.type), 'sci')
+type = char(instance.iodevice.type);
+if strcmp(type, 'sci')
     requestedBaud = double(instance.iodevice.settings.baud);
     clock = c2837x_block_get_sci_clock_config();
     baud = c2837x_block_calculate_sci_baud( ...
@@ -724,10 +748,17 @@ if strcmp(char(instance.iodevice.type), 'sci')
         sprintf('#define %s_SFUN_NOMINAL_BAUD %uu', macro, requestedBaud), ...
         sprintf('#define %s_SFUN_ACTUAL_BAUD (%.17g)', macro, ...
             baud.actual_baud)};
-else
+elseif strcmp(type, 'w5300_tcp')
     transportLines = { ...
         sprintf('#define %s_SFUN_DSP_IP_ADDRESS "%s"', macro, char(project.common.network.ip)), ...
         sprintf('#define %s_SFUN_TCP_PORT %uu', macro, double(instance.iodevice.settings.tcp_port))};
+elseif strcmp(type, 'w5300_udp')
+    transportLines = { ...
+        sprintf('#define %s_SFUN_DSP_IP_ADDRESS "%s"', macro, char(project.common.network.ip)), ...
+        sprintf('#define %s_SFUN_UDP_PORT %uu', macro, double(instance.iodevice.settings.udp_port))};
+else
+    error('C2837xBlock:SfunRender:UnsupportedIoDevice', ...
+        'S-Function configuration does not support IoDevice "%s".', type);
 end
 commonLines = { ...
     sprintf('#define %s_SFUN_PROTOCOL_VERSION %uu', macro, double(project.common.protocol_version)), ...
@@ -980,7 +1011,7 @@ end
 validate_variables(instance.inputs);
 validate_variables(instance.outputs);
 type = char(instance.iodevice.type);
-if ~any(strcmp(type, {'w5300_tcp', 'sci'}))
+if ~any(strcmp(type, {'w5300_tcp', 'w5300_udp', 'sci'}))
     error('C2837xBlock:SfunRender:UnsupportedIoDevice', ...
         'S-Function rendering does not support IoDevice "%s".', type);
 end

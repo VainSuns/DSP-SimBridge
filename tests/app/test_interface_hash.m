@@ -125,6 +125,26 @@ classdef test_interface_hash < matlab.unittest.TestCase
             testCase.verifyEqual(actualHash, baselineHash);
         end
 
+        function testTcpUdpTransportInvarianceAndPayloadSensitivity(testCase)
+            tcp = golden_project();
+            udp = tcp;
+            udp.instances.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            udp.instances.iodevice.settings.socket_number = uint16(7);
+            udp.instances.iodevice.settings.udp_port = uint16(6000);
+
+            [tcpText, tcpHash] = c2837x_block_build_interface_hash(tcp, 1);
+            [udpText, udpHash] = c2837x_block_build_interface_hash(udp, 1);
+
+            testCase.verifyEqual(udpText, tcpText);
+            testCase.verifyEqual(udpHash, tcpHash);
+
+            udp.instances.max_payload_size_bytes = 2048;
+            [changedText, changedHash] = ...
+                c2837x_block_build_interface_hash(udp, 1);
+            testCase.verifyNotEqual(changedText, tcpText);
+            testCase.verifyNotEqual(changedHash, tcpHash);
+        end
+
         function testInputOrderChangesTextAndHash(testCase)
             project = ordered_project();
             changed = change_input_order(project);

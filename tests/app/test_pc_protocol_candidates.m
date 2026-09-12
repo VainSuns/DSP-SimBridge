@@ -163,6 +163,7 @@ classdef test_pc_protocol_candidates < matlab.unittest.TestCase
                 c2837x_block_create_iodevice('w5300_udp');
             rendered = c2837x_block_render_pc_files(project);
             udp = rendered(1);
+            tcp = rendered(2);
             protocol = native2unicode(udp.protocol_source_bytes, 'UTF-8');
             header = native2unicode(udp.protocol_header_bytes, 'UTF-8');
             transport = native2unicode(udp.udp_source_bytes, 'UTF-8');
@@ -193,6 +194,14 @@ classdef test_pc_protocol_candidates < matlab.unittest.TestCase
             testCase.verifySubstring(transport, 'SOCK_DGRAM');
             testCase.verifySubstring(transportHeader, ...
                 'AxisAlphaPcUdpSocket');
+            testCase.verifyEmpty(udp.socket_source_bytes);
+            testCase.verifyEmpty(udp.socket_header_bytes);
+            testCase.verifyNotEmpty(tcp.socket_source_bytes);
+            testCase.verifyNotEmpty(tcp.socket_header_bytes);
+            testCase.verifyEmpty(tcp.udp_source_bytes);
+            testCase.verifyEmpty(tcp.udp_header_bytes);
+            testCase.verifyEmpty(tcp.serial_source_bytes);
+            testCase.verifyEmpty(tcp.serial_header_bytes);
 
             compileFolder = fullfile(testCase.WorkFolder, 'udp_binding');
             mkdir(compileFolder);
