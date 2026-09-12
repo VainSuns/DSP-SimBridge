@@ -5,15 +5,9 @@ c2837x_block_validate_project_structure(project);
 dspRoot = canonical_root(project.output.dsp_root);
 appRoot = fileparts(mfilename('fullpath'));
 repositoryRoot = fileparts(appRoot);
-platformConfig = build_platform_config(project);
-
-useW5300 = false;
-useSci = false;
-for index = 1:numel(project.instances)
-    type = char(project.instances(index).iodevice.type);
-    useW5300 = useW5300 || strcmp(type, 'w5300_tcp');
-    useSci = useSci || strcmp(type, 'sci');
-end
+[useTcp, useUdp, useSci] = detect_transports(project);
+useW5300 = useTcp || useUdp;
+platformConfig = build_platform_config(project, useW5300);
 
 prototype = struct('relative_path', '', 'target_path', '', 'category', '', ...
     'owner', '', 'instance_index', 0, 'file_scope', '', ...
@@ -27,8 +21,13 @@ if useW5300
     corePaths = [corePaths, { ...
         'inc/c2837x_w5300_regs.h', ...
         'inc/c2837x_w5300_hal.h', ...
-        'inc/c2837x_w5300_socket.h', ...
-        'inc/c2837x_w5300_channel.h'}]; %#ok<AGROW>
+        'inc/c2837x_w5300_socket.h'}]; %#ok<AGROW>
+end
+if useTcp
+    corePaths{end + 1} = 'inc/c2837x_w5300_channel.h'; %#ok<AGROW>
+end
+if useUdp
+    corePaths{end + 1} = 'inc/c2837x_w5300_udp_channel.h'; %#ok<AGROW>
 end
 if useSci
     corePaths{end + 1} = 'inc/c2837x_block_sci.h'; %#ok<AGROW>
@@ -44,8 +43,13 @@ corePaths = [corePaths, { ...
 if useW5300
     corePaths = [corePaths, { ...
         'src/c2837x_w5300_hal.c', ...
-        'src/c2837x_w5300_socket.c', ...
-        'src/c2837x_w5300_channel.c'}]; %#ok<AGROW>
+        'src/c2837x_w5300_socket.c'}]; %#ok<AGROW>
+end
+if useTcp
+    corePaths{end + 1} = 'src/c2837x_w5300_channel.c'; %#ok<AGROW>
+end
+if useUdp
+    corePaths{end + 1} = 'src/c2837x_w5300_udp_channel.c'; %#ok<AGROW>
 end
 if useSci
     corePaths{end + 1} = 'src/c2837x_block_sci.c'; %#ok<AGROW>
@@ -146,7 +150,19 @@ model = struct('schema_version', uint16(1), 'dsp_root', dspRoot, ...
     end
 end
 
-function platformConfig = build_platform_config(project)
+function [useTcp, useUdp, useSci] = detect_transports(project)
+useTcp = false;
+useUdp = false;
+useSci = false;
+for index = 1:numel(project.instances)
+    type = char(project.instances(index).iodevice.type);
+    useTcp = useTcp || strcmp(type, 'w5300_tcp');
+    useUdp = useUdp || strcmp(type, 'w5300_udp');
+    useSci = useSci || strcmp(type, 'sci');
+end
+end
+
+function platformConfig = build_platform_config(project, useW5300)
 % Keep this collection at project scope; instance binding is a later stage.
 descriptorPrototype = struct( ...
     'module', '', ...
@@ -160,14 +176,11 @@ descriptorPrototype = struct( ...
     'ctrl_pin_type', '', ...
     'ctrl_tx_active_level', '');
 sciDescriptors = repmat(descriptorPrototype, 1, 0);
-useW5300 = false;
 
 for index = 1:numel(project.instances)
     instance = project.instances(index);
     type = char(instance.iodevice.type);
-    if strcmp(type, 'w5300_tcp')
-        useW5300 = true;
-    elseif strcmp(type, 'sci')
+    if strcmp(type, 'sci')
         settings = instance.iodevice.settings;
         descriptor = descriptorPrototype;
         descriptor.module = text_value(settings.module);

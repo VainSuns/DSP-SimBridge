@@ -63,16 +63,21 @@ classdef test_dsp_output_model < matlab.unittest.TestCase
 
         function testProjectPlatformConfigTracksActualIoDevices(testCase)
             w5300 = platform_project(testCase.WorkFolder, 'w5300');
+            udp = platform_project(testCase.WorkFolder, 'udp');
             sci = platform_project(testCase.WorkFolder, 'sci');
             mixed = platform_project(testCase.WorkFolder, 'mixed');
 
             w5300Model = c2837x_block_build_dsp_output_model(w5300);
+            udpModel = c2837x_block_build_dsp_output_model(udp);
             sciModel = c2837x_block_build_dsp_output_model(sci);
             mixedModel = c2837x_block_build_dsp_output_model(mixed);
 
             testCase.verifyTrue(w5300Model.platform_config.use_w5300);
             testCase.verifyEmpty(w5300Model.platform_config.sci_descriptors);
             testCase.verifyEmpty(w5300Model.platform_config.sci_clock);
+            testCase.verifyTrue(udpModel.platform_config.use_w5300);
+            testCase.verifyEmpty(udpModel.platform_config.sci_descriptors);
+            testCase.verifyEmpty(udpModel.platform_config.sci_clock);
             testCase.verifyFalse(sciModel.platform_config.use_w5300);
             testCase.verifyNumElements( ...
                 sciModel.platform_config.sci_descriptors, 1);
@@ -103,6 +108,22 @@ classdef test_dsp_output_model < matlab.unittest.TestCase
                 {'com', 'pin_group'})));
             testCase.verifyFalse(any(contains(descriptorFields, ...
                 {'com', 'pin_group'})));
+        end
+
+        function testTransportSpecificCoreClosure(testCase)
+            tcpModel = c2837x_block_build_dsp_output_model( ...
+                platform_project(testCase.WorkFolder, 'w5300'));
+            udpModel = c2837x_block_build_dsp_output_model( ...
+                platform_project(testCase.WorkFolder, 'udp'));
+            sciModel = c2837x_block_build_dsp_output_model( ...
+                platform_project(testCase.WorkFolder, 'sci'));
+
+            testCase.verifyEqual(core_paths(tcpModel), ...
+                expected_transport_core_paths('tcp'));
+            testCase.verifyEqual(core_paths(udpModel), ...
+                expected_transport_core_paths('udp'));
+            testCase.verifyEqual(core_paths(sciModel), ...
+                expected_transport_core_paths('sci'));
         end
 
         function testProjectRendererUsesCoreV2AndPlatformConfig(testCase)
@@ -226,6 +247,9 @@ w5300 = c2837x_block_create_default_instance();
 w5300.display_name = 'Network';
 w5300.internal_name = 'network';
 
+udp = w5300;
+udp.iodevice = c2837x_block_create_iodevice('w5300_udp');
+
 sci = c2837x_block_create_default_instance();
 sci.display_name = 'Serial';
 sci.internal_name = 'serial';
@@ -244,6 +268,8 @@ sci.iodevice.settings.ctrl_tx_active_level = 'Low';
 switch mode
     case 'w5300'
         project.instances = w5300;
+    case 'udp'
+        project.instances = udp;
     case 'sci'
         project.instances = sci;
     case 'mixed'
@@ -263,6 +289,41 @@ paths = {'inc/c2837x_block.h', 'inc/c2837x_block_protocol.h', ...
     'src/c2837x_block_platform.c', 'src/c2837x_block_timer2.c', ...
     'src/c2837x_w5300_hal.c', 'src/c2837x_w5300_socket.c', ...
     'src/c2837x_w5300_channel.c'};
+end
+
+function paths = core_paths(model)
+core = model.files(strcmp({model.files.file_scope}, 'core'));
+paths = {core.relative_path};
+end
+
+function paths = expected_transport_core_paths(transport)
+commonHeaders = {'inc/c2837x_block.h', 'inc/c2837x_block_protocol.h', ...
+    'inc/c2837x_block_iodevice.h'};
+w5300Headers = {'inc/c2837x_w5300_regs.h', ...
+    'inc/c2837x_w5300_hal.h', 'inc/c2837x_w5300_socket.h'};
+commonSources = {'src/c2837x_block.c', 'src/c2837x_block_protocol.c', ...
+    'src/c2837x_block_internal.h', ...
+    'src/c2837x_block_config_internal.h', ...
+    'src/c2837x_block_platform.h', 'src/c2837x_block_platform.c', ...
+    'src/c2837x_block_timer2.c'};
+switch transport
+    case 'tcp'
+        paths = [commonHeaders w5300Headers, ...
+            {'inc/c2837x_w5300_channel.h'}, commonSources, ...
+            {'src/c2837x_w5300_hal.c', 'src/c2837x_w5300_socket.c', ...
+            'src/c2837x_w5300_channel.c'}];
+    case 'udp'
+        paths = [commonHeaders w5300Headers, ...
+            {'inc/c2837x_w5300_udp_channel.h'}, commonSources, ...
+            {'src/c2837x_w5300_hal.c', 'src/c2837x_w5300_socket.c', ...
+            'src/c2837x_w5300_udp_channel.c'}];
+    case 'sci'
+        paths = [commonHeaders, {'inc/c2837x_block_sci.h'}, commonSources, ...
+            {'src/c2837x_block_sci.c'}];
+    otherwise
+        error('test_dsp_output_model:InvalidTransport', ...
+            'Unknown transport.');
+end
 end
 
 function paths = excluded_paths()
