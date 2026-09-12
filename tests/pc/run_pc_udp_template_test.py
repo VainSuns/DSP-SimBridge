@@ -1,4 +1,4 @@
-"""Render and run the focused UDP-S4-01 host transport test."""
+"""Render and run the focused UDP-S4-02 host transport test."""
 
 import os
 from pathlib import Path
@@ -20,13 +20,16 @@ def render(template):
         "@TYPED@", "AxisAlpha")
 
 
-def static_contract_checks(source):
+def static_contract_checks(source, header):
     assert "SOCK_DGRAM" in source
     assert "IPPROTO_UDP" in source
     assert "SOCK_STREAM" not in source
     assert "IPPROTO_TCP" not in source
     assert not re.search(r"\bbind\s*\(", source)
-    assert "recv(" not in source
+    assert "datagram_staging" in source
+    assert "PC_UDP_MAX_DATAGRAM_SIZE 1472u" in header
+    assert "recv_exact_until" in source
+    assert source.count("recv(") == 1
     assert "retry" not in source.lower()
     assert "retrans" not in source.lower()
     assert source.count("send(") == 1
@@ -46,7 +49,7 @@ def static_contract_checks(source):
 def run():
     source = render("pc_udp.c.in")
     header = render("pc_udp.h.in")
-    static_contract_checks(source)
+    static_contract_checks(source, header)
     print("STATIC_CONTRACT=PASS")
 
     compiler = shutil.which("gcc")

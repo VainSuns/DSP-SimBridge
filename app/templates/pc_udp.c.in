@@ -50,10 +50,20 @@ static @NAME@_native_socket @NAME@_native(
     return (@NAME@_native_socket)socket->native_handle;
 }
 
+static void @NAME@_clear_staging(@TYPED@PcUdpSocket *socket)
+{
+    if (socket == NULL) return;
+    socket->datagram_length = 0u;
+    socket->datagram_offset = 0u;
+    socket->datagram_payload_length = 0u;
+    socket->datagram_staged = 0;
+}
+
 static void @NAME@_invalidate(@TYPED@PcUdpSocket *socket)
 {
     socket->native_handle = (uintptr_t)@MACRO@_INVALID_SOCKET;
     socket->valid = 0;
+    @NAME@_clear_staging(socket);
 }
 
 static int @NAME@_now_ms(const @TYPED@PcUdpSocket *socket,
@@ -153,6 +163,24 @@ static int @NAME@_interrupted(int error)
 #endif
 }
 
+static int @NAME@_would_block(int error)
+{
+#ifdef _WIN32
+    return error == WSAEWOULDBLOCK;
+#else
+    return error == EAGAIN || error == EWOULDBLOCK;
+#endif
+}
+
+static int @NAME@_message_too_large(int error)
+{
+#ifdef _WIN32
+    return error == WSAEMSGSIZE;
+#else
+    return error == EMSGSIZE;
+#endif
+}
+
 static int @NAME@_set_nonblocking(@NAME@_native_socket native, int enabled)
 {
 #ifdef _WIN32
@@ -225,6 +253,77 @@ static int @NAME@_wait_writable(@TYPED@PcUdpSocket *socket,
             }
 #else
             if ((descriptor.revents & POLLOUT) == 0) {
+                *os_error = 0;
+                return -1;
+            }
+#endif
+            return 1;
+        }
+        if (result == 0) return 0;
+        *os_error = @MACRO@_LAST_ERROR();
+        if (!@NAME@_interrupted(*os_error)) return -1;
+    }
+}
+
+static int @NAME@_wait_readable(@TYPED@PcUdpSocket *socket,
+    const @TYPED@PcUdpDeadline *deadline, @TYPED@PcError *error,
+    int *os_error)
+{
+    if (socket == NULL || !socket->valid || deadline == NULL ||
+            os_error == NULL) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+            error->stage = "wait_readable";
+        }
+        return -1;
+    }
+    *os_error = 0;
+    for (;;) {
+        @NAME@_native_socket native = @NAME@_native(socket);
+        uint32_t remaining;
+        int expired;
+        int result;
+        if (@NAME@_pc_udp_deadline_remaining(socket, deadline, &remaining,
+                &expired, error) != 0) {
+            @NAME@_pc_udp_close(socket);
+            return -1;
+        }
+        if (expired) return 0;
+#ifdef _WIN32
+        fd_set read_set;
+        fd_set error_set;
+        struct timeval timeout;
+        FD_ZERO(&read_set);
+        FD_ZERO(&error_set);
+        FD_SET(native, &read_set);
+        FD_SET(native, &error_set);
+        timeout.tv_sec = (long)(remaining / 1000u);
+        timeout.tv_usec = (long)((remaining % 1000u) * 1000u);
+        result = select(0, &read_set, NULL, &error_set, &timeout);
+#else
+        struct pollfd descriptor;
+        int poll_timeout = remaining > (uint32_t)INT_MAX ? INT_MAX :
+            (int)remaining;
+        descriptor.fd = native;
+        descriptor.events = POLLIN;
+        descriptor.revents = 0;
+        result = poll(&descriptor, 1, poll_timeout);
+#endif
+        if (result > 0) {
+            if (@NAME@_pc_udp_deadline_remaining(socket, deadline, &remaining,
+                    &expired, error) != 0) {
+                @NAME@_pc_udp_close(socket);
+                return -1;
+            }
+            if (expired) return 0;
+#ifdef _WIN32
+            if (FD_ISSET(native, &error_set) ||
+                    !FD_ISSET(native, &read_set)) {
+                *os_error = @MACRO@_LAST_ERROR();
+                return -1;
+            }
+#else
+            if ((descriptor.revents & POLLIN) == 0) {
                 *os_error = 0;
                 return -1;
             }
@@ -361,6 +460,255 @@ int @NAME@_pc_udp_connect(@TYPED@PcUdpSocket *context, const char *ip,
             os_error);
     }
     return 0;
+}
+
+static uint16_t @NAME@_read_le16(const uint8_t *data)
+{
+    return (uint16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8));
+}
+
+static int @NAME@_stage_datagram_until(@TYPED@PcUdpSocket *socket,
+    const @TYPED@PcUdpDeadline *deadline, @TYPED@PcError *error)
+{
+    @NAME@_native_socket native;
+    int os_error = 0;
+    if (socket == NULL || !socket->valid || deadline == NULL) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+            error->stage = "recv_header";
+        }
+        return -1;
+    }
+    for (;;) {
+        int ready = @NAME@_wait_readable(socket, deadline, error,
+            &os_error);
+        int count;
+        if (ready == 0) {
+            if (error != NULL) error->stage = "recv_header";
+            return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_TIMEOUT, 0);
+        }
+        if (ready < 0) {
+            if (error != NULL) error->stage = "recv_header";
+            if (error != NULL && error->kind == @MACRO@_PC_ERROR_INTERNAL) {
+                return -1;
+            }
+            return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_SOCKET,
+                os_error);
+        }
+        native = @NAME@_native(socket);
+        count = (int)recv(native, (char *)socket->datagram_staging,
+            (int)sizeof(socket->datagram_staging), 0);
+        if (count == @MACRO@_SOCKET_ERROR) {
+            os_error = @MACRO@_LAST_ERROR();
+            if (@NAME@_interrupted(os_error) ||
+                    @NAME@_would_block(os_error)) {
+                continue;
+            }
+            if (@NAME@_message_too_large(os_error)) {
+                socket->last_transfer_count =
+                    @MACRO@_PC_UDP_STAGING_CAPACITY;
+                if (error != NULL) {
+                    error->kind = @MACRO@_PC_ERROR_PAYLOAD_LENGTH;
+                    error->stage = "recv_header";
+                    c2837x_pc_error_set_lengths(error,
+                        @MACRO@_PC_UDP_MAX_DATAGRAM_SIZE,
+                        @MACRO@_PC_UDP_STAGING_CAPACITY);
+                }
+                return @NAME@_fail(socket, error,
+                    @MACRO@_PC_ERROR_PAYLOAD_LENGTH, 0);
+            }
+            if (error != NULL) error->stage = "recv_header";
+            return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_SOCKET,
+                os_error);
+        }
+        socket->last_transfer_count = count > 0 ? (uint32_t)count : 0u;
+        socket->datagram_length = count > 0 ? (uint32_t)count : 0u;
+        socket->datagram_offset = 0u;
+        socket->datagram_payload_length = 0u;
+        socket->datagram_staged = 1;
+        if ((uint32_t)count > @MACRO@_PC_UDP_MAX_DATAGRAM_SIZE) {
+            if (error != NULL) {
+                error->kind = @MACRO@_PC_ERROR_PAYLOAD_LENGTH;
+                error->stage = "recv_header";
+                c2837x_pc_error_set_lengths(error,
+                    @MACRO@_PC_UDP_MAX_DATAGRAM_SIZE, (uint32_t)count);
+            }
+            return @NAME@_fail(socket, error,
+                @MACRO@_PC_ERROR_PAYLOAD_LENGTH, 0);
+        }
+        return 0;
+    }
+}
+
+int @NAME@_pc_udp_recv_exact_until(@TYPED@PcUdpSocket *socket,
+    uint8_t *data, uint32_t length,
+    const @TYPED@PcUdpDeadline *deadline, @TYPED@PcError *error)
+{
+    uint32_t physical_payload;
+    uint16_t declared_payload;
+    uint32_t remaining;
+    int expired;
+    if (socket == NULL || !socket->valid) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+            error->stage = "receive";
+        }
+        return -1;
+    }
+    if (length == 0u) {
+        if (socket->datagram_staged) {
+            if (error != NULL) {
+                error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+                error->stage = "recv_payload";
+            }
+            return @NAME@_fail(socket, error,
+                @MACRO@_PC_ERROR_ARGUMENT, 0);
+        }
+        socket->last_transfer_count = 0u;
+        return 0;
+    }
+    if (data == NULL || deadline == NULL) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+            error->stage = socket->datagram_staged ?
+                "recv_payload" : "recv_header";
+        }
+        if (socket->datagram_staged) {
+            return @NAME@_fail(socket, error,
+                @MACRO@_PC_ERROR_ARGUMENT, 0);
+        }
+        return -1;
+    }
+    socket->last_transfer_count = 0u;
+    if (!socket->datagram_staged) {
+        if (length != 4u) {
+            if (error != NULL) {
+                error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+                error->stage = "recv_header";
+                c2837x_pc_error_set_lengths(error,
+                    4u, length);
+            }
+            return -1;
+        }
+        if (@NAME@_stage_datagram_until(socket, deadline, error) != 0) {
+            return -1;
+        }
+        if (socket->datagram_length < 4u) {
+            socket->last_transfer_count = socket->datagram_length;
+            if (error != NULL) {
+                error->kind = @MACRO@_PC_ERROR_TRUNCATED;
+                error->stage = "recv_header";
+                c2837x_pc_error_set_lengths(error,
+                    4u, socket->datagram_length);
+            }
+            return @NAME@_fail(socket, error,
+                @MACRO@_PC_ERROR_TRUNCATED, 0);
+        }
+        declared_payload = @NAME@_read_le16(
+            socket->datagram_staging + 2u);
+        socket->datagram_payload_length = declared_payload;
+        socket->datagram_offset = 4u;
+        physical_payload = socket->datagram_length - 4u;
+        memcpy(data, socket->datagram_staging, 4u);
+        socket->last_transfer_count = 4u;
+        if (declared_payload == 0u) {
+            if (physical_payload != 0u) {
+                socket->last_transfer_count = physical_payload;
+                if (error != NULL) {
+                    error->kind = @MACRO@_PC_ERROR_PAYLOAD_LENGTH;
+                    error->stage = "recv_payload";
+                    c2837x_pc_error_set_lengths(error, 0u,
+                        physical_payload);
+                }
+                return @NAME@_fail(socket, error,
+                    @MACRO@_PC_ERROR_PAYLOAD_LENGTH, 0);
+            }
+            @NAME@_clear_staging(socket);
+        }
+        return 0;
+    }
+
+    if (@NAME@_pc_udp_deadline_remaining(socket, deadline, &remaining,
+            &expired, error) != 0) {
+        if (error != NULL) error->stage = "recv_payload";
+        @NAME@_pc_udp_close(socket);
+        return -1;
+    }
+    if (expired) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_TIMEOUT;
+            error->stage = "recv_payload";
+            c2837x_pc_error_set_lengths(error,
+                socket->datagram_payload_length, 0u);
+        }
+        return @NAME@_fail(socket, error, @MACRO@_PC_ERROR_TIMEOUT, 0);
+    }
+    if (socket->datagram_offset != 4u ||
+            socket->datagram_length < socket->datagram_offset) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_INTERNAL;
+            error->stage = "recv_payload";
+        }
+        return @NAME@_fail(socket, error,
+            @MACRO@_PC_ERROR_INTERNAL, 0);
+    }
+    declared_payload = socket->datagram_payload_length;
+    physical_payload = socket->datagram_length -
+        socket->datagram_offset;
+    if (physical_payload < (uint32_t)declared_payload) {
+        socket->last_transfer_count = physical_payload;
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_TRUNCATED;
+            error->stage = "recv_payload";
+            c2837x_pc_error_set_lengths(error, declared_payload,
+                physical_payload);
+        }
+        return @NAME@_fail(socket, error,
+            @MACRO@_PC_ERROR_TRUNCATED, 0);
+    }
+    if (physical_payload > (uint32_t)declared_payload) {
+        socket->last_transfer_count = physical_payload;
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_PAYLOAD_LENGTH;
+            error->stage = "recv_payload";
+            c2837x_pc_error_set_lengths(error, declared_payload,
+                physical_payload);
+        }
+        return @NAME@_fail(socket, error,
+            @MACRO@_PC_ERROR_PAYLOAD_LENGTH, 0);
+    }
+    if (length != (uint32_t)declared_payload) {
+        if (error != NULL) {
+            error->kind = @MACRO@_PC_ERROR_ARGUMENT;
+            error->stage = "recv_payload";
+            c2837x_pc_error_set_lengths(error, declared_payload, length);
+        }
+        return @NAME@_fail(socket, error,
+            @MACRO@_PC_ERROR_ARGUMENT, 0);
+    }
+    memcpy(data, socket->datagram_staging + socket->datagram_offset,
+        length);
+    socket->last_transfer_count = length;
+    @NAME@_clear_staging(socket);
+    return 0;
+}
+
+int @NAME@_pc_udp_recv_exact(@TYPED@PcUdpSocket *socket, uint8_t *data,
+    uint32_t length, uint32_t timeout_ms, @TYPED@PcError *error)
+{
+    @TYPED@PcUdpDeadline deadline;
+    @NAME@_pc_error_reset(error, "receive");
+    if (length == 0u) {
+        return @NAME@_pc_udp_recv_exact_until(socket, data, length,
+            NULL, error);
+    }
+    if (@NAME@_pc_udp_deadline_start(socket, timeout_ms, &deadline,
+            error) != 0) {
+        @NAME@_pc_udp_close(socket);
+        return -1;
+    }
+    return @NAME@_pc_udp_recv_exact_until(socket, data, length, &deadline,
+        error);
 }
 
 int @NAME@_pc_udp_send_datagram_until(@TYPED@PcUdpSocket *socket,

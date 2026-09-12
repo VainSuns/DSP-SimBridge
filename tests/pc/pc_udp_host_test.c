@@ -141,6 +141,326 @@ static uint16_t local_port(const AxisAlphaPcUdpSocket *socket)
     return ntohs(address.sin_port);
 }
 
+static int send_datagram(test_socket_t peer, uint16_t port,
+    const uint8_t *data, size_t length)
+{
+    struct sockaddr_in address;
+    int count;
+    if (data == NULL && length != 0u) return -1;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(port);
+    count = (int)sendto(peer, (const char *)data, (int)length, 0,
+        (struct sockaddr *)&address, (int)sizeof(address));
+    return count == (int)length ? 0 : -1;
+}
+
+static int connect_receiver(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    (void)peer;
+    if (axis_alpha_pc_udp_connect(client, "127.0.0.1", peer_port,
+            1000u, error) != 0) return -1;
+    return local_port(client) != 0u ? 0 : -1;
+}
+
+static int error_has_lengths(const AxisAlphaPcError *error,
+    const char *stage, uint16_t expected, uint16_t actual)
+{
+    return error != NULL && error->stage != NULL && stage != NULL &&
+        strcmp(error->stage, stage) == 0 &&
+        (error->available & C2837X_PC_ERROR_HAS_EXPECTED_LENGTH) != 0u &&
+        (error->available & C2837X_PC_ERROR_HAS_ACTUAL_LENGTH) != 0u &&
+        error->expected_length == expected && error->actual_length == actual;
+}
+
+static int test_zero_payload(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    static const uint8_t frame[] = {0x34u, 0x12u, 0x00u, 0x00u};
+    uint8_t header[sizeof(frame)] = {0u};
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "zero-payload receiver setup")) return 0;
+    if (!check(send_datagram(peer, local_port(client), frame, sizeof(frame)) ==
+            0, "zero-payload datagram send")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == 0 && memcmp(header, frame, sizeof(frame)) == 0,
+            "exact four-byte zero-payload header")) return 0;
+    return check(client->last_transfer_count == sizeof(frame) &&
+            !client->datagram_staged && client->datagram_length == 0u,
+        "zero-payload header clears staging without second receive");
+}
+
+static int test_zero_payload_with_extra_bytes(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    static const uint8_t datagram[] = {0x34u, 0x12u, 0x00u, 0x00u,
+        0xa1u};
+    uint8_t header[4] = {0u};
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "zero-payload-extra receiver setup")) return 0;
+    if (!check(send_datagram(peer, local_port(client), datagram,
+            sizeof(datagram)) == 0,
+            "zero-payload-extra datagram send")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == -1 &&
+            error->kind == C2837X_PC_ERROR_PAYLOAD_LENGTH &&
+            error_has_lengths(error, "recv_payload", 0u, 1u),
+            "extra bytes on zero-payload datagram map to payload_length")) {
+        return 0;
+    }
+    return check(!client->datagram_staged &&
+            !axis_alpha_pc_udp_is_valid(client),
+        "zero-payload-extra error clears staging and closes socket");
+}
+
+static int test_max_legal_datagram(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    uint8_t frame[AXIS_ALPHA_PC_UDP_MAX_DATAGRAM_SIZE];
+    uint8_t header[4] = {0u};
+    uint8_t payload[1468u] = {0u};
+    size_t index;
+    frame[0] = 0x99u;
+    frame[1] = 0x88u;
+    frame[2] = 0xbcu;
+    frame[3] = 0x05u;
+    for (index = 4u; index < sizeof(frame); ++index) {
+        frame[index] = (uint8_t)(index * 3u + 1u);
+    }
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "maximum legal receiver setup")) return 0;
+    if (!check(send_datagram(peer, local_port(client), frame, sizeof(frame)) ==
+            0, "maximum legal datagram send")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == 0 && memcmp(header, frame, sizeof(header)) == 0 &&
+            client->datagram_staged && client->datagram_length ==
+                AXIS_ALPHA_PC_UDP_MAX_DATAGRAM_SIZE,
+            "1472-byte datagram is staged as legal")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, payload, sizeof(payload),
+            1000u, error) == 0 && memcmp(payload, frame + 4u,
+                sizeof(payload)) == 0, "maximum legal payload delivery")) {
+        return 0;
+    }
+    return check(!client->datagram_staged &&
+            client->last_transfer_count == sizeof(payload),
+        "maximum legal datagram clears after payload");
+}
+
+static int test_normal_staging(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    static const uint8_t frame[] = {0x9au, 0x88u, 0x04u, 0x00u,
+        0xa1u, 0xb2u, 0xc3u, 0xd4u};
+    uint8_t header[4] = {0u};
+    uint8_t payload[4] = {0u};
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "normal receiver setup")) return 0;
+    if (!check(send_datagram(peer, local_port(client), frame, sizeof(frame)) ==
+            0, "normal datagram send")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == 0 && memcmp(header, frame, sizeof(header)) == 0 &&
+            client->datagram_staged && client->datagram_offset == 4u &&
+            client->datagram_payload_length == sizeof(payload),
+            "header returns only four staged octets")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, payload, sizeof(payload),
+            1000u, error) == 0 && memcmp(payload, frame + 4u,
+                sizeof(payload)) == 0, "payload returns from same datagram")) {
+        return 0;
+    }
+    return check(!client->datagram_staged &&
+            client->last_transfer_count == sizeof(payload),
+        "normal payload clears staging");
+}
+
+static int test_short_header(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    static const uint8_t datagram[] = {0x01u, 0x02u, 0x03u};
+    uint8_t header[4] = {0u};
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "short-header receiver setup")) return 0;
+    if (!check(send_datagram(peer, local_port(client), datagram,
+            sizeof(datagram)) == 0, "short-header datagram send")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == -1 &&
+            error->kind == C2837X_PC_ERROR_TRUNCATED &&
+            error_has_lengths(error, "recv_header", 4u, 3u),
+            "short header maps to truncated recv_header")) return 0;
+    return check(!client->datagram_staged &&
+            !axis_alpha_pc_udp_is_valid(client),
+        "short header clears staging and closes socket");
+}
+
+static int test_short_declared_payload(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    static const uint8_t datagram[] = {0x01u, 0x00u, 0x04u, 0x00u,
+        0xa1u, 0xb2u};
+    uint8_t header[4] = {0u};
+    uint8_t payload[4] = {0u};
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "short-payload receiver setup")) return 0;
+    if (!check(send_datagram(peer, local_port(client), datagram,
+            sizeof(datagram)) == 0, "short-payload datagram send")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == 0, "short-payload header delivery")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, payload, sizeof(payload),
+            1000u, error) == -1 &&
+            error->kind == C2837X_PC_ERROR_TRUNCATED &&
+            error_has_lengths(error, "recv_payload", 4u, 2u),
+            "short physical payload maps to truncated recv_payload")) return 0;
+    return check(!client->datagram_staged &&
+            !axis_alpha_pc_udp_is_valid(client),
+        "short payload clears staging and closes socket");
+}
+
+static int test_long_declared_payload(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    static const uint8_t datagram[] = {0x01u, 0x00u, 0x02u, 0x00u,
+        0xa1u, 0xb2u, 0xc3u, 0xd4u};
+    uint8_t header[4] = {0u};
+    uint8_t payload[2] = {0u};
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "long-payload receiver setup")) return 0;
+    if (!check(send_datagram(peer, local_port(client), datagram,
+            sizeof(datagram)) == 0, "long-payload datagram send")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == 0, "long-payload header delivery")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, payload, sizeof(payload),
+            1000u, error) == -1 &&
+            error->kind == C2837X_PC_ERROR_PAYLOAD_LENGTH &&
+            error_has_lengths(error, "recv_payload", 2u, 4u),
+            "long physical payload maps to payload_length recv_payload")) {
+        return 0;
+    }
+    return check(!client->datagram_staged &&
+            !axis_alpha_pc_udp_is_valid(client),
+        "long payload clears staging and closes socket");
+}
+
+static int test_oversize_datagram(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    static uint8_t datagram[AXIS_ALPHA_PC_UDP_STAGING_CAPACITY + 1u];
+    uint8_t header[4] = {0u};
+    size_t index;
+    for (index = 0u; index < sizeof(datagram); ++index) {
+        datagram[index] = 0x5au;
+    }
+    datagram[0] = 0x01u;
+    datagram[1] = 0x00u;
+    datagram[2] = 0x00u;
+    datagram[3] = 0x00u;
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "oversize receiver setup")) return 0;
+    if (!check(send_datagram(peer, local_port(client), datagram,
+            sizeof(datagram)) == 0, "oversize datagram send")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == -1 &&
+            error->kind == C2837X_PC_ERROR_PAYLOAD_LENGTH &&
+            error_has_lengths(error, "recv_header",
+                AXIS_ALPHA_PC_UDP_MAX_DATAGRAM_SIZE,
+                AXIS_ALPHA_PC_UDP_STAGING_CAPACITY),
+            "oversize datagram maps to existing framing error")) return 0;
+    return check(!client->datagram_staged &&
+            !axis_alpha_pc_udp_is_valid(client),
+        "oversize datagram clears staging and closes socket");
+}
+
+static int test_no_cross_datagram(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    static const uint8_t first[] = {0x01u, 0x00u, 0x04u, 0x00u,
+        0xa1u, 0xb2u};
+    static const uint8_t second[] = {0xc3u, 0xd4u, 0xe5u, 0xf6u};
+    uint8_t header[4] = {0u};
+    uint8_t payload[4] = {0u};
+    uint16_t port;
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "no-cross receiver setup")) return 0;
+    port = local_port(client);
+    if (!check(send_datagram(peer, port, first, sizeof(first)) == 0 &&
+            send_datagram(peer, port, second, sizeof(second)) == 0,
+            "queue short datagram followed by second datagram")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == 0, "no-cross first header delivery")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, payload, sizeof(payload),
+            1000u, error) == -1 &&
+            error->kind == C2837X_PC_ERROR_TRUNCATED &&
+            error_has_lengths(error, "recv_payload", 4u, 2u),
+            "short first datagram is not completed from next datagram")) {
+        return 0;
+    }
+    return check(!client->datagram_staged &&
+            !axis_alpha_pc_udp_is_valid(client),
+        "no-cross error clears first datagram staging");
+}
+
+static int test_absolute_deadline_continuity(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    static const uint8_t datagram[] = {0x01u, 0x00u, 0x02u, 0x00u,
+        0xa1u, 0xb2u};
+    uint8_t header[4] = {0u};
+    uint8_t payload[2] = {0u};
+    AxisAlphaPcUdpDeadline deadline;
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "deadline-continuity receiver setup")) return 0;
+    if (!check(send_datagram(peer, local_port(client), datagram,
+            sizeof(datagram)) == 0, "deadline-continuity datagram send")) {
+        return 0;
+    }
+    if (!check(axis_alpha_pc_udp_deadline_start(client, 1000u, &deadline,
+            error) == 0, "one receive operation deadline setup")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact_until(client, header, sizeof(header),
+            &deadline, error) == 0, "header uses operation deadline")) {
+        return 0;
+    }
+    deadline.expires_at_ms = 0u;
+    if (!check(axis_alpha_pc_udp_recv_exact_until(client, payload, sizeof(payload),
+            &deadline, error) == -1 &&
+            error->kind == C2837X_PC_ERROR_TIMEOUT &&
+            strcmp(error->stage, "recv_payload") == 0,
+            "payload honors the same expired absolute deadline")) return 0;
+    return check(!client->datagram_staged &&
+            !axis_alpha_pc_udp_is_valid(client),
+        "deadline failure clears staging and closes socket");
+}
+
+static int test_readable_timeout(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    uint8_t header[4] = {0u};
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "readable-timeout receiver setup")) return 0;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            20u, error) == -1 && error->kind == C2837X_PC_ERROR_TIMEOUT &&
+            strcmp(error->stage, "recv_header") == 0,
+            "readable wait timeout maps to recv_header TIMEOUT")) return 0;
+    return check(!client->datagram_staged &&
+            !axis_alpha_pc_udp_is_valid(client),
+        "readable timeout clears staging and closes socket");
+}
+
+static int test_receive_socket_failure(AxisAlphaPcUdpSocket *client,
+    test_socket_t peer, uint16_t peer_port, AxisAlphaPcError *error)
+{
+    uint8_t header[4] = {0u};
+    if (!check(connect_receiver(client, peer, peer_port, error) == 0,
+            "receive-error receiver setup")) return 0;
+    client->native_handle = (uintptr_t)TEST_INVALID_SOCKET;
+    if (!check(axis_alpha_pc_udp_recv_exact(client, header, sizeof(header),
+            1000u, error) == -1 &&
+            error->kind == C2837X_PC_ERROR_SOCKET,
+            "explicit receive socket failure maps to SOCKET")) return 0;
+    return check(!client->datagram_staged &&
+            !axis_alpha_pc_udp_is_valid(client),
+        "receive socket failure clears staging and closes socket");
+}
+
 int main(void)
 {
     static const uint8_t frame[] = {0x01u, 0x00u, 0x04u, 0x00u,
@@ -195,6 +515,48 @@ int main(void)
     if (!check(!has_datagram(peer),
             "expired deadline does not send a datagram")) goto cleanup;
 
+    if (!test_zero_payload(&client, peer, peer_port, &error)) goto cleanup;
+    printf("PASS zero_payload\n");
+    if (!test_zero_payload_with_extra_bytes(&client, peer, peer_port,
+            &error)) goto cleanup;
+    printf("PASS zero_payload_with_extra_bytes\n");
+    if (!test_max_legal_datagram(&client, peer, peer_port, &error)) {
+        goto cleanup;
+    }
+    printf("PASS max_legal_datagram\n");
+    if (!test_normal_staging(&client, peer, peer_port, &error)) goto cleanup;
+    printf("PASS normal_staging\n");
+    if (!test_short_header(&client, peer, peer_port, &error)) goto cleanup;
+    printf("PASS short_header\n");
+    if (!test_short_declared_payload(&client, peer, peer_port, &error)) {
+        goto cleanup;
+    }
+    printf("PASS short_declared_payload\n");
+    if (!test_long_declared_payload(&client, peer, peer_port, &error)) {
+        goto cleanup;
+    }
+    printf("PASS long_declared_payload\n");
+    if (!test_oversize_datagram(&client, peer, peer_port, &error)) {
+        goto cleanup;
+    }
+    printf("PASS oversize_datagram\n");
+    if (!test_no_cross_datagram(&client, peer, peer_port, &error)) {
+        goto cleanup;
+    }
+    printf("PASS no_cross_datagram\n");
+    if (!test_absolute_deadline_continuity(&client, peer, peer_port, &error)) {
+        goto cleanup;
+    }
+    printf("PASS absolute_deadline_continuity\n");
+    if (!test_readable_timeout(&client, peer, peer_port, &error)) {
+        goto cleanup;
+    }
+    printf("PASS readable_timeout\n");
+    if (!test_receive_socket_failure(&client, peer, peer_port, &error)) {
+        goto cleanup;
+    }
+    printf("PASS receive_socket_failure\n");
+
     status = 0;
 
 cleanup:
@@ -204,7 +566,7 @@ cleanup:
     if (status == 0 && !check(!axis_alpha_pc_udp_is_valid(&client),
             "cleanup invalidates UDP socket")) status = 1;
     if (status == 0) {
-        printf("SUMMARY passed=8 failed=0\n");
+        printf("SUMMARY passed=19 failed=0\n");
     }
     return status;
 }

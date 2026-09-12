@@ -33,6 +33,10 @@ typedef c2837x_pc_error_t @TYPED@PcError;
 #define @MACRO@_PC_ERROR_PORT_ACCESS C2837X_PC_ERROR_PORT_ACCESS
 #define @MACRO@_PC_ERROR_SERIAL C2837X_PC_ERROR_SERIAL
 
+#define @MACRO@_PC_UDP_MAX_DATAGRAM_SIZE 1472u
+#define @MACRO@_PC_UDP_STAGING_CAPACITY \
+    (@MACRO@_PC_UDP_MAX_DATAGRAM_SIZE + 1u)
+
 #define @MACRO@_PC_ERROR_HAS_STEP_INDEX C2837X_PC_ERROR_HAS_STEP_INDEX
 #define @MACRO@_PC_ERROR_HAS_EXPECTED_TYPE C2837X_PC_ERROR_HAS_EXPECTED_TYPE
 #define @MACRO@_PC_ERROR_HAS_ACTUAL_TYPE C2837X_PC_ERROR_HAS_ACTUAL_TYPE
@@ -68,6 +72,12 @@ typedef struct
     int platform_initialized;
     int last_os_error;
     uint64_t clock_frequency_hz;
+    /* Receive-side state: one complete datagram, never a stream prefix. */
+    uint8_t datagram_staging[@MACRO@_PC_UDP_STAGING_CAPACITY];
+    uint32_t datagram_length;
+    uint32_t datagram_offset;
+    uint16_t datagram_payload_length;
+    int datagram_staged;
 } @TYPED@PcUdpSocket;
 
 typedef struct
@@ -96,6 +106,13 @@ int @NAME@_pc_udp_send_datagram_until(@TYPED@PcUdpSocket *socket,
 int @NAME@_pc_udp_send_datagram(@TYPED@PcUdpSocket *socket,
     const uint8_t *data, uint32_t length, uint32_t timeout_ms,
     @TYPED@PcError *error);
+
+/* Header and payload reads share the caller-owned absolute deadline. */
+int @NAME@_pc_udp_recv_exact_until(@TYPED@PcUdpSocket *socket,
+    uint8_t *data, uint32_t length,
+    const @TYPED@PcUdpDeadline *deadline, @TYPED@PcError *error);
+int @NAME@_pc_udp_recv_exact(@TYPED@PcUdpSocket *socket, uint8_t *data,
+    uint32_t length, uint32_t timeout_ms, @TYPED@PcError *error);
 
 /* Compatibility names for a transport-neutral shared protocol binding. */
 int @NAME@_pc_udp_send_all_until(@TYPED@PcUdpSocket *socket,
