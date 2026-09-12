@@ -156,6 +156,85 @@ classdef test_pc_protocol_candidates < matlab.unittest.TestCase
             testCase.verifyTrue(isscalar(initStart) && ...
                 strfind(socket(initStart:end), 'QueryPerformanceFrequency') > 0);
         end
+
+        function testUdpProtocolBindingAndFocusedCompile(testCase)
+            project = two_instance_project(testCase.WorkFolder);
+            project.instances(1).iodevice = ...
+                c2837x_block_create_iodevice('w5300_udp');
+            rendered = c2837x_block_render_pc_files(project);
+            udp = rendered(1);
+            protocol = native2unicode(udp.protocol_source_bytes, 'UTF-8');
+            header = native2unicode(udp.protocol_header_bytes, 'UTF-8');
+            transport = native2unicode(udp.udp_source_bytes, 'UTF-8');
+            transportHeader = native2unicode(udp.udp_header_bytes, 'UTF-8');
+
+            testCase.verifySubstring(header, ...
+                '#include "axis_alpha_pc_udp.h"');
+            testCase.verifySubstring(header, ...
+                'AxisAlphaPcUdpSocket *socket');
+            testCase.verifySubstring(protocol, ...
+                'AxisAlphaPcUdpSocket *socket');
+            testCase.verifySubstring(protocol, ...
+                'AxisAlphaPcUdpDeadline deadline');
+            testCase.verifySubstring(protocol, ...
+                'axis_alpha_pc_udp_deadline_start');
+            testCase.verifySubstring(protocol, ...
+                'axis_alpha_pc_udp_send_all_until');
+            testCase.verifySubstring(protocol, ...
+                'axis_alpha_pc_udp_recv_exact_until');
+            testCase.verifySubstring(protocol, ...
+                'axis_alpha_pc_udp_close');
+            testCase.verifyEmpty(strfind(header, 'axis_alpha_pc_socket.h'));
+            testCase.verifyEmpty(strfind(protocol, 'AxisAlphaPcSocket'));
+            testCase.verifyEmpty(strfind(protocol, 'AxisAlphaPcDeadline'));
+            testCase.verifyEmpty(strfind(protocol, 'pc_socket_send_all_until'));
+            testCase.verifyEmpty(strfind(protocol, 'pc_socket_recv_exact_until'));
+            testCase.verifyEmpty(strfind(protocol, 'pc_deadline_start'));
+            testCase.verifySubstring(transport, 'SOCK_DGRAM');
+            testCase.verifySubstring(transportHeader, ...
+                'AxisAlphaPcUdpSocket');
+
+            compileFolder = fullfile(testCase.WorkFolder, 'udp_binding');
+            mkdir(compileFolder);
+            write_bytes(fullfile(compileFolder, 'axis_alpha_pc_error.h'), ...
+                udp.pc_error_header_bytes);
+            write_bytes(fullfile(compileFolder, 'axis_alpha_pc_udp.c'), ...
+                udp.udp_source_bytes);
+            write_bytes(fullfile(compileFolder, 'axis_alpha_pc_udp.h'), ...
+                udp.udp_header_bytes);
+            write_bytes(fullfile(compileFolder, 'axis_alpha_protocol.c'), ...
+                udp.protocol_source_bytes);
+            write_bytes(fullfile(compileFolder, 'axis_alpha_protocol.h'), ...
+                udp.protocol_header_bytes);
+            write_text(compileFolder, 'main.c', sprintf([ ...
+                '#include "axis_alpha_protocol.h"\n' ...
+                'int main(void)\n' ...
+                '{\n' ...
+                '    AxisAlphaPcUdpSocket socket;\n' ...
+                '    AxisAlphaPcError error;\n' ...
+                '    (void)socket;\n' ...
+                '    (void)error;\n' ...
+                '    return 0;\n' ...
+                '}\n']));
+            if ispc
+                socketLibrary = '-lws2_32';
+            else
+                socketLibrary = '';
+            end
+            executable = fullfile(compileFolder, 'udp_protocol_compile');
+            if ispc
+                executable = [executable '.exe'];
+            end
+            command = sprintf([ ...
+                'gcc -std=c11 -Wall -Wextra -Werror -pedantic-errors ' ...
+                '-I"%s" "%s" "%s" "%s" -o "%s" %s 2>&1'], ...
+                compileFolder, ...
+                fullfile(compileFolder, 'axis_alpha_pc_udp.c'), ...
+                fullfile(compileFolder, 'axis_alpha_protocol.c'), ...
+                fullfile(compileFolder, 'main.c'), executable, socketLibrary);
+            [status, output] = system(command);
+            testCase.assertEqual(status, 0, output);
+        end
     end
 end
 
@@ -239,4 +318,18 @@ end
 tokens = regexp(text, '(?m)^#define\s+([A-Za-z_]\w*)', 'tokens');
 macros = unique(cellfun(@(token) token{1}, tokens, 'UniformOutput', false));
 macros(strcmp(macros, '_POSIX_C_SOURCE')) = [];
+end
+
+function write_text(folder, name, text)
+write_bytes(fullfile(folder, name), unicode2native(text, 'UTF-8'));
+end
+
+function write_bytes(path, bytes)
+folder = fileparts(path);
+if ~isfolder(folder), mkdir(folder); end
+fileID = fopen(path, 'wb');
+assert(fileID >= 0);
+cleanup = onCleanup(@() fclose(fileID));
+fwrite(fileID, bytes, 'uint8');
+clear cleanup
 end
