@@ -1,6 +1,9 @@
 #include "c2837x_w5300_udp_channel.h"
 #include "c2837x_block_platform.h"
 
+#define C2837X_W5300_UDP_HEADER_BYTES 4u
+#define C2837X_W5300_UDP_MAX_DATA_BYTES 1472u
+
 static void clear_socket_runtime(C2837xW5300Socket *socket)
 {
     socket->pending_command = C2837X_W5300_COMMAND_NONE;
@@ -11,14 +14,19 @@ static void clear_socket_runtime(C2837xW5300Socket *socket)
     socket->udp_rx_residual_valid = 0u;
 }
 
+static void clear_datagram(C2837xW5300UdpChannel *channel)
+{
+    channel->datagram_active = 0u;
+    channel->datagram_data_size = 0u;
+    channel->datagram_consumed = 0u;
+}
+
 static void clear_candidate_and_datagram(C2837xW5300UdpChannel *channel)
 {
     channel->candidate_ip = 0u;
     channel->candidate_port = 0u;
     channel->candidate_valid = 0u;
-    channel->datagram_active = 0u;
-    channel->datagram_data_size = 0u;
-    channel->datagram_consumed = 0u;
+    clear_datagram(channel);
 }
 
 static void reset_runtime(C2837xW5300UdpChannel *channel)
@@ -55,6 +63,72 @@ static int16 control_operation_allowed(C2837xW5300UdpChannel *channel)
 {
     sync_platform_generation(channel);
     return runtime_operation_allowed(channel);
+}
+
+static int16 acquire_packet_info(C2837xW5300UdpChannel *channel,
+                                 C2837xW5300UdpPacketInfo *packet_info)
+{
+    int16 available = c2837x_w5300_socket_udp_rx_available(&channel->socket);
+
+    if (available <= 0)
+        return available;
+    return c2837x_w5300_socket_udp_read_packet_info(
+        &channel->socket, packet_info);
+}
+
+static void stage_datagram(C2837xW5300UdpChannel *channel,
+                           const C2837xW5300UdpPacketInfo *packet_info)
+{
+    channel->datagram_active = 1u;
+    channel->datagram_data_size = (Uint32)packet_info->data_size;
+    channel->datagram_consumed = 0u;
+}
+
+static int16 commit_datagram(C2837xW5300UdpChannel *channel)
+{
+    int16 result = c2837x_w5300_socket_udp_commit_recv(&channel->socket);
+
+    if (result > 0)
+        clear_datagram(channel);
+    return result;
+}
+
+static int16 drop_datagram(C2837xW5300UdpChannel *channel)
+{
+    int32 dropped = c2837x_w5300_socket_udp_drop_data(&channel->socket);
+
+    if (dropped < 0)
+        return -1;
+    if ((channel->socket.udp_rx_data_remaining != 0u) ||
+        (channel->socket.udp_rx_residual_valid != 0u))
+        return -1;
+
+    channel->datagram_consumed = channel->datagram_data_size;
+    return commit_datagram(channel);
+}
+
+static int16 acquire_next_receive_datagram(
+    C2837xW5300UdpChannel *channel)
+{
+    C2837xW5300UdpPacketInfo packet_info;
+    int16 result = acquire_packet_info(channel, &packet_info);
+
+    if (result <= 0)
+        return result;
+
+    stage_datagram(channel, &packet_info);
+    if ((channel->candidate_valid != 0u) &&
+        ((packet_info.source_ip != channel->candidate_ip) ||
+         (packet_info.source_port != channel->candidate_port)))
+    {
+        /* Filtering happens before any V1 framing interpretation. */
+        result = drop_datagram(channel);
+        if (result < 0)
+            return -1;
+        return 0;
+    }
+
+    return 1;
 }
 
 static void channel_init(void *channel_ref)
@@ -96,7 +170,6 @@ static C2837xBlock_IoConnectionState get_connection_state(void *channel_ref)
         (C2837xW5300UdpChannel *)channel_ref;
     C2837xW5300UdpPacketInfo packet_info;
     Uint16 status;
-    int16 available;
     int16 packet_result;
 
     if (!control_operation_allowed(channel))
@@ -123,16 +196,7 @@ static C2837xBlock_IoConnectionState get_connection_state(void *channel_ref)
         if (channel->datagram_active != 0u)
             return C2837X_IODEVICE_CONNECTION_ERROR;
 
-        available = c2837x_w5300_socket_udp_rx_available(
-            &channel->socket);
-        if (available < 0)
-            return C2837X_IODEVICE_CONNECTION_ERROR;
-        if (available == 0)
-            return C2837X_IODEVICE_CONNECTION_LISTENING;
-
-        /* This is the only receive action in S3-01: exactly PACKET-INFO. */
-        packet_result = c2837x_w5300_socket_udp_read_packet_info(
-            &channel->socket, &packet_info);
+        packet_result = acquire_packet_info(channel, &packet_info);
         if (packet_result < 0)
             return C2837X_IODEVICE_CONNECTION_ERROR;
         if (packet_result == 0)
@@ -141,9 +205,7 @@ static C2837xBlock_IoConnectionState get_connection_state(void *channel_ref)
         channel->candidate_ip = packet_info.source_ip;
         channel->candidate_port = packet_info.source_port;
         channel->candidate_valid = 1u;
-        channel->datagram_active = 1u;
-        channel->datagram_data_size = (Uint32)packet_info.data_size;
-        channel->datagram_consumed = 0u;
+        stage_datagram(channel, &packet_info);
         return C2837X_IODEVICE_CONNECTION_CONNECTED;
 
     default:
@@ -151,16 +213,127 @@ static C2837xBlock_IoConnectionState get_connection_state(void *channel_ref)
     }
 }
 
-/* S3-01 deliberately does not provide a UDP DATA receive adapter. */
 static int32 receive(void *channel_ref, Uint16 *data_words,
                      Uint32 capacity_octets)
 {
     C2837xW5300UdpChannel *channel =
         (C2837xW5300UdpChannel *)channel_ref;
+    Uint32 consumed_before;
+    Uint32 read_capacity;
+    Uint32 remaining;
+    Uint16 payload_length;
+    int16 commit_result;
+    int16 acquire_result;
+    int32 received;
 
-    (void)data_words;
-    (void)capacity_octets;
-    return runtime_operation_allowed(channel) ? 0 : -1;
+    if (!control_operation_allowed(channel))
+        return -1;
+
+    if (channel->datagram_active != 0u)
+    {
+        if (channel->socket.pending_command == C2837X_W5300_COMMAND_RECV)
+        {
+            commit_result = commit_datagram(channel);
+            return (commit_result < 0) ? -1 : 0;
+        }
+        if (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE)
+            return -1;
+        if (channel->socket.udp_rx_datagram_active == 0u)
+            return -1;
+    }
+    else
+    {
+        if (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE)
+            return -1;
+        if (channel->candidate_valid == 0u)
+            return 0;
+
+        acquire_result = acquire_next_receive_datagram(channel);
+        if (acquire_result < 0)
+            return -1;
+        if (acquire_result == 0)
+            return 0;
+    }
+
+    if ((channel->datagram_data_size < C2837X_W5300_UDP_HEADER_BYTES) ||
+        (channel->datagram_data_size > C2837X_W5300_UDP_MAX_DATA_BYTES))
+        return -1;
+
+    if (channel->datagram_consumed < C2837X_W5300_UDP_HEADER_BYTES)
+    {
+        if (capacity_octets == 0u)
+            return 0;
+
+        read_capacity = C2837X_W5300_UDP_HEADER_BYTES -
+            channel->datagram_consumed;
+        if (read_capacity > capacity_octets)
+            read_capacity = capacity_octets;
+        consumed_before = channel->datagram_consumed;
+        received = c2837x_w5300_socket_udp_read_data(
+            &channel->socket, data_words, read_capacity);
+        if (received < 0)
+            return -1;
+        if (received == 0)
+            return 0;
+        if ((((Uint32)received & 1u) != 0u) ||
+            ((Uint32)received > read_capacity))
+            return -1;
+
+        channel->datagram_consumed += (Uint32)received;
+        if (channel->datagram_consumed < C2837X_W5300_UDP_HEADER_BYTES)
+            return received;
+
+        if (consumed_before == 0u)
+            payload_length = data_words[1];
+        else if (consumed_before == 2u)
+            payload_length = data_words[0];
+        else
+            return -1;
+
+        if (channel->datagram_data_size !=
+            (C2837X_W5300_UDP_HEADER_BYTES + (Uint32)payload_length))
+            return -1;
+
+        if (channel->datagram_data_size ==
+            C2837X_W5300_UDP_HEADER_BYTES)
+        {
+            commit_result = commit_datagram(channel);
+            if (commit_result < 0)
+                return -1;
+        }
+        return received;
+    }
+
+    remaining = channel->datagram_data_size - channel->datagram_consumed;
+    if (remaining == 0u)
+    {
+        commit_result = commit_datagram(channel);
+        return (commit_result < 0) ? -1 : 0;
+    }
+    if (capacity_octets == 0u)
+        return 0;
+
+    read_capacity = (capacity_octets < remaining) ?
+        capacity_octets : remaining;
+    consumed_before = channel->datagram_consumed;
+    received = c2837x_w5300_socket_udp_read_data(
+        &channel->socket, data_words, read_capacity);
+    if (received < 0)
+        return -1;
+    if (received == 0)
+        return 0;
+    if ((((Uint32)received & 1u) != 0u) ||
+        ((Uint32)received > read_capacity))
+        return -1;
+
+    channel->datagram_consumed = consumed_before + (Uint32)received;
+    if (channel->datagram_consumed == channel->datagram_data_size)
+    {
+        commit_result = commit_datagram(channel);
+        if (commit_result < 0)
+            return -1;
+    }
+    return received;
 }
 
 /* S3-01 deliberately does not connect the native UDP TX primitive. */
