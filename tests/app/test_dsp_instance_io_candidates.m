@@ -180,6 +180,30 @@ classdef test_dsp_instance_io_candidates < matlab.unittest.TestCase
                 'once'));
         end
 
+        function testUdpInstanceIoUsesPrivateUdpChannel(testCase)
+            project = wire_project(testCase.WorkFolder, {'axis_udp'});
+            project.instances.iodevice = ...
+                c2837x_block_create_iodevice('w5300_udp');
+            project.instances.iodevice.settings.socket_number = uint16(3);
+            project.instances.iodevice.settings.udp_port = uint16(6000);
+
+            rendered = c2837x_block_render_dsp_instance_io_files(project);
+            text = native2unicode(rendered.io_source_bytes, 'UTF-8');
+
+            testCase.verifyNotEmpty(strfind(text, ...
+                '#include "c2837x_w5300_udp_channel.h"'));
+            testCase.verifyNotEmpty(strfind(text, ...
+                'C2837xW5300UdpChannel'));
+            testCase.verifyNotEmpty(strfind(text, ...
+                'C2837X_W5300_UDP_CHANNEL_INITIALIZER'));
+            testCase.verifyNotEmpty(strfind(text, ...
+                'AXIS_UDP_W5300_SOCKET_NUMBER'));
+            testCase.verifyNotEmpty(strfind(text, 'AXIS_UDP_UDP_PORT'));
+            testCase.verifyEmpty(regexp(text, ...
+                '(c2837x_w5300_channel\.h|C2837xW5300Channel|c2837x_w5300_iodevice_ops)', ...
+                'once'));
+        end
+
         function testGoldenWireAndGeneratedObjects(testCase)
             project = wire_project(testCase.WorkFolder, {'axis_x'});
             candidates = c2837x_block_build_dsp_candidates(project);

@@ -87,6 +87,37 @@ classdef test_dsp_instance_config_candidates < matlab.unittest.TestCase
                 '(current_loop|voltage_loop)', 'once'));
         end
 
+        function testUdpInstanceConfigUsesUdpSettingsAndBinding(testCase)
+            project = make_project(testCase.WorkFolder, {'axis_udp'});
+            project.instances.iodevice = ...
+                c2837x_block_create_iodevice('w5300_udp');
+            project.instances.iodevice.settings.socket_number = uint16(3);
+            project.instances.iodevice.settings.udp_port = uint16(6000);
+
+            rendered = c2837x_block_render_dsp_instance_config_files(project);
+            header = text_of(rendered.config_header_bytes);
+            source = text_of(rendered.config_source_bytes);
+
+            testCase.verifyNotEmpty(strfind(header, ...
+                '#define AXIS_UDP_W5300_SOCKET_NUMBER  3u'));
+            testCase.verifyNotEmpty(strfind(header, ...
+                '#define AXIS_UDP_UDP_PORT             6000u'));
+            testCase.verifyNotEmpty(strfind(header, ...
+                'udp_port_out_of_range'));
+            testCase.verifyEmpty(strfind(header, 'TCP_PORT'));
+            testCase.verifyNotEmpty(strfind(source, ...
+                '#include "c2837x_w5300_udp_channel.h"'));
+            testCase.verifyNotEmpty(strfind(source, ...
+                'C2837xW5300UdpChannel'));
+            testCase.verifyNotEmpty(strfind(source, ...
+                '&c2837x_w5300_udp_iodevice_ops'));
+            testCase.verifyNotEmpty(strfind(source, ...
+                '&c2837x_block_axis_udp_iodevice_channel'));
+            testCase.verifyEmpty(regexp(source, ...
+                '(C2837xW5300Channel|c2837x_w5300_iodevice_ops|TCP_PORT)', ...
+                'once'));
+        end
+
         function testHashRecomputedAndRelevantInterfaceChanges(testCase)
             project = make_project(testCase.WorkFolder, {'axis_x'});
             first = render_texts(project, 1);

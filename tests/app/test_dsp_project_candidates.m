@@ -158,6 +158,74 @@ classdef test_dsp_project_candidates < matlab.unittest.TestCase
             testCase.verifyEqual(sourceStatus, 0, sourceOutput);
             testCase.verifyEqual(mainStatus, 0, mainOutput);
         end
+
+        function testSharedW5300ProjectSupportForUdpOnlyAndMixed(testCase)
+            udp = make_project(testCase.WorkFolder, {'axis_udp'});
+            udp.instances.iodevice = ...
+                c2837x_block_create_iodevice('w5300_udp');
+            udp.instances.iodevice.settings.socket_number = uint16(3);
+            udp.instances.iodevice.settings.udp_port = uint16(6000);
+
+            [udpCandidates, ~, udpIssues] = ...
+                c2837x_block_build_dsp_candidates(udp);
+            udpSource = candidate_text(udpCandidates, ...
+                'c2837x_block_project.c');
+            udpConfig = candidate_text(udpCandidates, 'axis_udp_config.h');
+            udpIo = candidate_text(udpCandidates, 'axis_udp_io.c');
+
+            tcpInstance = udp.instances;
+            tcpInstance.internal_name = 'axis_tcp';
+            tcpInstance.iodevice = c2837x_block_create_iodevice('w5300_tcp');
+            tcpInstance.iodevice.settings.socket_number = uint16(0);
+            tcpInstance.iodevice.settings.tcp_port = uint16(5000);
+            mixed = udp;
+            mixed.instances = [tcpInstance udp.instances];
+
+            [mixedCandidates, ~, mixedIssues] = ...
+                c2837x_block_build_dsp_candidates(mixed);
+            mixedHeader = candidate_text(mixedCandidates, ...
+                'c2837x_block_project.h');
+            mixedSource = candidate_text(mixedCandidates, ...
+                'c2837x_block_project.c');
+            mixedTcpConfig = candidate_text(mixedCandidates, ...
+                'axis_tcp_config.h');
+            mixedUdpConfig = candidate_text(mixedCandidates, ...
+                'axis_udp_config.h');
+            mixedTcpIo = candidate_text(mixedCandidates, 'axis_tcp_io.c');
+            mixedUdpIo = candidate_text(mixedCandidates, 'axis_udp_io.c');
+            reverse = mixed;
+            reverse.instances = [udp.instances tcpInstance];
+            [reverseCandidates, ~, reverseIssues] = ...
+                c2837x_block_build_dsp_candidates(reverse);
+            reverseSource = candidate_text(reverseCandidates, ...
+                'c2837x_block_project.c');
+
+            testCase.verifyEmpty(udpIssues);
+            testCase.verifyEmpty(mixedIssues);
+            testCase.verifyEmpty(reverseIssues);
+            testCase.verifyEqual(numel(regexp(udpSource, ...
+                'c2837x_w5300_project_config\s*=', 'match')), 1);
+            testCase.verifyEqual(numel(regexp(mixedSource, ...
+                'c2837x_w5300_project_config\s*=', 'match')), 1);
+            testCase.verifyEqual(numel(regexp(reverseSource, ...
+                'c2837x_w5300_project_config\s*=', 'match')), 1);
+            testCase.verifyNotEmpty(strfind(mixedHeader, ...
+                'C2837X_BLOCK_PLATFORM_HAS_W5300'));
+            testCase.verifyNotEmpty(strfind(mixedSource, 'axis_tcp'));
+            testCase.verifyNotEmpty(strfind(mixedSource, 'axis_udp'));
+            testCase.verifyNotEmpty(strfind(udpConfig, ...
+                '#define AXIS_UDP_UDP_PORT             6000u'));
+            testCase.verifyNotEmpty(strfind(udpIo, ...
+                'C2837X_W5300_UDP_CHANNEL_INITIALIZER'));
+            testCase.verifyNotEmpty(strfind(mixedTcpConfig, ...
+                '#define AXIS_TCP_TCP_PORT             5000u'));
+            testCase.verifyNotEmpty(strfind(mixedUdpConfig, ...
+                '#define AXIS_UDP_UDP_PORT             6000u'));
+            testCase.verifyNotEmpty(strfind(mixedTcpIo, ...
+                'C2837X_W5300_CHANNEL_INITIALIZER'));
+            testCase.verifyNotEmpty(strfind(mixedUdpIo, ...
+                'C2837X_W5300_UDP_CHANNEL_INITIALIZER'));
+        end
     end
 end
 

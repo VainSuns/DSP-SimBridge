@@ -23,7 +23,7 @@ source = [ ...
     '#include "c2837x_block_internal.h"' newline ...
     '#include "c2837x_block_platform.h"'];
 source = [source newline];
-supports = {};
+supportIdentities = {};
 includes = {};
 sourceSupport = {};
 for index = 1:numel(project.instances)
@@ -34,11 +34,12 @@ for index = 1:numel(project.instances)
             'Cannot render unsupported IoDevice type "%s".', ...
             char(project.instances(index).iodevice.type));
     end
-    if ~any(strcmp(supports, definition.type))
+    identity = project_support_identity(definition.type);
+    if ~any(strcmp(supportIdentities, identity))
         support = definition.render_project_support(project);
-        supports{end + 1} = definition.type; %#ok<AGROW>
+        supportIdentities{end + 1} = identity; %#ok<AGROW>
         includes = [includes support.includes]; %#ok<AGROW>
-        sourceSupport{numel(supports)} = support.source; %#ok<AGROW>
+        sourceSupport{numel(supportIdentities)} = support.source; %#ok<AGROW>
     end
 end
 includes = unique(includes, 'stable');
@@ -73,6 +74,15 @@ for index = 1:numel(project.instances)
 end
 rendered = struct('header_bytes', text_bytes(header), ...
     'source_bytes', text_bytes(source));
+end
+
+function identity = project_support_identity(type)
+% W5300 TCP and UDP share one project-level support contract.
+if any(strcmp(type, {'w5300_tcp', 'w5300_udp'}))
+    identity = 'w5300';
+else
+    identity = type;
+end
 end
 
 function text = platform_config_source(platformConfig)

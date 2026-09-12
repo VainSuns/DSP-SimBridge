@@ -77,7 +77,7 @@ classdef test_iodevice_definitions < matlab.unittest.TestCase
             testCase.verifyTrue(all([claims.exclusive]));
         end
 
-        function testUdpValidationAndGenerationBoundary(testCase)
+        function testUdpValidationAndGenerationSupport(testCase)
             definition = c2837x_block_get_iodevice_definition('w5300_udp');
             valid = struct('socket_number', uint16(1), ...
                 'udp_port', uint16(5000));
@@ -86,15 +86,34 @@ classdef test_iodevice_definitions < matlab.unittest.TestCase
             testCase.verifyEmpty(definition.validate_settings(valid, 1));
             testCase.verifyEqual({definition.validate_settings(invalid, 2).code}, ...
                 {'SOCKET_INVALID', 'UDP_PORT_INVALID'});
-            testCase.verifyError( ...
-                @() definition.render_project_support(struct()), ...
-                'C2837xBlock:IoDevice:UdpGenerationUnavailable');
-            testCase.verifyError( ...
-                @() definition.render_instance_config_support(struct(), 1), ...
-                'C2837xBlock:IoDevice:UdpGenerationUnavailable');
-            testCase.verifyError( ...
-                @() definition.render_instance_io_support(struct(), 1), ...
-                'C2837xBlock:IoDevice:UdpGenerationUnavailable');
+
+            project = c2837x_block_create_default_project();
+            instance = c2837x_block_create_default_instance();
+            instance.internal_name = 'axis_udp';
+            instance.iodevice = c2837x_block_create_iodevice('w5300_udp');
+            instance.iodevice.settings.socket_number = uint16(1);
+            instance.iodevice.settings.udp_port = uint16(5000);
+            project.instances = instance;
+
+            projectSupport = definition.render_project_support(project);
+            configSupport = definition.render_instance_config_support(project, 1);
+            ioSupport = definition.render_instance_io_support(project, 1);
+
+            testCase.verifyEqual(projectSupport.includes, {'c2837x_w5300_hal.h'});
+            testCase.verifyNotEmpty(strfind(projectSupport.source, ...
+                'c2837x_w5300_project_config'));
+            testCase.verifyNotEmpty(strfind(configSupport.header_definitions, ...
+                '#define AXIS_UDP_W5300_SOCKET_NUMBER  1u'));
+            testCase.verifyNotEmpty(strfind(configSupport.header_definitions, ...
+                '#define AXIS_UDP_UDP_PORT             5000u'));
+            testCase.verifyNotEmpty(strfind(configSupport.header_checks, ...
+                'udp_port_out_of_range'));
+            testCase.verifyEqual(configSupport.source_includes, ...
+                {'c2837x_w5300_udp_channel.h'});
+            testCase.verifyEqual(configSupport.iodevice_ops_expression, ...
+                '&c2837x_w5300_udp_iodevice_ops');
+            testCase.verifyNotEmpty(strfind(ioSupport.source_definitions, ...
+                'C2837X_W5300_UDP_CHANNEL_INITIALIZER'));
         end
 
         function testUnknownAndUnsafeNamesAreNotExecuted(testCase)
