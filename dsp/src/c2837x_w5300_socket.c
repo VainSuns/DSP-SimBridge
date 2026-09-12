@@ -386,6 +386,65 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket *sk,
     return (int32)chunk;
 }
 
+#if __TI_COMPILER_VERSION__ >= 15009000
+    #pragma CODE_SECTION(c2837x_w5300_socket_udp_send, ".TI.ramfunc");
+#else
+    #pragma CODE_SECTION(c2837x_w5300_socket_udp_send, "ramfuncs");
+#endif
+int32 c2837x_w5300_socket_udp_send(C2837xW5300Socket *sk,
+                                   Uint32 destination_ip,
+                                   Uint16 destination_port,
+                                   const Uint16 *data_words,
+                                   Uint32 wire_byte_count)
+{
+    Uint16 status;
+    Uint32 free_size;
+
+    if ((sk == 0) || !socket_is_valid(sk))
+        return -1;
+
+    /* A pending UDP SEND is progressed once; its arguments are ignored. */
+    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
+    {
+        if (sk->command_phase == C2837X_W5300_COMMAND_PHASE_IDLE)
+            return -1;
+        if (sk->pending_command == C2837X_W5300_COMMAND_SEND)
+        {
+            if (c2837x_w5300_socket_advance_send_command(sk) < 0)
+                return -1;
+        }
+        return 0;
+    }
+    if (sk->command_phase != C2837X_W5300_COMMAND_PHASE_IDLE)
+        return -1;
+    if (wire_byte_count == 0u)
+        return 0;
+    if ((wire_byte_count & 1u) != 0u)
+        return -1;
+    if (data_words == 0)
+        return -1;
+
+    status = c2837x_w5300_get_sn_ssr(sk->sn);
+    if (status != SOCK_UDP)
+        return 0;
+    if (c2837x_w5300_get_sn_tx_fsr(sk->sn, &free_size) < 0)
+        return -1;
+    if ((free_size < wire_byte_count) ||
+        (sk->tx_mem_size < wire_byte_count))
+        return 0;
+
+    c2837x_w5300_write16(Sn_DIPR(sk->sn),
+                         (Uint16)(destination_ip >> 16));
+    c2837x_w5300_write16(Sn_DIPR2(sk->sn), (Uint16)destination_ip);
+    c2837x_w5300_write16(Sn_DPORTR(sk->sn), destination_port);
+    c2837x_w5300_set_sn_ir(sk->sn, Sn_IR_SENDOK | Sn_IR_TIMEOUT);
+    c2837x_w5300_write_stream(sk->sn, data_words, wire_byte_count);
+    c2837x_w5300_set_sn_tx_wrsr(sk->sn, wire_byte_count);
+    if (issue(sk, Sn_CR_SEND, C2837X_W5300_COMMAND_SEND) < 0)
+        return -1;
+    return (int32)wire_byte_count;
+}
+
 int16 c2837x_w5300_socket_advance_send_command(C2837xW5300Socket *sk)
 {
     if (sk == 0)

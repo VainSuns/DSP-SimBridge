@@ -114,6 +114,20 @@ int32 c2837x_w5300_socket_send(C2837xW5300Socket* sk,
                                 Uint32 wire_byte_count);
 
 /*
+ * Submit one complete UDP datagram. The destination fields are raw W5300
+ * hardware values supplied by the caller; this primitive has no peer or
+ * session ownership. Returns wire_byte_count when the complete datagram and
+ * exactly one SEND command were submitted, 0 while pending or when the
+ * complete datagram cannot be submitted now, and negative on local error.
+ * SENDOK/TIMEOUT completion remains the owning Channel's responsibility.
+ */
+int32 c2837x_w5300_socket_udp_send(C2837xW5300Socket *sk,
+                                    Uint32 destination_ip,
+                                    Uint16 destination_port,
+                                    const Uint16 *data_words,
+                                    Uint32 wire_byte_count);
+
+/*
  * Advance only a pending SEND command by one Sn_CR read.
  * Returns >0 when no SEND command-register phase remains, 0 while Sn_CR is
  * nonzero, and negative for an invalid or conflicting command state.
