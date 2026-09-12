@@ -392,5 +392,5 @@ Update Diagram 只做静态的 block parameter、port、sample-time 等配置检
 | Simulink 最终模型运行 | 未执行 |
 | 目标板 SCI/W5300 通信和双实例 | 未执行 |
 | 用户最终模型验证 | 待用户验证 |
-| UDP FR-001～FR-082 final audit | PENDING UDP-S6-03 |
-| UDP-G6 | NOT_DECLARED |
+| UDP-S6-03 final FR audit | PASS；FR-001～FR-080 = PASS，FR-081 = USER_VALIDATION_PENDING，FR-082 = PASS |
+| UDP-G6 | NOT_EVALUATED |

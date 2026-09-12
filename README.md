@@ -12,8 +12,10 @@ DSP-SimBridge 是面向 TI TMS320F28377D PTP 目标的 Simulink S-Function
 DSP-SimBridge 当前已完成 Project V4、多实例、W5300/TCP、W5300/UDP、SCI
 IoDevice、Windows SCI S-Function，以及 UDP 的软件、生成和代表性编译闭环。
 历史 SCI IoDevice v1.0 development cycle = COMPLETE；其历史 requirements、
-plan 和 traceability 继续保存在 archive。当前 UDP 验证范围与未覆盖边界见
-[当前验证状态](#当前验证状态)；UDP 最终 FR audit 仍保留给 UDP-S6-03。
+plan 和 traceability 继续保存在 archive。当前 UDP 验证范围、最终 FR audit
+结论与未覆盖边界见[当前验证状态](#当前验证状态)。UDP-S6-03 FINAL FR AUDIT
+= PASS；FR-081 的 W5300 UDP hardware PIL 仍为 USER_VALIDATION_PENDING，
+UDP-G6 = NOT_EVALUATED。
 
 ## 当前版本与能力
 
@@ -387,5 +389,12 @@ link、download 或 board execution PASS。UDP hardware PIL 仍待用户验证�
 - [V1 protocol vectors](Protocol_Test_Vectors.md)
 
 历史材料保留在 archive 目录中，仅用于历史追溯。当前 UDP traceability 是
-development evidence map，不是 FR-001～FR-082 final audit；final audit =
-PENDING UDP-S6-03，UDP-G6 未声明。
+development evidence map，并记录已接受的 final audit 结论：
+
+~~~text
+UDP-S6-03 FINAL FR AUDIT = PASS
+FR-001..FR-080 = PASS
+FR-081 = USER_VALIDATION_PENDING
+FR-082 = PASS
+UDP-G6 = NOT_EVALUATED
+~~~

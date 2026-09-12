@@ -302,4 +302,6 @@ heartbeat、keepalive、peer takeover 或 IP fragmentation based larger-frame
 
 上述 TI 结果只表示 11 个代表性 generated UDP C source 的 compile-only
 能力证据，不表示完整 CCS project build、link、download 或 board execution
-PASS。最终 UDP FR audit 仍 pending UDP-S6-03，UDP-G6 未声明。
+UDP-S6-03 final FR audit = PASS；FR-001..FR-080 = PASS，FR-081 =
+USER_VALIDATION_PENDING，FR-082 = PASS。W5300 UDP hardware PIL 仍为
+USER_VALIDATION_PENDING；UDP-G6 = NOT_EVALUATED。
