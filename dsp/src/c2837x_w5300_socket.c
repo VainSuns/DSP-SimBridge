@@ -400,13 +400,11 @@ int32 c2837x_w5300_socket_udp_send(C2837xW5300Socket *sk,
     Uint16 status;
     Uint32 free_size;
 
-    if ((sk == 0) || !socket_is_valid(sk))
+    if ((sk == 0) ||
+        (sk->pending_command != C2837X_W5300_COMMAND_NONE))
         return -1;
 
     /* UDP owns its SEND transaction in the Channel, not in generic TCP state. */
-    if ((sk->pending_command != C2837X_W5300_COMMAND_NONE) ||
-        (sk->command_phase != C2837X_W5300_COMMAND_PHASE_IDLE))
-        return -1;
     if (wire_byte_count == 0u)
         return 0;
     if ((wire_byte_count & 1u) != 0u)
@@ -419,8 +417,7 @@ int32 c2837x_w5300_socket_udp_send(C2837xW5300Socket *sk,
         return 0;
     if (c2837x_w5300_get_sn_tx_fsr(sk->sn, &free_size) < 0)
         return -1;
-    if ((free_size < wire_byte_count) ||
-        (sk->tx_mem_size < wire_byte_count))
+    if (free_size < wire_byte_count)
         return 0;
 
     c2837x_w5300_write16(Sn_DIPR(sk->sn),
@@ -466,7 +463,7 @@ int16 c2837x_w5300_socket_udp_rx_available(C2837xW5300Socket *sk)
     Uint16 status;
     Uint32 rx_size;
 
-    if (!socket_is_valid(sk))
+    if (sk == 0)
         return -1;
     if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
         return 0;
@@ -488,7 +485,7 @@ int16 c2837x_w5300_socket_udp_read_packet_info(
     Uint16 status;
     Uint32 rx_size;
 
-    if (!socket_is_valid(sk) || (packet_info == 0))
+    if ((sk == 0) || (packet_info == 0))
         return -1;
     if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
         return 0;
@@ -535,8 +532,6 @@ int32 c2837x_w5300_socket_udp_read_data(C2837xW5300Socket *sk,
     if (wire_capacity_bytes == 0u)
         return 0;
     if ((sk == 0) || (data_words == 0))
-        return -1;
-    if (!socket_is_valid(sk))
         return -1;
     if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
         return 0;
@@ -613,7 +608,7 @@ int32 c2837x_w5300_socket_udp_drop_data(C2837xW5300Socket *sk)
     Uint32 word_index;
     Uint32 word_count;
 
-    if (!socket_is_valid(sk))
+    if (sk == 0)
         return -1;
     if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
         return 0;
@@ -648,7 +643,7 @@ int16 c2837x_w5300_socket_udp_commit_recv(C2837xW5300Socket *sk)
 {
     Uint16 status;
 
-    if (!socket_is_valid(sk) ||
+    if ((sk == 0) ||
         (sk->udp_rx_datagram_active == 0u) ||
         (sk->udp_rx_data_remaining != 0u) ||
         (sk->udp_rx_residual_valid != 0u))

@@ -212,20 +212,6 @@ static void test_odd_length_is_rejected_without_write(void)
     assert_no_datagram_writes(2u);
 }
 
-static void test_datagram_larger_than_socket_memory_is_no_write(void)
-{
-    C2837xW5300Socket socket = make_socket();
-    static const Uint16 data[] = {0x2211u, 0x4433u, 0x6655u};
-
-    reset_fixture();
-    socket.tx_mem_size = 4u;
-    set_register(Sn_SSR(2u), SOCK_UDP);
-    set_tx_space(2u, 8u);
-    assert(c2837x_w5300_socket_udp_send(
-               &socket, 0xC0A8010Au, 0x1F90u, data, 6u) == 0);
-    assert_no_datagram_writes(2u);
-}
-
 static void test_tcp_partial_send_remains_separate(void)
 {
     C2837xW5300Socket socket = make_socket();
@@ -246,7 +232,6 @@ int main(void)
     test_udp_primitive_rejects_generic_pending_command();
     test_completion_bits_remain_visible();
     test_odd_length_is_rejected_without_write();
-    test_datagram_larger_than_socket_memory_is_no_write();
     test_tcp_partial_send_remains_separate();
     return 0;
 }

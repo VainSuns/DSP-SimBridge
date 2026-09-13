@@ -68,10 +68,6 @@ static int16 control_operation_allowed(C2837xW5300UdpChannel *channel)
 static int16 acquire_packet_info(C2837xW5300UdpChannel *channel,
                                  C2837xW5300UdpPacketInfo *packet_info)
 {
-    int16 available = c2837x_w5300_socket_udp_rx_available(&channel->socket);
-
-    if (available <= 0)
-        return available;
     return c2837x_w5300_socket_udp_read_packet_info(
         &channel->socket, packet_info);
 }
@@ -98,9 +94,6 @@ static int16 drop_datagram(C2837xW5300UdpChannel *channel)
     int32 dropped = c2837x_w5300_socket_udp_drop_data(&channel->socket);
 
     if (dropped < 0)
-        return -1;
-    if ((channel->socket.udp_rx_data_remaining != 0u) ||
-        (channel->socket.udp_rx_residual_valid != 0u))
         return -1;
 
     channel->datagram_consumed = channel->datagram_data_size;
@@ -236,15 +229,9 @@ static int32 receive(void *channel_ref, Uint16 *data_words,
             commit_result = commit_datagram(channel);
             return (commit_result < 0) ? -1 : 0;
         }
-        if (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE)
-            return -1;
-        if (channel->socket.udp_rx_datagram_active == 0u)
-            return -1;
     }
     else
     {
-        if (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE)
-            return -1;
         if (channel->candidate_valid == 0u)
             return 0;
 
@@ -283,12 +270,7 @@ static int32 receive(void *channel_ref, Uint16 *data_words,
         if (channel->datagram_consumed < C2837X_W5300_UDP_HEADER_BYTES)
             return received;
 
-        if (consumed_before == 0u)
-            payload_length = data_words[1];
-        else if (consumed_before == 2u)
-            payload_length = data_words[0];
-        else
-            return -1;
+        payload_length = data_words[1u - (consumed_before >> 1)];
 
         if (channel->datagram_data_size !=
             (C2837X_W5300_UDP_HEADER_BYTES + (Uint32)payload_length))
@@ -305,11 +287,6 @@ static int32 receive(void *channel_ref, Uint16 *data_words,
     }
 
     remaining = channel->datagram_data_size - channel->datagram_consumed;
-    if (remaining == 0u)
-    {
-        commit_result = commit_datagram(channel);
-        return (commit_result < 0) ? -1 : 0;
-    }
     if (capacity_octets == 0u)
         return 0;
 
@@ -348,11 +325,6 @@ static int32 advance_udp_tx(C2837xW5300UdpChannel *channel)
     int16 command_result;
     Uint16 ir;
 
-    if ((channel->pending_octets == 0u) ||
-        ((channel->pending_octets & 1u) != 0u) ||
-        (channel->pending_octets > C2837X_W5300_UDP_MAX_DATA_BYTES))
-        return -1;
-
     if (channel->tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR)
     {
         command_result = c2837x_w5300_poll_sn_cr(channel->socket.sn);
@@ -360,9 +332,6 @@ static int32 advance_udp_tx(C2837xW5300UdpChannel *channel)
             return command_result;
         channel->tx_state = C2837X_W5300_UDP_TX_WAIT_RESULT;
     }
-    if (channel->tx_state != C2837X_W5300_UDP_TX_WAIT_RESULT)
-        return -1;
-
     ir = c2837x_w5300_get_sn_ir(channel->socket.sn);
     if ((ir & Sn_IR_TIMEOUT) != 0u)
     {
@@ -399,8 +368,6 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
             reset_udp_tx(channel);
         return tx_result;
     }
-    if (channel->pending_octets != 0u)
-        goto send_error;
     if (channel->candidate_valid == 0u)
         goto send_error;
 
@@ -415,10 +382,7 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
         if (commit_result == 0)
             return 0;
     }
-    if ((channel->datagram_active != 0u) ||
-        (channel->socket.udp_rx_datagram_active != 0u) ||
-        (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE) ||
-        (channel->socket.command_phase != C2837X_W5300_COMMAND_PHASE_IDLE))
+    if (channel->datagram_active != 0u)
         goto send_error;
 
     if (count_octets == 0u)
