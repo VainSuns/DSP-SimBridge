@@ -403,19 +403,9 @@ int32 c2837x_w5300_socket_udp_send(C2837xW5300Socket *sk,
     if ((sk == 0) || !socket_is_valid(sk))
         return -1;
 
-    /* A pending UDP SEND is progressed once; its arguments are ignored. */
-    if (sk->pending_command != C2837X_W5300_COMMAND_NONE)
-    {
-        if (sk->command_phase == C2837X_W5300_COMMAND_PHASE_IDLE)
-            return -1;
-        if (sk->pending_command == C2837X_W5300_COMMAND_SEND)
-        {
-            if (c2837x_w5300_socket_advance_send_command(sk) < 0)
-                return -1;
-        }
-        return 0;
-    }
-    if (sk->command_phase != C2837X_W5300_COMMAND_PHASE_IDLE)
+    /* UDP owns its SEND transaction in the Channel, not in generic TCP state. */
+    if ((sk->pending_command != C2837X_W5300_COMMAND_NONE) ||
+        (sk->command_phase != C2837X_W5300_COMMAND_PHASE_IDLE))
         return -1;
     if (wire_byte_count == 0u)
         return 0;
@@ -440,7 +430,7 @@ int32 c2837x_w5300_socket_udp_send(C2837xW5300Socket *sk,
     c2837x_w5300_set_sn_ir(sk->sn, Sn_IR_SENDOK | Sn_IR_TIMEOUT);
     c2837x_w5300_write_stream(sk->sn, data_words, wire_byte_count);
     c2837x_w5300_set_sn_tx_wrsr(sk->sn, wire_byte_count);
-    if (issue(sk, Sn_CR_SEND, C2837X_W5300_COMMAND_SEND) < 0)
+    if (c2837x_w5300_issue_sn_cr(sk->sn, Sn_CR_SEND) < 0)
         return -1;
     return (int32)wire_byte_count;
 }

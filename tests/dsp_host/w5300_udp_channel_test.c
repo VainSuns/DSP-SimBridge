@@ -235,7 +235,7 @@ static void assert_runtime_cleared(const C2837xW5300UdpChannel *channel)
     assert(channel->datagram_active == 0u);
     assert(channel->datagram_data_size == 0u);
     assert(channel->datagram_consumed == 0u);
-    assert(channel->send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel->tx_state == C2837X_W5300_UDP_TX_IDLE);
     assert(channel->pending_octets == 0u);
     assert(channel->close_state == C2837X_W5300_UDP_CLOSE_IDLE);
     assert(channel->faulted == 0u);
@@ -348,6 +348,11 @@ static void finish_udp_close(C2837xW5300UdpChannel *channel)
     Uint16 sn = channel->socket.sn;
 
     assert(c2837x_w5300_udp_iodevice_ops.close(channel) == 0);
+    if (channel->tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR)
+    {
+        set_register(Sn_CR(sn), 0u);
+        assert(c2837x_w5300_udp_iodevice_ops.close(channel) == 0);
+    }
     if (channel->socket.pending_command !=
         C2837X_W5300_COMMAND_NONE)
     {
@@ -378,16 +383,16 @@ static void test_close_takes_over_pending_send(void)
     set_tx_space(1u, 4u);
     assert(c2837x_w5300_udp_iodevice_ops.send(
                &channel, frame, 4u) == 0);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR);
     assert(channel.pending_octets == 4u);
-    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_SEND);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_NONE);
     send_commands = writes_of(Sn_CR(1u));
 
     assert(c2837x_w5300_udp_iodevice_ops.close(&channel) == 0);
     assert(channel.close_state ==
            C2837X_W5300_UDP_CLOSE_WAIT_EXISTING_CR);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
-    assert(channel.pending_octets == 0u);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR);
+    assert(channel.pending_octets == 4u);
     assert(writes_of(Sn_CR(1u)) == send_commands);
 
     finish_udp_close(&channel);
@@ -725,7 +730,7 @@ static void test_send_requires_candidate(void)
     assert(c2837x_w5300_udp_iodevice_ops.send(
                &channel, frame, 4u) < 0);
     assert(write_count == writes_before);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_IDLE);
     assert(channel.pending_octets == 0u);
     assert_no_udp_tx_writes(5u);
 }
@@ -747,7 +752,7 @@ static void test_send_waits_for_whole_tx_space(void)
                &channel, frame, 6u) == 0);
     assert(write_count == writes_before);
     assert(writes_of(Sn_CR(6u)) == cr_before);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_IDLE);
     assert(channel.pending_octets == 0u);
     assert_no_udp_tx_writes(6u);
 }
@@ -774,14 +779,18 @@ static void test_send_submission_pending_and_sendok(void)
 
     assert(c2837x_w5300_udp_iodevice_ops.send(
                &channel, frame, 8u) == 0);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR);
     assert(channel.pending_octets == 8u);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_NONE);
     assert(writes[writes_before].address == Sn_DIPR(1u) &&
            writes[writes_before].value == 0xC0A8u);
     assert(writes[writes_before + 1u].address == Sn_DIPR2(1u) &&
            writes[writes_before + 1u].value == 0x010Au);
     assert(writes[writes_before + 2u].address == Sn_DPORTR(1u) &&
            writes[writes_before + 2u].value == 0x1F90u);
+    assert(writes[writes_before + 3u].address == Sn_IR(1u) &&
+           writes[writes_before + 3u].value ==
+               (Sn_IR_SENDOK | Sn_IR_TIMEOUT));
     assert(writes[writes_before + 4u].address == Sn_TX_FIFOR(1u) &&
            writes[writes_before + 4u].value == 0x1122u);
     assert(writes[writes_before + 5u].address == Sn_TX_FIFOR(1u) &&
@@ -796,6 +805,12 @@ static void test_send_submission_pending_and_sendok(void)
     assert(writes_of(Sn_TX_FIFOR(1u)) == 4u);
     assert(writes_of(Sn_TX_WRSR(1u)) == 1u);
     assert(writes_of(Sn_TX_WRSR2(1u)) == 1u);
+    assert(writes[writes_before + 8u].address == Sn_TX_WRSR(1u) &&
+           writes[writes_before + 8u].value == 0u);
+    assert(writes[writes_before + 9u].address == Sn_TX_WRSR2(1u) &&
+           writes[writes_before + 9u].value == 8u);
+    assert(writes[writes_before + 10u].address == Sn_CR(1u) &&
+           writes[writes_before + 10u].value == Sn_CR_SEND);
     assert(writes_of(Sn_CR(1u)) == (Uint16)(cr_before + 1u));
     assert(write_count == (Uint16)(writes_before + 11u));
 
@@ -804,21 +819,15 @@ static void test_send_submission_pending_and_sendok(void)
     assert(c2837x_w5300_udp_iodevice_ops.send(
                &channel, replacement, 8u) == 0);
     assert(write_count == writes_after_submit);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR);
     assert(channel.pending_octets == 8u);
     assert((c2837x_w5300_get_sn_ir(1u) & Sn_IR_SENDOK) != 0u);
 
     set_register(Sn_CR(1u), 0u);
     assert(c2837x_w5300_udp_iodevice_ops.send(
-               &channel, replacement, 2u) == 0);
-    assert(write_count == writes_after_submit);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
-    assert(channel.pending_octets == 8u);
-
-    set_register(Sn_IR(1u), Sn_IR_SENDOK);
-    assert(c2837x_w5300_udp_iodevice_ops.send(
-               &channel, 0, 0u) == 8);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+               &channel, replacement, 2u) == 8);
+    assert(write_count == (Uint16)(writes_after_submit + 1u));
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_IDLE);
     assert(channel.pending_octets == 0u);
     assert((c2837x_w5300_get_sn_ir(1u) & Sn_IR_SENDOK) == 0u);
     assert(writes_of(Sn_DIPR(1u)) == 1u);
@@ -840,17 +849,20 @@ static void test_send_timeout_clears_pending_without_retry(void)
     set_tx_space(2u, 4u);
     assert(c2837x_w5300_udp_iodevice_ops.send(
                &channel, frame, 4u) == 0);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR);
     writes_after_submit = write_count;
 
     set_register(Sn_CR(2u), 0u);
     assert(c2837x_w5300_udp_iodevice_ops.send(
                &channel, frame, 4u) == 0);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_RESULT);
+    assert(channel.pending_octets == 4u);
+    assert(channel.socket.pending_command == C2837X_W5300_COMMAND_NONE);
     set_register(Sn_IR(2u), Sn_IR_TIMEOUT);
     assert(c2837x_w5300_udp_iodevice_ops.send(
                &channel, frame, 4u) < 0);
     assert(write_count == writes_after_submit + 1u);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_IDLE);
     assert(channel.pending_octets == 0u);
     assert((c2837x_w5300_get_sn_ir(2u) & Sn_IR_TIMEOUT) == 0u);
     assert(writes_of(Sn_TX_FIFOR(2u)) == 2u);
@@ -890,11 +902,7 @@ static void test_send_resolves_pending_recv_before_submission(void)
     assert(channel.datagram_active == 0u);
     assert(channel.datagram_data_size == 0u);
     assert(channel.datagram_consumed == 0u);
-    assert(writes_of(Sn_TX_FIFOR(3u)) == 0u);
-
-    assert(c2837x_w5300_udp_iodevice_ops.send(
-               &channel, frame, 4u) == 0);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR);
     assert(channel.pending_octets == 4u);
     assert(writes_of(Sn_TX_FIFOR(3u)) == 2u);
     assert(writes_of(Sn_CR(3u)) == (Uint16)(send_commands_before + 1u));
@@ -913,7 +921,7 @@ static void test_send_enforces_structural_size_bounds(void)
     set_tx_space(7u, 1472u);
     assert(c2837x_w5300_udp_iodevice_ops.send(
                &channel, max_frame, 1472u) == 0);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_PENDING);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR);
     assert(channel.pending_octets == 1472u);
     assert(writes_of(Sn_TX_FIFOR(7u)) == 736u);
 

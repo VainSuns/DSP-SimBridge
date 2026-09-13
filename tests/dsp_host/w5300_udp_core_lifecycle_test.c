@@ -439,7 +439,7 @@ static void assert_runtime_cleared(void)
     assert(channel.datagram_active == 0u);
     assert(channel.datagram_data_size == 0u);
     assert(channel.datagram_consumed == 0u);
-    assert(channel.send_state == C2837X_W5300_UDP_SEND_IDLE);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_IDLE);
     assert(channel.pending_octets == 0u);
     assert(channel.close_state == C2837X_W5300_UDP_CLOSE_IDLE);
     assert(channel.faulted == 0u);
@@ -491,6 +491,7 @@ static void drive_close_and_reopen(void)
 static void complete_send(void)
 {
     C2837xBlock_Run(&instance);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_RESULT);
     assert(channel.socket.pending_command ==
            C2837X_W5300_COMMAND_NONE);
     set_register(Sn_IR(channel.socket.sn), Sn_IR_SENDOK);
@@ -524,11 +525,9 @@ static void run_valid_sim_start(Uint32 ip, Uint16 port)
     C2837xBlock_Run(&instance);
     assert(instance.runtime.state == C2837X_BLOCK_STATE_SENDING);
     C2837xBlock_Run(&instance);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR);
     assert(channel.socket.pending_command ==
            C2837X_W5300_COMMAND_NONE);
-    C2837xBlock_Run(&instance);
-    assert(channel.socket.pending_command ==
-           C2837X_W5300_COMMAND_SEND);
     complete_send();
 
     assert(instance.runtime.state == C2837X_BLOCK_STATE_RECEIVING);
@@ -564,8 +563,9 @@ static void assert_response(Uint16 error, Uint32 ip, Uint16 port)
 static void complete_error_response(Uint16 error, Uint32 ip, Uint16 port)
 {
     C2837xBlock_Run(&instance);
+    assert(channel.tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR);
     assert(channel.socket.pending_command ==
-           C2837X_W5300_COMMAND_SEND);
+           C2837X_W5300_COMMAND_NONE);
     complete_send();
     assert_response(error, ip, port);
     assert(instance.runtime.close_pending != 0u);

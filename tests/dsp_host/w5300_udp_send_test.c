@@ -169,39 +169,23 @@ static void test_full_datagram_submission(void)
     assert(writes_of(Sn_CR(2u)) == 1u);
     ir = c2837x_w5300_get_sn_ir(2u);
     assert(ir == Sn_IR_RECV);
-    assert(socket.pending_command == C2837X_W5300_COMMAND_SEND);
-    assert(socket.command_phase == C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR);
+    assert(socket.pending_command == C2837X_W5300_COMMAND_NONE);
+    assert(socket.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
 }
 
-static void test_pending_send_does_not_recopy_or_reissue(void)
+static void test_udp_primitive_rejects_generic_pending_command(void)
 {
     C2837xW5300Socket socket = make_socket();
-    static const Uint16 first_data[] = {0x2211u, 0x4433u};
-    static const Uint16 replacement_data[] = {0xA5A5u, 0x5A5Au};
-    Uint16 writes_after_submit;
+    static const Uint16 data[] = {0x2211u, 0x4433u};
 
     reset_fixture();
     set_register(Sn_SSR(2u), SOCK_UDP);
-    set_tx_space(2u, 4u);
+    set_tx_space(2u, 8u);
+    socket.pending_command = C2837X_W5300_COMMAND_SEND;
+    socket.command_phase = C2837X_W5300_COMMAND_PHASE_WAIT_CR_CLEAR;
     assert(c2837x_w5300_socket_udp_send(
-               &socket, 0x01020304u, 1234u, first_data, 4u) == 4);
-    writes_after_submit = write_count;
-    set_register(Sn_CR(2u), Sn_CR_SEND);
-    assert(c2837x_w5300_socket_udp_send(
-               &socket, 0x0A000001u, 4321u, replacement_data, 4u) == 0);
-    assert(write_count == writes_after_submit);
-    assert(writes_of(Sn_TX_FIFOR(2u)) == 2u);
-    assert(writes_of(Sn_TX_WRSR(2u)) == 1u);
-    assert(writes_of(Sn_TX_WRSR2(2u)) == 1u);
-    assert(writes_of(Sn_CR(2u)) == 1u);
-
-    set_register(Sn_CR(2u), 0u);
-    assert(c2837x_w5300_socket_udp_send(
-               &socket, 0x0A000001u, 4321u, replacement_data, 4u) == 0);
-    assert(write_count == writes_after_submit);
-    assert(socket.pending_command == C2837X_W5300_COMMAND_NONE);
-    assert(socket.command_phase == C2837X_W5300_COMMAND_PHASE_IDLE);
-    assert(writes_of(Sn_CR(2u)) == 1u);
+               &socket, 0x01020304u, 1234u, data, 4u) < 0);
+    assert_no_datagram_writes(2u);
 }
 
 static void test_completion_bits_remain_visible(void)
@@ -259,7 +243,7 @@ int main(void)
 {
     test_insufficient_free_space_is_no_write();
     test_full_datagram_submission();
-    test_pending_send_does_not_recopy_or_reissue();
+    test_udp_primitive_rejects_generic_pending_command();
     test_completion_bits_remain_visible();
     test_odd_length_is_rejected_without_write();
     test_datagram_larger_than_socket_memory_is_no_write();

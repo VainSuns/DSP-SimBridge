@@ -33,7 +33,7 @@ static void reset_runtime(C2837xW5300UdpChannel *channel)
 {
     clear_candidate_and_datagram(channel);
     clear_socket_runtime(&channel->socket);
-    channel->send_state = C2837X_W5300_UDP_SEND_IDLE;
+    channel->tx_state = C2837X_W5300_UDP_TX_IDLE;
     channel->pending_octets = 0u;
     channel->faulted = 0u;
     channel->close_state = C2837X_W5300_UDP_CLOSE_IDLE;
@@ -226,7 +226,7 @@ static int32 receive(void *channel_ref, Uint16 *data_words,
     int16 acquire_result;
     int32 received;
 
-    if (!control_operation_allowed(channel))
+    if (!runtime_operation_allowed(channel))
         return -1;
 
     if (channel->datagram_active != 0u)
@@ -336,86 +336,94 @@ static int32 receive(void *channel_ref, Uint16 *data_words,
     return received;
 }
 
+static void reset_udp_tx(C2837xW5300UdpChannel *channel)
+{
+    channel->tx_state = C2837X_W5300_UDP_TX_IDLE;
+    channel->pending_octets = 0u;
+}
+
+static int32 advance_udp_tx(C2837xW5300UdpChannel *channel)
+{
+    Uint32 completed_octets;
+    int16 command_result;
+    Uint16 ir;
+
+    if ((channel->pending_octets == 0u) ||
+        ((channel->pending_octets & 1u) != 0u) ||
+        (channel->pending_octets > C2837X_W5300_UDP_MAX_DATA_BYTES))
+        return -1;
+
+    if (channel->tx_state == C2837X_W5300_UDP_TX_WAIT_CR_CLEAR)
+    {
+        command_result = c2837x_w5300_poll_sn_cr(channel->socket.sn);
+        if (command_result <= 0)
+            return command_result;
+        channel->tx_state = C2837X_W5300_UDP_TX_WAIT_RESULT;
+    }
+    if (channel->tx_state != C2837X_W5300_UDP_TX_WAIT_RESULT)
+        return -1;
+
+    ir = c2837x_w5300_get_sn_ir(channel->socket.sn);
+    if ((ir & Sn_IR_TIMEOUT) != 0u)
+    {
+        c2837x_w5300_set_sn_ir(channel->socket.sn, Sn_IR_TIMEOUT);
+        reset_udp_tx(channel);
+        return -1;
+    }
+    if ((ir & Sn_IR_SENDOK) != 0u)
+    {
+        completed_octets = channel->pending_octets;
+        c2837x_w5300_set_sn_ir(channel->socket.sn, Sn_IR_SENDOK);
+        reset_udp_tx(channel);
+        return (int32)completed_octets;
+    }
+    return 0;
+}
+
 static int32 send(void *channel_ref, const Uint16 *data_words,
                   Uint32 count_octets)
 {
     C2837xW5300UdpChannel *channel =
         (C2837xW5300UdpChannel *)channel_ref;
-    Uint32 completed_octets;
     int32 submitted_octets;
-    int16 command_result;
+    int32 tx_result;
     int16 commit_result;
-    Uint16 status;
-    Uint16 ir;
-    Uint16 clear_mask;
 
-    if (!control_operation_allowed(channel))
+    if (!runtime_operation_allowed(channel))
         return -1;
 
-    if (channel->send_state == C2837X_W5300_UDP_SEND_PENDING)
+    if (channel->tx_state != C2837X_W5300_UDP_TX_IDLE)
     {
-        if ((channel->pending_octets == 0u) ||
-            ((channel->pending_octets & 1u) != 0u) ||
-            (channel->pending_octets > C2837X_W5300_UDP_MAX_DATA_BYTES))
-            goto send_error;
-
-        if (channel->socket.pending_command == C2837X_W5300_COMMAND_SEND)
-        {
-            command_result = c2837x_w5300_socket_advance_send_command(
-                &channel->socket);
-            if (command_result < 0)
-                goto send_error;
-            return 0;
-        }
-        if (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE)
-            goto send_error;
-        if (c2837x_w5300_socket_advance_send_command(&channel->socket) < 0)
-            goto send_error;
-
-        status = c2837x_w5300_get_sn_ssr(channel->socket.sn);
-        ir = c2837x_w5300_get_sn_ir(channel->socket.sn);
-        clear_mask = ir & (Sn_IR_SENDOK | Sn_IR_TIMEOUT);
-        if ((ir & Sn_IR_TIMEOUT) != 0u)
-        {
-            if (clear_mask != 0u)
-                c2837x_w5300_set_sn_ir(channel->socket.sn, clear_mask);
-            goto send_error;
-        }
-        if (status != SOCK_UDP)
-        {
-            if (clear_mask != 0u)
-                c2837x_w5300_set_sn_ir(channel->socket.sn, clear_mask);
-            goto send_error;
-        }
-        if ((ir & Sn_IR_SENDOK) == 0u)
-            return 0;
-
-        /* SENDOK confirms only the local W5300 UDP operation. */
-        completed_octets = channel->pending_octets;
-        c2837x_w5300_set_sn_ir(channel->socket.sn, Sn_IR_SENDOK);
-        channel->send_state = C2837X_W5300_UDP_SEND_IDLE;
-        channel->pending_octets = 0u;
-        return (int32)completed_octets;
+        tx_result = advance_udp_tx(channel);
+        if (tx_result < 0)
+            reset_udp_tx(channel);
+        return tx_result;
     }
-
-    if ((channel->send_state != C2837X_W5300_UDP_SEND_IDLE) ||
-        (channel->pending_octets != 0u))
+    if (channel->pending_octets != 0u)
         goto send_error;
-
     if (channel->candidate_valid == 0u)
         goto send_error;
+
+    /* A complete RX datagram must own no FIFO bytes before SEND is issued. */
     if (channel->socket.pending_command == C2837X_W5300_COMMAND_RECV)
     {
+        if (channel->datagram_active == 0u)
+            goto send_error;
         commit_result = commit_datagram(channel);
         if (commit_result < 0)
             goto send_error;
-        return 0;
+        if (commit_result == 0)
+            return 0;
     }
-    if (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE)
+    if ((channel->datagram_active != 0u) ||
+        (channel->socket.udp_rx_datagram_active != 0u) ||
+        (channel->socket.pending_command != C2837X_W5300_COMMAND_NONE) ||
+        (channel->socket.command_phase != C2837X_W5300_COMMAND_PHASE_IDLE))
         goto send_error;
+
     if (count_octets == 0u)
         return 0;
-    if (((count_octets & 1u) != 0u) ||
+    if ((data_words == 0) || ((count_octets & 1u) != 0u) ||
         (count_octets > C2837X_W5300_UDP_MAX_DATA_BYTES))
         goto send_error;
 
@@ -432,13 +440,12 @@ static int32 send(void *channel_ref, const Uint16 *data_words,
     if ((Uint32)submitted_octets != count_octets)
         goto send_error;
 
-    channel->send_state = C2837X_W5300_UDP_SEND_PENDING;
+    channel->tx_state = C2837X_W5300_UDP_TX_WAIT_CR_CLEAR;
     channel->pending_octets = count_octets;
     return 0;
 
 send_error:
-    channel->send_state = C2837X_W5300_UDP_SEND_IDLE;
-    channel->pending_octets = 0u;
+    reset_udp_tx(channel);
     return -1;
 }
 
@@ -446,8 +453,7 @@ static int16 close_fault(C2837xW5300UdpChannel *channel)
 {
     channel->faulted = 1u;
     channel->close_state = C2837X_W5300_UDP_CLOSE_FAULTED;
-    channel->send_state = C2837X_W5300_UDP_SEND_IDLE;
-    channel->pending_octets = 0u;
+    reset_udp_tx(channel);
     return -1;
 }
 
@@ -479,16 +485,17 @@ static int16 close_channel(void *channel_ref)
              C2837X_W5300_COMMAND_NONE) &&
             (channel->socket.command_phase ==
              C2837X_W5300_COMMAND_PHASE_IDLE) &&
+            (channel->tx_state == C2837X_W5300_UDP_TX_IDLE) &&
+            (channel->pending_octets == 0u) &&
             (c2837x_w5300_get_sn_ssr(channel->socket.sn) == SOCK_CLOSED))
             return close_done(channel);
 
-        channel->send_state = C2837X_W5300_UDP_SEND_IDLE;
-        channel->pending_octets = 0u;
         channel->close_state =
-            (channel->socket.pending_command ==
-             C2837X_W5300_COMMAND_NONE) ?
-            C2837X_W5300_UDP_CLOSE_ISSUE :
-            C2837X_W5300_UDP_CLOSE_WAIT_EXISTING_CR;
+            ((channel->tx_state != C2837X_W5300_UDP_TX_IDLE) ||
+             (channel->socket.pending_command !=
+              C2837X_W5300_COMMAND_NONE)) ?
+                C2837X_W5300_UDP_CLOSE_WAIT_EXISTING_CR :
+                C2837X_W5300_UDP_CLOSE_ISSUE;
         return 0;
     }
     if (channel->close_state == C2837X_W5300_UDP_CLOSE_FAULTED)
@@ -500,6 +507,26 @@ static int16 close_channel(void *channel_ref)
     switch (channel->close_state)
     {
     case C2837X_W5300_UDP_CLOSE_WAIT_EXISTING_CR:
+        if (channel->tx_state != C2837X_W5300_UDP_TX_IDLE)
+        {
+            if (channel->tx_state ==
+                C2837X_W5300_UDP_TX_WAIT_CR_CLEAR)
+            {
+                result = c2837x_w5300_poll_sn_cr(channel->socket.sn);
+                if (result < 0)
+                    return close_fault(channel);
+                if (result == 0)
+                    return 0;
+            }
+            else if (channel->tx_state !=
+                     C2837X_W5300_UDP_TX_WAIT_RESULT)
+            {
+                return close_fault(channel);
+            }
+            reset_udp_tx(channel);
+            channel->close_state = C2837X_W5300_UDP_CLOSE_ISSUE;
+            return 0;
+        }
         result = c2837x_w5300_socket_take_pending(&channel->socket);
         if (result < 0)
             return close_fault(channel);

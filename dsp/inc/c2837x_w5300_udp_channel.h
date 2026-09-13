@@ -8,9 +8,10 @@ typedef Uint32 (*C2837xW5300UdpTimeUs)(void);
 
 typedef enum
 {
-    C2837X_W5300_UDP_SEND_IDLE = 0,
-    C2837X_W5300_UDP_SEND_PENDING
-} C2837xW5300UdpSendState;
+    C2837X_W5300_UDP_TX_IDLE = 0,
+    C2837X_W5300_UDP_TX_WAIT_CR_CLEAR,
+    C2837X_W5300_UDP_TX_WAIT_RESULT
+} C2837xW5300UdpTxState;
 
 /* Native UDP close is only the generic W5300 CLOSE progression. */
 typedef enum
@@ -40,8 +41,8 @@ typedef struct
     Uint32 datagram_data_size;
     Uint32 datagram_consumed;
 
-    /* One complete UDP datagram awaiting local SENDOK confirmation. */
-    C2837xW5300UdpSendState send_state;
+    /* One complete UDP datagram owned by the dedicated TX transaction. */
+    C2837xW5300UdpTxState tx_state;
     Uint32 pending_octets;
 
     C2837xW5300UdpCloseState close_state;
@@ -55,7 +56,7 @@ typedef struct
     { C2837X_W5300_SOCKET_INITIALIZER((sn_), (tx_), (rx_)), \
       (port_), (time_), (timeout_), \
       0u, 0u, 0u, 0u, 0u, 0u, \
-      C2837X_W5300_UDP_SEND_IDLE, 0u, \
+      C2837X_W5300_UDP_TX_IDLE, 0u, \
       C2837X_W5300_UDP_CLOSE_IDLE, 0u, 0u, 0u }
 
 extern const C2837xBlock_IoDeviceOps c2837x_w5300_udp_iodevice_ops;

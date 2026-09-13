@@ -149,12 +149,12 @@ int16 c2837x_w5300_get_sn_rx_rsr(Uint16 sn, Uint32 *value);
  *
  * Word mapping documentation:
  *   W5300 FIFO is 16-bit wide. Each FIFO word carries 2 wire bytes.
- *   When c2837x_w5300_fifo_swap == 0:
- *     FIFO word[0] low byte = wire byte 0, high byte = wire byte 1
- *     i.e. word[0] = 0x0201 for wire bytes 01 02
- *   When c2837x_w5300_fifo_swap == 1:
- *     FIFO word[0] is byte-swapped by the hardware bus
- *     i.e. word[0] = 0x0102 for wire bytes 01 02
+ *   DSP-native data stores wire byte 0 in the low byte and wire byte 1 in
+ *   the high byte. With c2837x_w5300_fifo_swap == 0, write_stream applies
+ *   swap16 before the bus write, so the value written is
+ *   (byte0 << 8) | byte1. This is the same word produced by the official
+ *   WIZnet W5300 wiz_send_data() implementation. With fifo_swap == 1, the
+ *   hardware bus performs that byte swap, so the CPU value is unchanged.
  *
  * DSP-native char packing:
  *   Each DSP char (Uint16, lower 8 bits meaningful) maps to one wire byte.
