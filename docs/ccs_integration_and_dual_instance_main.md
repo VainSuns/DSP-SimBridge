@@ -5,8 +5,8 @@
 W5300/UDP、SCI/串口以及三者的混合；实际生成文件由工程中存在的 IoDevice
 类型决定。
 
-本文只描述代码集成和用户责任。CCS 编译、下载、目标板运行和双实例实机
-收发不在本次文档更新中执行。
+本文只描述代码集成和用户责任；CCS 编译、下载、目标板运行和双实例实机收发
+由用户工程负责。
 
 ## 1. 生成输出与编译边界
 
@@ -283,25 +283,3 @@ heartbeat、keepalive、peer takeover 或 IP fragmentation based larger-frame
 - PlatformInit 在 Init/Run 之前且只调用一次；
 - PlatformInit 失败路径不会进入 Run；
 - 下载前保存并记录 CCS 工程使用的生成目录。
-
-## 10. 当前验证状态
-
-| 项目 | 状态 |
-| --- | --- |
-| 源文件/头文件清单与当前生成器 | 已按当前实现核对 |
-| W5300/TCP、W5300/UDP、SCI 条件生成和静态绑定 | 已按当前实现核对 |
-| Project V4、SCI descriptor 和 PlatformInit 顺序 | 已按当前实现核对 |
-| UDP-S6-01 TI generated-source result | 11/11 compile-only PASS |
-| UDP MEX result | `axis_udp_sfun.mexw64` = PASS |
-| DSP/CCS target build | NOT_EXECUTED / 待用户编译 |
-| CCS 编译 | 未执行 |
-| DSP 下载/运行 | 未执行 |
-| SCI 实际收发和双实例目标板 | 未执行 |
-| W5300 UDP hardware PIL | USER_VALIDATION_PENDING |
-| 用户最终 CCS 工程验证 | 待用户验证 |
-
-上述 TI 结果只表示 11 个代表性 generated UDP C source 的 compile-only
-能力证据，不表示完整 CCS project build、link、download 或 board execution
-UDP-S6-03 final FR audit = PASS；FR-001..FR-080 = PASS，FR-081 =
-USER_VALIDATION_PENDING，FR-082 = PASS。W5300 UDP hardware PIL 仍为
-USER_VALIDATION_PENDING；UDP-G6 = NOT_EVALUATED。

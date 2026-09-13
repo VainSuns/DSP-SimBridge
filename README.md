@@ -7,15 +7,12 @@ DSP-SimBridge 是面向 TI TMS320F28377D PTP 目标的 Simulink S-Function
 本文档描述当前可交付的使用边界。与旧工程格式有关的内容仅放在迁移章节，
 不应作为新工程的配置方法。
 
-## 当前状态
+## 产品范围
 
-DSP-SimBridge 当前已完成 Project V4、多实例、W5300/TCP、W5300/UDP、SCI
-IoDevice、Windows SCI S-Function，以及 UDP 的软件、生成和代表性编译闭环。
-历史 SCI IoDevice v1.0 development cycle = COMPLETE；其历史 requirements、
-plan 和 traceability 继续保存在 archive。当前 UDP 验证范围、最终 FR audit
-结论与未覆盖边界见[当前验证状态](#当前验证状态)。UDP-S6-03 FINAL FR AUDIT
-= PASS；FR-081 的 W5300 UDP hardware PIL 仍为 USER_VALIDATION_PENDING，
-UDP-G6 = NOT_EVALUATED。
+DSP-SimBridge 当前产品格式为 Project V4，支持在同一个工程中配置多个实例，
+并按实例选择 W5300/TCP、W5300/UDP 或 SCI/串口。Windows SCI S-Function
+支持桌面 MEX 和 Simulink Normal mode；W5300/UDP 使用一个 V1 frame 对应一个
+datagram。
 
 ## 当前版本与能力
 
@@ -325,43 +322,6 @@ SCI 不会自动重连、重试或重发，不使用固定 sleep，也不使用 
 <code>"A"</code> 握手。DSP 侧关闭 autobaud；PC 与 DSP 必须使用生成的同一请求波特率
 配置和匹配的硬件连接。
 
-## 当前验证状态
-
-当前验证结论聚焦代表性场景，不代表所有 SCI 模块、Baud、GPIO 或长期运行
-组合均已验证。
-
-| 范围 | 状态 |
-| --- | --- |
-| Project V4、多实例、W5300/TCP、W5300/UDP、SCI IoDevice、Windows SCI S-Function | COMPLETE（开发侧） |
-| UDP-S6-01 software/build evidence | 297 passed / 0 failed / 3 incomplete |
-| UDP Project/App | 225 passed / 0 failed / 3 incomplete |
-| DSP host/mock UDP | 9 passed / 0 failed / 0 incomplete |
-| Relevant TCP regression | 26 passed / 0 failed / 0 incomplete |
-| PC real localhost UDP | 30 passed / 0 failed / 0 incomplete |
-| Mixed deterministic generation | 7 passed / 0 failed / 0 incomplete |
-| Frozen-required coverage gap | NONE |
-| Representative generated UDP MEX (`axis_udp_sfun.mexw64`) | PASS |
-| Representative generated TI UDP DSP sources | 11/11 compile-only PASS |
-| Historical SCI-cycle representative hardware evidence | PASS（历史 SCI evidence；不是 UDP hardware 结果） |
-| Historical SCI-cycle representative W5300/TCP evidence | PASS（历史 SCI evidence；不是 UDP hardware 结果） |
-| W5300 UDP hardware PIL | USER_VALIDATION_PENDING |
-| Real COM hardware | NOT_EXECUTED / historical SCI scope |
-| Real Simulink communication | NOT_EXECUTED |
-| Multi-SCI hardware | NOT_EXECUTED / NOT_REQUIRED |
-| Half-duplex hardware | NOT_EXECUTED |
-| Full Baud/GPIO matrix | NOT_EXECUTED / NOT_REQUIRED |
-| Long-duration stability matrix | NOT_EXECUTED / NOT_REQUIRED |
-| Final LSPCLK hardware confirmation | USER_VALIDATION_PENDING（历史 SCI scope） |
-| 用户最终 CCS / Simulink / MEX 联调 | USER_VALIDATION_PENDING |
-
-上述历史 PASS 仅覆盖列出的 SCI 周期代表性单实例和 1 SCI + 1 W5300/TCP
-场景；不能推断
-SCI-A/B/C/D 全部通过、五个 Requested Baud、全部 RX/TX GPIO、CTRL/half-duplex、
-multi-SCI、完整 mixed 组合、长期稳定性或最终 LSPCLK 寄存器确认已通过。UDP 软件
-证据中的 3 个 incomplete 是 Windows platform assumption filtering of Unix permission tests，不是失败；
-不得改写为 300/300 passed。TI 结果是 compile-only，不是完整 CCS project build、
-link、download 或 board execution PASS。UDP hardware PIL 仍待用户验证。
-
 ## 已知边界
 
 - SCI PC 侧为 Windows-only；串口使用独占打开，COM 号由 S-Function 参数提供。
@@ -381,20 +341,7 @@ link、download 或 board execution PASS。UDP hardware PIL 仍待用户验证�
 - [Current UDP implementation plan](plan.md)
 - [Historical SCI requirements](requirements/archive/requirements_sci_iodevice_v1.0_frozen.md)
 - [Historical SCI implementation plan](docs/archive/plan_sci_iodevice_v1.0_completed.md)
-- [Historical SCI traceability](docs/archive/requirements_traceability_sci_iodevice_v1.0_completed.md)
-- [Current UDP requirements traceability](docs/requirements_traceability.md)
 - [App 项目与迁移指南](docs/app_project_and_migration_guide.md)
 - [CCS 集成与双实例 main](docs/ccs_integration_and_dual_instance_main.md)
 - [Simulink/MEX 使用指南](docs/simulink_mex_user_guide.md)
 - [V1 protocol vectors](Protocol_Test_Vectors.md)
-
-历史材料保留在 archive 目录中，仅用于历史追溯。当前 UDP traceability 是
-development evidence map，并记录已接受的 final audit 结论：
-
-~~~text
-UDP-S6-03 FINAL FR AUDIT = PASS
-FR-001..FR-080 = PASS
-FR-081 = USER_VALIDATION_PENDING
-FR-082 = PASS
-UDP-G6 = NOT_EVALUATED
-~~~

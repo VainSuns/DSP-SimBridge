@@ -8,7 +8,6 @@ SCI 串口生命周期、W5300/TCP 生命周期和 W5300/UDP 生命周期。传�
 
 - [App 项目与迁移指南](app_project_and_migration_guide.md)
 - [CCS 集成与双实例 main](ccs_integration_and_dual_instance_main.md)
-- [Current UDP requirements traceability](requirements_traceability.md)
 
 ## 1. 使用边界
 
@@ -364,33 +363,3 @@ Update Diagram 只做静态的 block parameter、port、sample-time 等配置检
 3. 按实例重新构建受影响的 MEX；
 4. 确认模型端口与 Interface Hash 一致；
 5. 在 Normal mode 下重新运行。
-
-## 14. 当前验证状态
-
-| 项目 | 状态 |
-| --- | --- |
-| 文件数量、pc_serial/pc_socket/pc_udp 条件清单 | 已按当前生成器核对 |
-| W5300/UDP startup/step/terminate 与 peer boundary | 已按当前实现核对 |
-| UDP one-frame-one-datagram、1472/1468 framing | 已按当前实现核对 |
-| SCI COM 参数校验和 Normal mode 边界 | 已按当前实现核对 |
-| SCI mdlStart/mdlOutputs/mdlTerminate 流程 | 已按当前实现核对 |
-| LSPCLK、baud、BRR 和 Interface Hash 说明 | 已按当前实现核对 |
-| DSP/CCS target build | NOT_EXECUTED |
-| SCI-S5-03/R1 MEX/MATLAB product tests | NOT_EXECUTED / NOT_REQUIRED |
-| Representative SCI MEX from SCI-S5-02 (MinGW64 8.1.0) | REUSED PASS |
-| Focused MATLAB/software tests from SCI-S5-02 / earlier closed stages | REUSED EVIDENCE |
-| UDP-S6-01 software/build evidence | 297 passed / 0 failed / 3 incomplete |
-| Representative generated UDP MEX (`axis_udp_sfun.mexw64`) | PASS |
-| Representative generated TI UDP DSP sources | 11/11 compile-only PASS |
-| Real COM hardware | NOT_EXECUTED |
-| Real Simulink communication | NOT_EXECUTED |
-| SCI hardware | USER_VALIDATION_PENDING |
-| W5300 UDP hardware PIL | USER_VALIDATION_PENDING |
-| Half-duplex hardware | NOT_EXECUTED |
-| Mixed W5300/SCI hardware | NOT_EXECUTED |
-| Final LSPCLK hardware confirmation | USER_VALIDATION_PENDING |
-| Simulink 最终模型运行 | 未执行 |
-| 目标板 SCI/W5300 通信和双实例 | 未执行 |
-| 用户最终模型验证 | 待用户验证 |
-| UDP-S6-03 final FR audit | PASS；FR-001～FR-080 = PASS，FR-081 = USER_VALIDATION_PENDING，FR-082 = PASS |
-| UDP-G6 | NOT_EVALUATED |

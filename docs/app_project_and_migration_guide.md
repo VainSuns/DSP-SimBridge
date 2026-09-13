@@ -441,7 +441,3 @@ socket、TCP port、sample time、最大 payload、I/O 和 algorithm。旧 ABI �
 - SCI DSP 侧是轮询实现，没有中断或 DMA。
 - 当前没有自动重连、重试、重发、固定 sleep 或 autobaud。
 - 目标板 TI device support、链接脚本、外部算法和物理收发器由用户工程负责。
-- 本指南描述当前 UDP 周期的 Project/App 文档合同；历史 SCI 需求、计划和
-  traceability 仍位于 archive，UDP 软件证据和 FR map 见
-  [当前 UDP requirements traceability](requirements_traceability.md)。本指南
-  不提前声明 UDP-S6-03 final audit 或 UDP-G6。
